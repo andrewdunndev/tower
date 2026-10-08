@@ -1,0 +1,12 @@
+{
+  "title": "Status",
+  "down_after": 3,
+  "up_after": 2,
+  "history_days": 90,
+  "timeout_ms": 10000,
+  "services": [
+    { "id": "web", "name": "Website", "url": "https://www.example.com/health" },
+    { "id": "api", "name": "API", "url": "https://api.example.com/v1/ping", "json": true },
+    { "id": "login", "name": "Sign-in", "url": "https://login.example.com/.well-known/openid-configuration", "issuer": "https://login.example.com/" }
+  ]
+}

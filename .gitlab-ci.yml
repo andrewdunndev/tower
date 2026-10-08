@@ -1,0 +1,27 @@
+default:
+  interruptible: true
+
+workflow:
+  auto_cancel:
+    on_new_commit: interruptible
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages:
+  - lint
+  - test
+
+include:
+  - component: gitlab.com/dunn.dev/pipeline/reference-check@4
+    inputs:
+      reference_ref: main
+      fail_on_violation: true
+
+test:
+  stage: test
+  image: quay.io/fedora/fedora:44
+  script:
+    - dnf -y -q install nodejs npm
+    - npm ci --ignore-scripts
+    - npm test
