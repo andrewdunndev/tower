@@ -53,3 +53,50 @@ export function sparkSummary(c: CheckStatus): string {
     (missing ? `, ${missing * 5} minutes without data.` : '.')
   );
 }
+
+export interface Incident {
+  kind: 'auto' | 'note';
+  title: string;
+  checks: string[];
+  severity: 'down' | 'degraded' | 'info';
+  started: string;
+  resolved: string | null;
+  bodyHtml: string | null;
+}
+
+export interface NoteModule {
+  frontmatter: { title: string; kind: 'maintenance' | 'incident'; start: string; end?: string; checks: string[] };
+  compiledContent(): Promise<string>;
+}
+
+export async function readNotes(modules: NoteModule[]) {
+  return Promise.all(
+    modules.map(async (m) => ({ ...m.frontmatter, bodyHtml: (await m.compiledContent()).trim() || null })),
+  );
+}
+export type Note = Awaited<ReturnType<typeof readNotes>>[number];
+
+export function mergeIncidents(auto: StatusResponse['incidents'], notes: Note[], now: string): Incident[] {
+  const cutoff = Date.parse(now) - 90 * 86_400_000;
+  const fromNotes: Incident[] = notes
+    .filter((n) => n.kind === 'incident' && Date.parse(n.start) >= cutoff)
+    .map((n) => ({
+      kind: 'note',
+      title: n.title,
+      checks: n.checks,
+      severity: 'down',
+      started: new Date(n.start).toISOString(),
+      resolved: n.end ? new Date(n.end).toISOString() : null,
+      bodyHtml: n.bodyHtml,
+    }));
+  return [...auto, ...fromNotes].sort((a, b) => b.started.localeCompare(a.started));
+}
+
+export function maintenanceWithBodies(windows: StatusResponse['maintenance'], notes: Note[]): Maintenance[] {
+  return windows.map((w) => ({
+    ...w,
+    bodyHtml:
+      notes.find((n) => n.kind === 'maintenance' && n.title === w.title && Date.parse(n.start) === Date.parse(w.starts))
+        ?.bodyHtml ?? null,
+  }));
+}

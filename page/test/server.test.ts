@@ -14,7 +14,8 @@ const request = (method: string, path: string, headers: Record<string, string> =
 describe("/api/status", () => {
 	it("carries no urls, hosts, ids or probe errors of the example instance", async () => {
 		await reset();
-		const config = instanceSchema.parse(example);
+		const window = { title: "Database upgrade", start: new Date(T0).toISOString(), end: new Date(T0 + 3600_000).toISOString(), checks: ["api"] };
+		const config = instanceSchema.parse({ ...example, maintenance: [window] });
 		const leaky = (async (input: RequestInfo | URL) => {
 			throw new Error(`connect ECONNREFUSED ${String(input)}`);
 		}) as typeof fetch;
@@ -28,6 +29,9 @@ describe("/api/status", () => {
 		const body = await res.text();
 		expect(res.status).toBe(200);
 		expect(JSON.parse(body).incidents).toHaveLength(3);
+		expect(JSON.parse(body).maintenance).toEqual([
+			{ title: "Database upgrade", checks: ["API"], starts: window.start, ends: window.end },
+		]);
 		const forbidden = config.checks.flatMap((c) => {
 			const fields = ["url", "host", "query", "zone", "token_sha256"] as const;
 			const values = fields.flatMap((f) => (f in c ? [String((c as Record<string, unknown>)[f])] : []));
