@@ -48,22 +48,12 @@ describe("tcp", () => {
 		expect(await all("SELECT avail, reason FROM state")).toEqual([{ avail: 0, reason: "timeout" }]);
 	});
 
-	it("treats a platform-blocked address as a config error and never alerts", async () => {
-		const { runEnv, box } = mailbox();
-		const config = makeConfig([tcp]);
-		await tick(runEnv, config, T0, noFetch, blocked);
-		expect(await all("SELECT avail, config_error, last_ok FROM state")).toEqual([
-			{ avail: 1, config_error: 1, last_ok: null },
+	it("reads a platform-blocked address as down with its reason", async () => {
+		const { runEnv } = mailbox();
+		await tick(runEnv, makeConfig([tcp]), T0, noFetch, blocked);
+		expect(await all("SELECT avail, config_error, reason FROM state")).toEqual([
+			{ avail: 0, config_error: 0, reason: "connect failed: Connections to port 25 are prohibited" },
 		]);
-		expect(await all("SELECT * FROM samples")).toEqual([]);
-		expect(await all("SELECT * FROM outbox")).toEqual([]);
-		expect(box.sends).toBe(0);
-		const s = await status(runEnv.DB, config, T0);
-		expect(s.checks[0].status).toBe("unknown");
-		expect(s.stuck).toBe(1);
-
-		await tick(runEnv, config, T0 + MINUTE, noFetch, reachable);
-		expect(await all("SELECT config_error FROM state")).toEqual([{ config_error: 0 }]);
 	});
 });
 

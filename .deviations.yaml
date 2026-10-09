@@ -4,3 +4,14 @@
     Covered by the group-level setting, which outranks this project flag;
     the project copy reads false and flipping it would be redundant state.
   owner: andrew@dunn.dev
+- standard: design-system
+  assertion: grep:global.css
+  reason: |
+    The page ships its own operator-approved stylesheet and is deployed to
+    arbitrary instances, so it carries no estate token import.
+  owner: andrew@dunn.dev
+- standard: design-system
+  assertion: grep:package.json
+  reason: |
+    Same as above: the page has no dependency on the estate design system.
+  owner: andrew@dunn.dev

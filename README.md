@@ -1,34 +1,58 @@
 ![hero](hero.svg)
 
-# tower
+# dunn.dev/tower
 
 [![pipeline](https://gitlab.com/dunn.dev/tower/badges/main/pipeline.svg)](https://gitlab.com/dunn.dev/tower/-/pipelines)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)](https://gitlab.com/dunn.dev)
 
-tower is a status page that runs as a Cloudflare Worker. A cron checks each service from outside every minute, keeps `history_days` of history (90 by default) in D1, mails you once on every change and serves a server-rendered page and `/api/status`. It needs no server, only a Cloudflare account.
+tower is a status page that runs on Cloudflare Workers. A prober Worker checks each service from outside on a cron, keeps the history in D1 and mails one alert per change. A page Worker renders the status page and `/api/status` through Workers RPC. It needs no server, only a Cloudflare account.
 
-Shared as-is: no roadmap, no support promise. Report security problems as [SECURITY.md](SECURITY.md) describes.
+Shared as-is: no roadmap, no support promise. Design after [herdr.dev](https://herdr.dev).
+
+## Cloudflare, product by job
+
+| Product | Job |
+|---|---|
+| Cron Triggers | run every check each minute |
+| D1 | check history, state, alert outbox and heartbeats |
+| Workers RPC | the page reads status from the prober; no shared storage |
+| Sockets | tcp checks |
+| 1.1.1.1 DoH | dns checks |
+| Certificate packs API | tls checks |
+| Email | alert mail through the `send_email` binding |
+| Rate Limiting | caps heartbeat requests to the page |
+| Static assets | the page's CSS and favicon |
 
 ## Security model
 
-The checker sees your health URLs; visitors must not.
+The prober sees your targets; visitors never do.
 
-- The page and `/api/status` carry service display names, status, uptime and the time of each change. They never carry a URL, hostname, address, port or failure reason.
-- Failure reasons (`HTTP 522`, `timeout`, a wrong issuer) go only to the alert mail and the Worker log, and an alert whose send fails is retried on the next run.
-- Alert mail is sent only to the verified destination of the `send_email` binding. Without the binding, changes are logged as not mailed.
-- `services.json` is gitignored. Keep health URLs you would not publish out of any repository you push, including your `wrangler.toml` edits.
-- A service with no check in five minutes shows as not checked, so a stopped cron cannot leave a stale green page.
+- The page and `/api/status` carry check names, status, uptime and times. They never carry a URL, hostname, address, port or failure reason.
+- The page holds no secrets and no storage. The prober is the only owner of D1.
+- Failure reasons go only to the alert mail and the Worker log.
+- Heartbeat tokens are stored as sha256 hashes; the plaintext never enters your config.
+- Alert mail goes only to a verified destination.
+- A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.
 
-## Services
+Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
 
-`services.json` holds the thresholds and every service: `id`, display `name`, `url`, and an optional `issuer` or `json`. Start from [`services.example.json`](services.example.json).
+## Instance
 
-A check passes on a 200 that Cloudflare did not serve from cache (`cf-cache-status` HIT, STALE or UPDATING fails). With `json` the body must parse; with `issuer` it must carry exactly that issuer. A service goes down after `down_after` failed checks in a row and comes back after `up_after` passes. `id` keys the history, so renaming one starts its history fresh.
+An instance is a directory holding `tower.json`, optional `notes/*.md` for maintenance windows and incident write-ups, and an optional `theme.css`. [`example/`](example) is a complete one; each field's validation message states its rule. Keep your instance outside this repository.
 
-## Setup
+```sh
+npm ci
+npm run deploy -- ./my-instance
+```
 
-[docs/setup.md](docs/setup.md) covers Cloudflare prerequisites, deploy, alerts and adding a service. `npm test` runs the suite.
+[docs/setup.md](docs/setup.md) covers the account prerequisites, the API token, alerts, heartbeats, backup and external monitoring.
+
+## Limits
+
+- A tcp check against a Cloudflare-proxied address, or one Cloudflare blocks, reads as down with its reason.
+- A tls check covers the edge certificates Cloudflare serves. An origin certificate failure shows as http 526.
+- Alert mail reaches only verified destinations.
 
 ## Contributing
 

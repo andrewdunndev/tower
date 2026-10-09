@@ -53,7 +53,7 @@ export interface Incident {
   kind: 'auto' | 'note';
   title: string;
   checks: string[];
-  severity: 'down';
+  severity: 'down' | 'info';
   started: string;
   resolved: string | null;
   bodyHtml: string | null;
@@ -74,7 +74,7 @@ export function mergeIncidents(auto: StatusResponse['incidents'], notes: Note[],
       kind: 'note',
       title: n.title,
       checks: n.checks,
-      severity: 'down',
+      severity: 'info',
       started: new Date(n.start).toISOString(),
       resolved: n.end ? new Date(n.end).toISOString() : null,
       bodyHtml: n.bodyHtml,

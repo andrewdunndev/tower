@@ -27,7 +27,7 @@ describe("notes on the page", () => {
 			["note", "Newer"],
 			["auto", "API is not responding"],
 		]);
-		expect(merged[0]).toMatchObject({ resolved: "2026-10-07T11:00:00.000Z", bodyHtml: "<p>body</p>" });
+		expect(merged[0]).toMatchObject({ severity: "info", resolved: "2026-10-07T11:00:00.000Z", bodyHtml: "<p>body</p>" });
 	});
 
 	it("leaves maintenance notes and incidents older than 90 days out of the timeline", () => {
