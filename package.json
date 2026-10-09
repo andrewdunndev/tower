@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "node tools/stage.ts example && (npm run dev -w prober & npm run dev -w page; wait)",
 		"check": "node tools/stage.ts example && npm run lint && npm run typecheck && npm test",
-		"test": "vitest run",
+		"test": "node tools/stage.ts example && npm run build -w page && vitest run",
 		"lint": "biome check",
 		"typecheck": "npm run typecheck -w prober && npm run typecheck -w page && tsc -p tools",
 		"deploy": "node tools/deploy.ts"

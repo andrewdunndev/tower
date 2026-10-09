@@ -2,7 +2,8 @@ import { connect } from "cloudflare:sockets";
 import { describe, expect, inject, it } from "vitest";
 import { probeTcp } from "../src/tcp.ts";
 
-const check = (host: string, port: number) => ({ id: "t", type: "tcp" as const, name: "T", host, port });
+const check = (host: string, port: number) =>
+	({ id: "t", type: "tcp", name: "T", host, port }) as Parameters<typeof probeTcp>[0];
 const dial = (host: string, port: number, timeoutMs = 1000) =>
 	probeTcp(check(host, port), { connect, timeoutMs } as Parameters<typeof probeTcp>[1]);
 
