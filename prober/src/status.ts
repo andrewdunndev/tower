@@ -137,3 +137,5 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		stuck: all.filter(({ level }) => level === "unknown").length,
 	};
 }
+
+export type StatusResponse = Awaited<ReturnType<typeof status>>;

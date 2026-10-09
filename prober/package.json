@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "wrangler dev --test-scheduled",
+		"dev": "wrangler d1 migrations apply DB --local && wrangler dev --test-scheduled",
 		"typecheck": "wrangler types && tsc"
 	}
 }
