@@ -19,6 +19,10 @@ describe("tunnel classifier", () => {
 		expect(hint(reason)).toBe("");
 	});
 
+	it("ignores a 1033 body on other statuses", async () => {
+		expect(await probe({}, respond(503, "Error 1033") as typeof fetch)).toBe("HTTP 503");
+	});
+
 	it("reads 502 as the origin behind the tunnel", async () => {
 		const reason = await probe({}, respond(502) as typeof fetch);
 		expect(hint(reason)).toBe("the origin behind the tunnel is down");
