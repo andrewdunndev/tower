@@ -1,0 +1,26 @@
+:root {
+  color-scheme: light dark;
+
+  --bg: light-dark(#efece5, #17171a);
+  --panel: light-dark(#f5f3ee, #1e1e22);
+  --mass: light-dark(#e2ded4, #26262b);
+  --ink: light-dark(#15140f, #eae8ee);
+  --dim: light-dark(#4a483f, #cdccd2);
+  --faint: light-dark(#696553, #a3a2a9);
+  --line: light-dark(#e2ded4, #2a2a30);
+  --line2: light-dark(#c9c3b3, #3a3a42);
+  --spot: light-dark(#8839ef, #cba6f7);
+
+  --up: light-dark(#2f8a4c, #5fae74);
+  --degraded: light-dark(#a06d00, #d3a027);
+  --down: light-dark(#c42f45, #f38ba8);
+  --maintenance: var(--spot);
+  --unknown: light-dark(#8a8676, #75747c);
+  --spark: light-dark(#8f8a76, #7d7c84);
+  --day-ok: light-dark(#bfcdb9, #33443a);
+  --day-none: light-dark(#a8a293, #5a5a63);
+
+  --disp: 'Archivo Variable', system-ui, sans-serif;
+  --body: 'Inter Variable', system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+}
