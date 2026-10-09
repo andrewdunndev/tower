@@ -42,7 +42,10 @@ async function get<T>(path: string, d: Deps): Promise<T> {
 		throw new Stop("inconclusive", `api unreachable: ${(e as Error).message}`);
 	}
 	if (res.status === 401 || res.status === 403) {
-		throw new Stop("config-error", `api HTTP ${res.status}: the token needs Zone Read and SSL Read on the zone`);
+		throw new Stop(
+			"config-error",
+			`api HTTP ${res.status}: the token needs Zone Read and SSL and Certificates Read on the zone`,
+		);
 	}
 	if (!res.ok) throw new Stop("inconclusive", `api HTTP ${res.status}`);
 	try {

@@ -190,7 +190,7 @@ function sparkPaths(c: CheckStatus): string[] {
               {incidents.map((i) => (
                 <li data-open={i.resolved ? undefined : ''} data-done={i.resolved ? '' : undefined}>
                   <time datetime={i.started}>{fmtDateTime(i.started)}</time>
-                  <span class="state"><i class="g" data-s={sevWord[i.severity]} aria-hidden="true"></i>{sevWord[i.severity]}</span>
+                  <span class="state"><i class="g" data-s={sevWord[i.severity]} aria-hidden="true"></i>{i.severity === 'info' ? 'note' : sevWord[i.severity]}</span>
                   <div class="what">
                     <h3>{i.title}</h3>
                     {i.bodyHtml && <div class="body" set:html={i.bodyHtml} />}
