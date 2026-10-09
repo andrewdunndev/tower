@@ -1,21 +1,31 @@
 {
-  "name": "tower",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "vitest run",
-    "dev:page": "npm run dev -w page"
-  },
-  "devDependencies": {
-    "miniflare": "5.20261006.0-alpha",
-    "vitest": "5.0.3",
-    "wrangler": "4.148.0"
-  },
-  "engines": {
-    "node": ">=22.15"
-  },
-  "workspaces": [
-    "page"
-  ]
+	"name": "tower",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "node tools/stage.ts example && npm run dev -w prober & npm run dev -w page",
+		"check": "node tools/stage.ts example && npm run lint && npm run typecheck && npm test",
+		"test": "vitest run",
+		"lint": "biome check",
+		"typecheck": "npm run typecheck -w prober && npm run typecheck -w page && tsc -p tools",
+		"stage": "node tools/stage.ts",
+		"deploy": "node tools/deploy.ts"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@cloudflare/vitest-plugin": "1.4.0",
+		"@types/node": "24.19.1",
+		"typescript": "6.0.3",
+		"vitest": "5.0.3",
+		"wrangler": "4.149.0",
+		"zod": "4.6.5"
+	},
+	"engines": {
+		"node": ">=24"
+	},
+	"workspaces": [
+		"prober",
+		"page"
+	]
 }

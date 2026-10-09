@@ -5,3 +5,5 @@ node_modules/
 .env
 .env.*
 /services.json
+.tower/
+worker-configuration.d.ts

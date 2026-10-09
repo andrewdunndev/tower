@@ -1,7 +1,8 @@
-import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
+import { defineConfig } from 'astro/config';
 
 export default defineConfig({
   output: 'server',
-  adapter: cloudflare(),
+  adapter: cloudflare({ imageService: 'compile' }),
+  session: false,
 });
