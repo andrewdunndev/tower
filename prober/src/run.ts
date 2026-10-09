@@ -209,6 +209,7 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
 		db.prepare(`DELETE FROM daily WHERE day < ?1`).bind(new Date(cutoff).toISOString().slice(0, 10)),
 		db.prepare(`DELETE FROM events WHERE at < ?1`).bind(cutoff),
+		db.prepare(`DELETE FROM outbox WHERE dead = 1 AND at < ?1`).bind(t - DAY_MS),
 		...OWNED_TABLES.map((table) =>
 			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
 		),

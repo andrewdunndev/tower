@@ -196,18 +196,21 @@ describe("outbox", () => {
 		const config = makeConfig();
 		await tick(runEnv, config, T0, respond(200));
 		await env.DB.prepare(
-			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', 1, 'down', 0, 'x')`,
+			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', ${T0}, 'down', 0, 'x')`,
 		).run();
 		for (let i = 1; i <= 9; i++) await tick(runEnv, config, T0 + i * MINUTE, respond(200));
 		expect(await all("SELECT attempts, dead FROM outbox")).toEqual([{ attempts: 9, dead: 0 }]);
 		const alive = await status(env.DB, config, T0 + 9 * MINUTE);
-		expect(alive).toMatchObject({ outbox_oldest_unsent_at: new Date(1).toISOString(), dead_outbox: 0 });
+		expect(alive).toMatchObject({ outbox_oldest_unsent_at: new Date(T0).toISOString(), dead_outbox: 0 });
 		await tick(runEnv, config, T0 + 10 * MINUTE, respond(200));
 		expect(await all("SELECT attempts, dead FROM outbox")).toEqual([{ attempts: 10, dead: 1 }]);
 		const dead = await status(env.DB, config, T0 + 10 * MINUTE);
 		expect(dead).toMatchObject({ outbox_oldest_unsent_at: null, dead_outbox: 1 });
 		await tick(runEnv, config, T0 + 11 * MINUTE, respond(200));
 		expect(box.sends).toBe(10);
+		expect(await status(env.DB, config, T0 + 11 * MINUTE)).toMatchObject({ dead_outbox: 1 });
+		await tick(runEnv, config, T0 + 24 * 60 * MINUTE + MINUTE, respond(200));
+		expect(await status(env.DB, config, T0 + 24 * 60 * MINUTE + MINUTE)).toMatchObject({ dead_outbox: 0 });
 	});
 });
 
