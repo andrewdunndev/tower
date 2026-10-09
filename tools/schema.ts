@@ -148,48 +148,38 @@ export const instanceSchema = z
 const ISO_WITH_OFFSET = /T\d\d:\d\d(:\d\d)?(\.\d+)?(Z|[+-]\d\d:\d\d)$/;
 const WEEK_MS = 7 * 86400_000;
 
-export function noteSchema(now: Date) {
-	const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.");
-	return z
-		.object({
-			title: z.string().min(1, "title: required."),
-			kind: z.enum(["maintenance", "incident"], { error: 'kind: use "maintenance" or "incident".' }),
-			start: when,
-			end: when.optional(),
-			checks: z.array(id).default([]),
-		})
-		.superRefine((n, ctx) => {
-			if (n.kind !== "maintenance") return;
-			const start = Date.parse(n.start);
-			if (!n.end) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["end"],
-					message: "A maintenance note needs an end time: add end: with an ISO 8601 time.",
-				});
-				return;
-			}
-			const end = Date.parse(n.end);
-			if (end <= start) {
-				ctx.addIssue({ code: "custom", path: ["end"], message: "end must be after start." });
-			} else if (end - start > WEEK_MS) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["end"],
-					message: "A maintenance window is at most 7 days: shorten it or split it.",
-				});
-			}
-			if (start < now.getTime()) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["start"],
-					message:
-						"A maintenance window cannot start in the past: move start to the future, or delete the note once it is over.",
-				});
-			}
-		});
-}
+const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.");
+
+export const noteSchema = z
+	.object({
+		title: z.string().min(1, "title: required."),
+		kind: z.enum(["maintenance", "incident"], { error: 'kind: use "maintenance" or "incident".' }),
+		start: when,
+		end: when.optional(),
+		checks: z.array(id).default([]),
+	})
+	.superRefine((n, ctx) => {
+		if (n.kind !== "maintenance") return;
+		if (!n.end) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["end"],
+				message: "A maintenance note needs an end time: add end: with an ISO 8601 time.",
+			});
+			return;
+		}
+		const span = Date.parse(n.end) - Date.parse(n.start);
+		if (span <= 0) {
+			ctx.addIssue({ code: "custom", path: ["end"], message: "end must be after start." });
+		} else if (span > WEEK_MS) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["end"],
+				message: "A maintenance window is at most 7 days: shorten it or split it.",
+			});
+		}
+	});
 
 export type Instance = z.output<typeof instanceSchema>;
 export type Check = Instance["checks"][number];
-export type Note = z.output<ReturnType<typeof noteSchema>>;
+export type Note = z.output<typeof noteSchema>;

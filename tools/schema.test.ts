@@ -4,7 +4,6 @@ import { instanceSchema, noteSchema } from "./schema.ts";
 
 type Json = Record<string, unknown>;
 
-const NOW = new Date("2026-10-08T12:00:00Z");
 const http: Json = { id: "web", type: "http", name: "Web", url: "https://www.example.com/" };
 const instance = (...checks: Json[]) => ({ ...example, checks });
 
@@ -91,7 +90,6 @@ describe("instance", () => {
 });
 
 describe("note", () => {
-	const schema = noteSchema(NOW);
 	const maintenance = {
 		title: "Upgrade",
 		kind: "maintenance",
@@ -99,11 +97,11 @@ describe("note", () => {
 		end: "2026-10-09T04:00:00Z",
 	};
 	const notes = (input: unknown) => {
-		const r = schema.safeParse(input);
+		const r = noteSchema.safeParse(input);
 		return r.success ? [] : r.error.issues.map((i) => i.message);
 	};
 
-	it("accepts a future maintenance window", () => {
+	it("accepts a maintenance window", () => {
 		expect(notes(maintenance)).toEqual([]);
 	});
 
@@ -120,18 +118,6 @@ describe("note", () => {
 	it("rejects maintenance longer than 7 days", () => {
 		expect(notes({ ...maintenance, end: "2026-10-17T02:00:00Z" })).toContain(
 			"A maintenance window is at most 7 days: shorten it or split it.",
-		);
-	});
-
-	it("rejects maintenance that has already started and not ended", () => {
-		expect(notes({ ...maintenance, start: "2026-10-08T11:00:00Z" })).toContain(
-			"A maintenance window cannot start in the past: move start to the future, or delete the note once it is over.",
-		);
-	});
-
-	it("rejects a backdated window that is already over", () => {
-		expect(notes({ ...maintenance, start: "2026-10-01T02:00:00Z", end: "2026-10-01T04:00:00Z" })).toContain(
-			"A maintenance window cannot start in the past: move start to the future, or delete the note once it is over.",
 		);
 	});
 

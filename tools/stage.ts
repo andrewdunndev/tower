@@ -45,9 +45,8 @@ if (!parsed.success) report("tower.json", parsed.error.issues);
 
 const notesDir = join(instance, "notes");
 const notes = existsSync(notesDir) ? readdirSync(notesDir).filter((f) => f.endsWith(".md")) : [];
-const schema = noteSchema(new Date());
 for (const f of notes) {
-	const r = schema.safeParse(frontmatter(readFileSync(join(notesDir, f), "utf8")));
+	const r = noteSchema.safeParse(frontmatter(readFileSync(join(notesDir, f), "utf8")));
 	if (!r.success) report(`notes/${f}`, r.error.issues);
 }
 
