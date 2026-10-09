@@ -85,7 +85,6 @@ export async function status(db: D1Database, config: Instance, now: number) {
 			const q = quantilesOf.get(check.id);
 			return {
 				name: check.name,
-				type: check.type,
 				status: level,
 				since: iso(state?.since ?? now),
 				uptime90: runs ? 1 - down / runs : null,

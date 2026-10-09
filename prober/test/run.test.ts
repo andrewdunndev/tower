@@ -57,7 +57,7 @@ describe("slot claims", () => {
 	});
 
 	it("writes no sample, event or outbox row from a superseded run", async () => {
-		const { runEnv } = mailbox();
+		const { runEnv, box } = mailbox();
 		const config = makeConfig([{ ...web, down_after: 1 }]);
 		let release = () => {};
 		let started = () => {};
@@ -76,6 +76,7 @@ describe("slot claims", () => {
 		await tick(runEnv, config, T0 + MINUTE, respond(200));
 		release();
 		await late;
+		expect(box.sends).toBe(0);
 		const rows = () =>
 			all<{ n: number }>(
 				"SELECT (SELECT COUNT(*) FROM samples) + (SELECT COUNT(*) FROM events) + (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM daily WHERE runs > 1) AS n",

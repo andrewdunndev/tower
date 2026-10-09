@@ -6,14 +6,14 @@ import '../styles/theme.css';
 import '../styles/page.css';
 import { env } from 'cloudflare:workers';
 import type { CheckStatus, Maintenance, Status } from '../lib';
-import { statusLabel, fmtDateTime, fmtPct, dayLabel, dayLevel, spark } from '../lib';
+import { statusLabel, fmtDateTime, fmtPct, dayLabel, dayLevel, sparkSummary } from '../lib';
 import { load } from '../server';
 
 const data = await load(env.TOWER);
 if (!data) Astro.response.status = 503;
 const checks = data?.checks ?? [];
 const incidents = data?.incidents ?? [];
-const now = data?.generatedAt ?? new Date().toISOString();
+const now = data?.generatedAt ?? '';
 const maintenance: Maintenance[] = [];
 const STALE_MS = 3 * 60_000;
 const lastRun = data?.last_run;
@@ -158,7 +158,7 @@ function sparkPaths(c: CheckStatus): string[] {
                     )}
                     <div class="spark">
                       {paths.length ? (
-                        <svg viewBox={`0 0 ${SW} ${SH}`} preserveAspectRatio="none" role="img" aria-label={spark(c).summary}>
+                        <svg viewBox={`0 0 ${SW} ${SH}`} preserveAspectRatio="none" role="img" aria-label={sparkSummary(c)}>
                           {paths.map((p) => <path d={p} />)}
                         </svg>
                       ) : (

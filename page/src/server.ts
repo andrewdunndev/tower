@@ -53,5 +53,5 @@ export async function beat(
   const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
   if (!(await env.BEAT_LIMIT.limit({ key: ip })).success) return new Response(null, { status: 429 });
   const token = /^Bearer (.+)$/.exec(request.headers.get('Authorization') ?? '')?.[1] ?? '';
-  return env.TOWER.beat(decodeURIComponent(match[1]), token, match[2] === undefined);
+  return env.TOWER.beat(match[1], token, match[2] === undefined);
 }

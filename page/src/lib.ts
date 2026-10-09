@@ -24,16 +24,7 @@ const dateTimeFmt = new Intl.DateTimeFormat('en-US', {
   month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC',
 });
 
-export const fmtDate = (iso: string) => dateFmt.format(new Date(iso));
 export const fmtDateTime = (iso: string) => `${dateTimeFmt.format(new Date(iso))} UTC`;
-
-export function fmtDuration(fromIso: string, toIso: string): string {
-  const mins = Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 60_000);
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  if (h < 48) return `${h} h ${mins % 60} min`;
-  return `${Math.floor(h / 24)} d`;
-}
 
 export function fmtPct(f: number | null): string {
   if (f === null) return 'n/a';
@@ -53,36 +44,12 @@ export function dayLevel(f: number | null): 'none' | 'ok' | 'minor' | 'major' {
   return 'major';
 }
 
-export interface Spark {
-  paths: string[];
-  min: number;
-  max: number;
-  summary: string;
-}
-
-export function spark(c: CheckStatus, w = 160, h = 36): Spark {
+export function sparkSummary(c: CheckStatus): string {
   const vals = c.latency.filter((v): v is number => v !== null);
-  if (!vals.length) return { paths: [], min: 0, max: 0, summary: 'No latency data in the last 24 hours.' };
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const span = Math.max(1, max - min);
-  const pad = 2;
-  const x = (i: number) => (i / (c.latency.length - 1)) * w;
-  const y = (v: number) => pad + (1 - (v - min) / span) * (h - pad * 2);
-  const paths: string[] = [];
-  let cur: string[] = [];
-  c.latency.forEach((v, i) => {
-    if (v === null) {
-      if (cur.length) paths.push(cur.join(' '));
-      cur = [];
-    } else {
-      cur.push(`${cur.length ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`);
-    }
-  });
-  if (cur.length) paths.push(cur.join(' '));
+  if (!vals.length) return 'No latency data in the last 24 hours.';
   const missing = c.latency.length - vals.length;
-  const summary =
-    `Latency over the last 24 hours: median ${c.p50} ms, 95th percentile ${c.p95} ms, range ${min} to ${max} ms` +
-    (missing ? `, ${missing * 5} minutes without data.` : '.');
-  return { paths, min, max, summary };
+  return (
+    `Latency over the last 24 hours: median ${c.p50} ms, 95th percentile ${c.p95} ms, range ${Math.min(...vals)} to ${Math.max(...vals)} ms` +
+    (missing ? `, ${missing * 5} minutes without data.` : '.')
+  );
 }
