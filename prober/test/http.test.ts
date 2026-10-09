@@ -10,20 +10,10 @@ const run = async (extra: object, doFetch: typeof fetch, timeoutMs = 1000) =>
 const probe = (extra: object, doFetch: typeof fetch) => run(extra, doFetch);
 
 describe("tunnel classifier", () => {
-	it("reads 530 with error 1033 as a dead tunnel connector", async () => {
+	it("reads 530 as Cloudflare failing to reach the origin, whatever the body", async () => {
 		const reason = await probe({}, respond(530, "<h1>Error 1033</h1>"));
-		expect(reason).toBe("HTTP 530 1033");
-		expect(hint(reason)).toBe("the tunnel connector is down");
-	});
-
-	it("leaves other 530 bodies unclassified", async () => {
-		const reason = await probe({}, respond(530, "Error 1016"));
 		expect(reason).toBe("HTTP 530");
-		expect(hint(reason)).toBe("");
-	});
-
-	it("ignores a 1033 body on other statuses", async () => {
-		expect(await probe({}, respond(503, "Error 1033"))).toBe("HTTP 503");
+		expect(hint(reason)).toBe("Cloudflare cannot reach the origin (tunnel connector down or origin DNS error)");
 	});
 
 	it("reads 502 as the origin behind the tunnel", async () => {
@@ -32,9 +22,9 @@ describe("tunnel classifier", () => {
 	});
 
 	it("puts the hint in the alert body", () => {
-		const [subject, text] = message(check(), { at: 0, kind: "down", since: 0, reason: "HTTP 530 1033" });
+		const [subject, text] = message(check(), { at: 0, kind: "down", since: 0, reason: "HTTP 530" });
 		expect(subject).toBe("DOWN: Web");
-		expect(text).toContain("the tunnel connector is down");
+		expect(text).toContain("tunnel connector down or origin DNS error");
 		expect(text).toContain(check().url);
 	});
 });

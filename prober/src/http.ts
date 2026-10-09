@@ -4,7 +4,6 @@ import type { Deps, Outcome } from "./probe.ts";
 export type HttpCheck = Extract<Check, { type: "http" }>;
 
 const CACHED = new Set(["HIT", "STALE", "UPDATING"]);
-const FAIL_BODY_BYTES = 4096;
 const BODY_BYTES = 65536;
 
 async function readText(res: Response, limit: number): Promise<string> {
@@ -30,8 +29,8 @@ function dig(value: unknown, path: string): unknown {
 
 async function judge(c: HttpCheck, res: Response): Promise<string | null> {
 	if (res.status !== c.expect_status) {
-		const body = await readText(res, FAIL_BODY_BYTES);
-		return res.status === 530 && /\b1033\b/.test(body) ? "HTTP 530 1033" : `HTTP ${res.status}`;
+		await res.body?.cancel();
+		return `HTTP ${res.status}`;
 	}
 	if (!c.allow_cache && CACHED.has(res.headers.get("cf-cache-status") ?? "")) {
 		await res.body?.cancel();
@@ -78,7 +77,7 @@ export function hint(reason: string | null): string {
 	if (reason === "timeout" || reason === "HTTP 522" || reason === "HTTP 523") return "the origin or its uplink is dark";
 	if (reason === "HTTP 521") return "the host is up but refused the connection";
 	if (reason === "HTTP 525" || reason === "HTTP 526") return "TLS between Cloudflare and the origin failed";
-	if (reason === "HTTP 530 1033") return "the tunnel connector is down";
+	if (reason === "HTTP 530") return "Cloudflare cannot reach the origin (tunnel connector down or origin DNS error)";
 	if (reason === "HTTP 502") return "the origin behind the tunnel is down";
 	return "";
 }
