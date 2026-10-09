@@ -9,15 +9,16 @@ import { instanceSchema } from "../../tools/schema.ts";
 
 const pages = env as unknown as { PAGE: Fetcher; STUB: Fetcher };
 const answer = (body: string) => pages.STUB.fetch("https://stub.test/", { method: "POST", body });
-const get = (path: string) => pages.PAGE.fetch(`https://status.example.com${path}`);
+// The page caches 200s per origin, so each test gets its own host.
+const get = (path: string, host: string) => pages.PAGE.fetch(`https://${host}.example.com${path}`);
 
 describe("the built page", () => {
 	it("answers 503 and says so when the prober is unavailable", async () => {
 		await answer("");
-		const res = await get("/");
+		const res = await get("/", "unavailable");
 		expect(res.status).toBe(503);
 		expect(await res.text()).toContain("status unavailable");
-		const api = await get("/api/status");
+		const api = await get("/api/status", "unavailable");
 		expect(api.status).toBe(503);
 		expect(await api.json()).toEqual({ error: "status unavailable" });
 	});
@@ -27,7 +28,7 @@ describe("the built page", () => {
 			await reset();
 			const config = { ...instanceSchema.parse(example), maintenance: [] };
 			await answer(JSON.stringify(await status(env.DB, config, Date.parse("2026-09-10T00:00:00Z"))));
-			const res = await get("/");
+			const res = await get("/", "note");
 			const body = await res.text();
 			expect(res.status).toBe(200);
 			expect(body).toContain("A bad release was rolled back.");
@@ -50,7 +51,7 @@ describe("the built page", () => {
 			for (let i = 0; i < 3; i++) await tick(mailbox().runEnv, config, T0 + i * 60_000, leaky, leakyConnect);
 			await answer(JSON.stringify(await status(env.DB, config, T0 + 180_000)));
 
-			const res = await get("/api/status");
+			const res = await get("/api/status", "api");
 			const body = await res.text();
 			expect(res.status).toBe(200);
 			expect(JSON.parse(body).incidents).toHaveLength(2);

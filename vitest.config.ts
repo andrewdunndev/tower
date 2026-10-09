@@ -7,6 +7,8 @@ const pageModules = readdirSync(built, { recursive: true, encoding: "utf8" })
 	.filter((f) => f.endsWith(".mjs"))
 	.map((path) => ({ type: "ESModule" as const, path, contents: readFileSync(`${built}/${path}`, "utf8") }));
 
+const compatibilityDate = JSON.parse(readFileSync(`${built}/wrangler.json`, "utf8")).compatibility_date;
+
 const migrations = await readD1Migrations("./prober/migrations");
 
 export default defineConfig({
@@ -20,10 +22,10 @@ export default defineConfig({
 					{
 						name: "page",
 						modules: pageModules,
-						compatibilityDate: "2026-10-01",
+						compatibilityDate,
 						serviceBindings: { TOWER: { name: "stub", entrypoint: "Tower" } },
 					},
-					{ name: "stub", modules: true, scriptPath: "page/test/tower-stub.mjs", compatibilityDate: "2026-10-01" },
+					{ name: "stub", modules: true, scriptPath: "page/test/tower-stub.mjs", compatibilityDate },
 				],
 			},
 		}),

@@ -11,10 +11,18 @@ describe("mime", () => {
 		expect(raw.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
 	});
 
-	it("keeps every line of a down message under 998 characters", () => {
-		const check = { id: "w", type: "http", name: "n".repeat(5000), url: `https://example.com/${"u".repeat(5000)}` };
-		const [subject, text] = message(check as never, { at: 0, kind: "down", since: 0, reason: "r".repeat(5000) });
-		const raw = mime("tower@example.com", "oncall@example.com", subject, text);
-		for (const l of raw.split("\r\n")) expect(l.length).toBeLessThanOrEqual(998);
+	it("keeps every line of a down message under 998 characters, whatever the check type", () => {
+		const long = "x".repeat(5000);
+		const checks = [
+			{ id: "w", type: "http", name: long, url: `https://example.com/${long}` },
+			{ id: "w", type: "tcp", name: long, host: long, port: 25 },
+			{ id: "w", type: "dns", name: long, query: long, record: "A" },
+			{ id: "w", type: "tls", name: long, host: long },
+		];
+		for (const check of checks) {
+			const [subject, text] = message(check as never, { at: 0, kind: "down", since: 0, reason: long });
+			const raw = mime("tower@example.com", "oncall@example.com", subject, text);
+			for (const l of raw.split("\r\n")) expect(l.length).toBeLessThanOrEqual(998);
+		}
 	});
 });
