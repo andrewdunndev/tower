@@ -16,6 +16,6 @@ export async function probeTcp(c: Extract<Check, { type: "tcp" }>, d: Deps): Pro
 		return { verdict: "down", reason: message === "timeout" ? "timeout" : `connect failed: ${message}` };
 	} finally {
 		clearTimeout(timer);
-		await socket?.close().catch(() => {});
+		socket?.close().catch(() => {});
 	}
 }
