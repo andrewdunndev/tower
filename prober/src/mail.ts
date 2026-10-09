@@ -26,7 +26,7 @@ export function message(check: HttpCheck, p: Pending): [subject: string, text: s
 	];
 }
 
-export function mime(from: string, to: string, subject: string, text: string): string {
+function mime(from: string, to: string, subject: string, text: string): string {
 	const domain = line(from).split("@").pop();
 	return [
 		`From: ${line(from)}`,

@@ -31,8 +31,14 @@ describe("status", () => {
 		await tick(runEnv, config, T0, respond(200));
 		await tick(runEnv, config, T0 + MINUTE, respond(500));
 		await tick(runEnv, config, T0 + 2 * MINUTE, respond(200));
+		await env.DB.batch(
+			[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].map((ms) =>
+				env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, ?2, 1)`).bind(T0 + ms, ms),
+			),
+		);
 		const s = await status(env.DB, config, T0 + 2 * MINUTE);
 		expect(s.checks[0]).toMatchObject({ status: "up" });
+		expect(s.checks[0].p95).toBeGreaterThan(s.checks[0].p50 as number);
 		expect(s.checks[0].uptime90).toBeCloseTo(2 / 3);
 		expect(s.checks[0].days.at(-1)).toBeCloseTo(2 / 3);
 		expect(s.checks[0].p50).not.toBeNull();
@@ -66,15 +72,17 @@ describe("status", () => {
 			return new Response("", { status: 200 });
 		}) as typeof fetch;
 		for (let i = 0; i < 3; i++) await tick(runEnv, config, T0 + i * MINUTE, slow);
-		expect((await status(env.DB, config, T0 + 2 * MINUTE)).checks[0].status).toBe("degraded");
-		for (let i = 3; i < 9; i++) await tick(runEnv, config, T0 + i * MINUTE, respond(200));
-		expect((await status(env.DB, config, T0 + 8 * MINUTE)).checks[0].status).toBe("up");
+		await tick(runEnv, config, T0 + 3 * MINUTE, respond(200));
+		expect((await status(env.DB, config, T0 + 3 * MINUTE)).checks[0].status).toBe("degraded");
+		for (let i = 4; i < 6; i++) await tick(runEnv, config, T0 + i * MINUTE, respond(200));
+		expect((await status(env.DB, config, T0 + 5 * MINUTE)).checks[0].status).toBe("up");
 	});
 
-	it("omits public:false checks from checks and incidents but still counts them", async () => {
+	it("omits public:false checks from checks and incidents but counts them in stuck", async () => {
 		const { runEnv } = mailbox();
 		const hidden = { ...web, id: "hid-1", name: "Hidden", public: false, down_after: 1 };
 		const config = makeConfig([web, hidden]);
+		expect((await status(env.DB, config, T0)).stuck).toBe(2);
 		await tick(runEnv, config, T0, respond(500));
 		const s = await status(env.DB, config, T0);
 		expect(s.checks.map((c) => c.name)).toEqual(["Web"]);

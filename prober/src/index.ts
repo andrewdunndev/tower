@@ -7,8 +7,13 @@ import { status } from "./status.ts";
 const instance = config as Instance;
 
 export class Tower extends WorkerEntrypoint<Env> {
-	status() {
-		return status(this.env.DB, instance, Date.now());
+	async status() {
+		try {
+			return await status(this.env.DB, instance, Date.now());
+		} catch (e) {
+			console.error("tower: status failed:", e);
+			throw new Error("status unavailable");
+		}
 	}
 
 	async beat(_id: string, _token: string, _ok: boolean) {

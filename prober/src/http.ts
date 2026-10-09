@@ -32,7 +32,7 @@ async function judge(c: HttpCheck, res: Response): Promise<string | null> {
 		const body = await readText(res, FAIL_BODY_BYTES);
 		return res.status === 530 && /\b1033\b/.test(body) ? "HTTP 530 1033" : `HTTP ${res.status}`;
 	}
-	if (!c.allow_cache && CACHED.has((res.headers.get("cf-cache-status") ?? "").toUpperCase())) {
+	if (!c.allow_cache && CACHED.has(res.headers.get("cf-cache-status") ?? "")) {
 		await res.body?.cancel();
 		return "served from cache";
 	}

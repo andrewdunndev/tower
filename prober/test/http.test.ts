@@ -8,23 +8,23 @@ const probe = (extra: object, doFetch: typeof fetch) => probeHttp(check(extra), 
 
 describe("tunnel classifier", () => {
 	it("reads 530 with error 1033 as a dead tunnel connector", async () => {
-		const reason = await probe({}, respond(530, "<h1>Error 1033</h1>") as typeof fetch);
+		const reason = await probe({}, respond(530, "<h1>Error 1033</h1>"));
 		expect(reason).toBe("HTTP 530 1033");
 		expect(hint(reason)).toBe("the tunnel connector is down");
 	});
 
 	it("leaves other 530 bodies unclassified", async () => {
-		const reason = await probe({}, respond(530, "Error 1016") as typeof fetch);
+		const reason = await probe({}, respond(530, "Error 1016"));
 		expect(reason).toBe("HTTP 530");
 		expect(hint(reason)).toBe("");
 	});
 
 	it("ignores a 1033 body on other statuses", async () => {
-		expect(await probe({}, respond(503, "Error 1033") as typeof fetch)).toBe("HTTP 503");
+		expect(await probe({}, respond(503, "Error 1033"))).toBe("HTTP 503");
 	});
 
 	it("reads 502 as the origin behind the tunnel", async () => {
-		const reason = await probe({}, respond(502) as typeof fetch);
+		const reason = await probe({}, respond(502));
 		expect(hint(reason)).toBe("the origin behind the tunnel is down");
 	});
 
@@ -32,18 +32,24 @@ describe("tunnel classifier", () => {
 		const [subject, text] = message(check(), { at: 0, kind: "down", since: 0, reason: "HTTP 530 1033" });
 		expect(subject).toBe("DOWN: Web");
 		expect(text).toContain("the tunnel connector is down");
+		expect(text).toContain(check().url);
 	});
 });
 
 describe("http probe", () => {
-	const ok = (body = "", headers = {}) => respond(200, body, headers) as typeof fetch;
+	const ok = (body = "", headers = {}) => respond(200, body, headers);
 
 	it("passes a healthy response", async () => {
 		expect(await probe({}, ok())).toBeNull();
 	});
 
-	it("fails on an unexpected status", async () => {
-		expect(await probe({}, respond(503) as typeof fetch)).toBe("HTTP 503");
+	it("does not follow redirects", async () => {
+		let redirect: RequestRedirect | undefined;
+		await probe({}, (async (_url: unknown, init?: RequestInit) => {
+			redirect = init?.redirect;
+			return new Response("");
+		}) as typeof fetch);
+		expect(redirect).toBe("manual");
 	});
 
 	it("fails on a cache hit unless allow_cache is set", async () => {
@@ -72,9 +78,9 @@ describe("http probe", () => {
 				init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
 			)) as unknown as typeof fetch;
 		expect(await probeHttp(check(), 20, hang)).toBe("timeout");
-		const refuse = (async () => {
+		const refuse = async () => {
 			throw new Error("connection refused");
-		}) as typeof fetch;
+		};
 		expect(await probe({}, refuse)).toBe("fetch failed: connection refused");
 	});
 });

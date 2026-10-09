@@ -1,9 +1,15 @@
 import type { Instance } from "../../tools/schema.ts";
 import { type HttpCheck, probeHttp } from "./http.ts";
 import { message, type Pending, sendMail } from "./mail.ts";
-import { step } from "./state.ts";
 
 export type RunEnv = Pick<Env, "DB"> & { EMAIL: Pick<SendEmail, "send"> };
+
+interface Track {
+	avail: boolean;
+	fails: number;
+	passes: number;
+	since: number;
+}
 
 interface StateRow {
 	check: string;
@@ -11,6 +17,7 @@ interface StateRow {
 	fails: number;
 	passes: number;
 	since: number;
+	slot: number;
 }
 
 const SKEW_MS = 2000;
@@ -19,6 +26,24 @@ const CONCURRENCY = 6;
 const MAX_ATTEMPTS = 10;
 const RECENT_SAMPLES = 5;
 const OWNED_TABLES = ["state", "samples", "daily", "beats", "events", "outbox"];
+
+export function step(
+	s: Track,
+	ok: boolean,
+	now: number,
+	limits: { down_after: number; up_after: number },
+): { next: Track; transition: "down" | "up" | null } {
+	if (ok) {
+		if (s.avail) return { next: { ...s, fails: 0, passes: 0 }, transition: null };
+		const passes = s.passes + 1;
+		if (passes < limits.up_after) return { next: { ...s, passes }, transition: null };
+		return { next: { avail: true, fails: 0, passes: 0, since: now }, transition: "up" };
+	}
+	if (!s.avail) return { next: { ...s, passes: 0 }, transition: null };
+	const fails = s.fails + 1;
+	if (fails < limits.down_after) return { next: { ...s, fails }, transition: null };
+	return { next: { avail: false, fails: 0, passes: 0, since: now }, transition: "down" };
+}
 
 async function pool<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
 	const out: R[] = new Array(items.length);
@@ -46,7 +71,7 @@ async function claim(db: D1Database, config: Instance, probed: HttpCheck[], t: n
 	const claims = probed.map((c) =>
 		db
 			.prepare(
-				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, fails, passes, since`,
+				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, fails, passes, since, slot`,
 			)
 			.bind(c.id, Math.floor((t + SKEW_MS) / c.every)),
 	);
@@ -85,8 +110,8 @@ export async function tick(env: RunEnv, config: Instance, t: number, doFetch: ty
 		const degraded = check.slow_ms !== undefined && window.length > 0 && median(window) > check.slow_ms;
 		writes.push(
 			env.DB.prepare(
-				`UPDATE state SET avail = ?2, degraded = ?3, fails = ?4, passes = ?5, since = ?6, last_ok = ?7, last_run = ?7, reason = ?8 WHERE "check" = ?1`,
-			).bind(check.id, next.avail ? 1 : 0, degraded ? 1 : 0, next.fails, next.passes, next.since, t, reason),
+				`UPDATE state SET avail = ?2, degraded = ?3, fails = ?4, passes = ?5, since = ?6, last_ok = ?7, last_run = ?7, reason = ?8 WHERE "check" = ?1 AND slot = ?9`,
+			).bind(check.id, next.avail ? 1 : 0, degraded ? 1 : 0, next.fails, next.passes, next.since, t, reason, row.slot),
 			env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES (?1, ?2, ?3, ?4)`).bind(
 				check.id,
 				t,

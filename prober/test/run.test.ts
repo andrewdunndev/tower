@@ -1,17 +1,17 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { tick } from "../src/run.ts";
-import { step } from "../src/state.ts";
+import { step, tick } from "../src/run.ts";
+import { status } from "../src/status.ts";
 import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
 
 beforeEach(reset);
 
 function counting(status = 200) {
 	const calls = { n: 0 };
-	const fetch = (async () => {
+	const fetch = async () => {
 		calls.n++;
 		return new Response("", { status });
-	}) as typeof globalThis.fetch;
+	};
 	return { calls, fetch };
 }
 
@@ -31,6 +31,29 @@ describe("slot claims", () => {
 			await tick(runEnv, config, t, fetch);
 		}
 		expect(calls.n).toBe(3);
+	});
+
+	it("keeps a superseded run from overwriting newer state", async () => {
+		const { runEnv } = mailbox();
+		const config = makeConfig([{ ...web, down_after: 1 }]);
+		let release = () => {};
+		let started = () => {};
+		const hasStarted = new Promise<void>((r) => {
+			started = r;
+		});
+		const slow = (async () => {
+			started();
+			await new Promise<void>((r) => {
+				release = r;
+			});
+			return new Response("", { status: 200 });
+		}) as typeof fetch;
+		const late = tick(runEnv, config, T0, slow);
+		await hasStarted;
+		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		release();
+		await late;
+		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 0 }]);
 	});
 
 	it("honours each check's own interval", async () => {
@@ -125,8 +148,12 @@ describe("outbox", () => {
 		).run();
 		for (let i = 1; i <= 9; i++) await tick(runEnv, config, T0 + i * MINUTE, respond(200));
 		expect(await all("SELECT attempts, dead FROM outbox")).toEqual([{ attempts: 9, dead: 0 }]);
+		const alive = await status(env.DB, config, T0 + 9 * MINUTE);
+		expect(alive).toMatchObject({ outbox_oldest_unsent_at: new Date(1).toISOString(), dead_outbox: 0 });
 		await tick(runEnv, config, T0 + 10 * MINUTE, respond(200));
 		expect(await all("SELECT attempts, dead FROM outbox")).toEqual([{ attempts: 10, dead: 1 }]);
+		const dead = await status(env.DB, config, T0 + 10 * MINUTE);
+		expect(dead).toMatchObject({ outbox_oldest_unsent_at: null, dead_outbox: 1 });
 		await tick(runEnv, config, T0 + 11 * MINUTE, respond(200));
 		expect(box.sends).toBe(10);
 	});
@@ -154,9 +181,13 @@ describe("pruning", () => {
 		const { runEnv } = mailbox();
 		const config = makeConfig([web], { history_days: 2 });
 		await tick(runEnv, config, T0, respond(200));
+		await env.DB.prepare(`INSERT INTO events ("check", at, "from", "to") VALUES ('web', ?1, 'up', 'down')`)
+			.bind(T0)
+			.run();
 		await tick(runEnv, config, T0 + 25 * 3_600_000, respond(200));
 		expect(await all("SELECT at FROM samples")).toEqual([{ at: T0 + 25 * 3_600_000 }]);
 		await tick(runEnv, config, T0 + 3 * 86_400_000, respond(200));
 		expect(await all("SELECT day FROM daily")).toEqual([{ day: "2026-10-09" }, { day: "2026-10-11" }]);
+		expect(await all("SELECT * FROM events")).toEqual([]);
 	});
 });
