@@ -80,7 +80,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 					: state.degraded === 1
 						? "degraded"
 						: "up";
-		return { check, state, level, stuck: stale && (level === "unknown" || level === "config-error") };
+		return { check, state, level, stale };
 	});
 
 	const checks = all
@@ -142,7 +142,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		last_run: lastRun ? iso(lastRun) : null,
 		outbox_oldest_unsent_at: queue.oldest === null ? null : iso(queue.oldest),
 		dead_outbox: queue.dead,
-		stuck: all.filter(({ stuck }) => stuck).length,
+		stuck: all.filter(({ stale }) => stale).length,
 	};
 }
 

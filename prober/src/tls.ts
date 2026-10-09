@@ -82,7 +82,7 @@ export async function probeTls(c: Extract<Check, { type: "tls" }>, d: Deps): Pro
 		if (covering.length === 0) return { verdict: "down", reason: "no active certificate covers the host" };
 		const { pack } = covering[0];
 		const expires = Math.min(...pack.certificates.map((x) => Date.parse(x.expires_on)));
-		if (Number.isNaN(expires)) return { verdict: "inconclusive", reason: "certificate has no expiry" };
+		if (!Number.isFinite(expires)) return { verdict: "inconclusive", reason: "certificate has no expiry" };
 		const left = expires - d.now;
 		if (left < DOWN_UNDER_MS)
 			return { verdict: "down", reason: left < 0 ? "certificate expired" : "certificate expires within 2 days" };
@@ -90,6 +90,6 @@ export async function probeTls(c: Extract<Check, { type: "tls" }>, d: Deps): Pro
 		return { verdict: "ok", reason: null, degraded: overdue };
 	} catch (e) {
 		if (e instanceof Stop) return { verdict: e.verdict, reason: e.message };
-		throw e;
+		return { verdict: "inconclusive", reason: "api returned an unexpected body" };
 	}
 }

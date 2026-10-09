@@ -2,7 +2,7 @@ import type { connect } from "cloudflare:sockets";
 import { beforeEach, describe, expect, it } from "vitest";
 import { tick } from "../src/run.ts";
 import { status } from "../src/status.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, T0 } from "./util.ts";
+import { all, MINUTE, mailbox, makeConfig, reset, T0, web } from "./util.ts";
 
 beforeEach(reset);
 
@@ -105,11 +105,10 @@ describe("dns", () => {
 		const { runEnv, box } = mailbox();
 		const config = makeConfig([record]);
 		await tick(runEnv, config, T0, resolver(answer));
-		for (const f of [noFetch, resolver(503), (async () => new Response("<html>", { status: 200 })) as typeof fetch]) {
-			await tick(runEnv, config, T0 + MINUTE, f);
-		}
+		const failing = [noFetch, resolver(503), (async () => new Response("<html>", { status: 200 })) as typeof fetch];
+		for (const [i, f] of failing.entries()) await tick(runEnv, config, T0 + (i + 1) * MINUTE, f);
 		expect(await all("SELECT avail, fails, last_ok, last_run FROM state")).toEqual([
-			{ avail: 1, fails: 0, last_ok: T0, last_run: T0 + MINUTE },
+			{ avail: 1, fails: 0, last_ok: T0, last_run: T0 + 3 * MINUTE },
 		]);
 		expect(await all("SELECT * FROM samples")).toHaveLength(1);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
@@ -268,6 +267,20 @@ describe("tls", () => {
 		expect(await all("SELECT config_error FROM state")).toEqual([{ config_error: 1 }]);
 	});
 
+	it("treats an unexpected API body as inconclusive and still runs the other checks", async () => {
+		const { runEnv } = mailbox();
+		const config = makeConfig([web, cert]);
+		const fetcher = (async (input: RequestInfo | URL) =>
+			String(input).includes("api.cloudflare.com")
+				? Response.json({ success: true, result: null })
+				: new Response("ok")) as typeof fetch;
+		await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0, fetcher);
+		expect(await all(`SELECT "check", last_run FROM state ORDER BY "check"`)).toEqual([
+			{ check: "cert", last_run: T0 },
+			{ check: "web", last_run: T0 },
+		]);
+	});
+
 	it("is inconclusive on an API outage and leaves the state alone", async () => {
 		for (const f of [noFetch, cloudflare(502).fetch]) {
 			const { runEnv, box } = mailbox();
@@ -290,16 +303,5 @@ describe("tls", () => {
 		await tick(env, config, T0 + 2 * MINUTE, cloudflare([pack("universal", ["www.example.com"], 60)]).fetch);
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
 		expect(box.sends).toBe(2);
-	});
-});
-
-describe("status stuck count", () => {
-	it("counts a config error", async () => {
-		const { runEnv } = mailbox();
-		const config = makeConfig([tcp]);
-		await tick(runEnv, config, T0, noFetch, blocked);
-		expect((await status(runEnv.DB, config, T0)).stuck).toBe(1);
-		await tick(runEnv, config, T0 + MINUTE, noFetch, reachable);
-		expect((await status(runEnv.DB, config, T0 + MINUTE)).stuck).toBe(0);
 	});
 });

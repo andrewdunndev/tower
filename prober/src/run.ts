@@ -74,9 +74,6 @@ async function claim(db: D1Database, config: Instance, t: number) {
 				`INSERT OR IGNORE INTO state ("check", avail, degraded, fails, passes, since, slot) VALUES (?1, 1, 0, 0, 0, ?2, -1)`,
 			)
 			.bind(c.id, t),
-		...(c.type === "heartbeat"
-			? [db.prepare(`INSERT OR IGNORE INTO beats ("check", at, ok) VALUES (?1, ?2, 1)`).bind(c.id, t)]
-			: []),
 	]);
 	const claims = config.checks.map((c) =>
 		db
@@ -105,7 +102,7 @@ export async function tick(
 		const started = Date.now();
 		const outcome: Outcome =
 			check.type === "heartbeat"
-				? await judgeBeat(env.DB, check, t)
+				? await judgeBeat(env.DB, check, t, row.since)
 				: await probe(check, {
 						db: env.DB,
 						fetch: doFetch,
