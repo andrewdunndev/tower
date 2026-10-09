@@ -1,14 +1,10 @@
 {
 	"compilerOptions": {
-		"target": "es2023",
-		"module": "esnext",
 		"moduleResolution": "bundler",
 		"strict": true,
 		"noEmit": true,
 		"skipLibCheck": true,
-		"allowImportingTsExtensions": true,
-		"resolveJsonModule": true,
-		"types": []
+		"allowImportingTsExtensions": true
 	},
-	"include": ["worker-configuration.d.ts", "src", "test", "../tools/schema.ts"]
+	"include": ["worker-configuration.d.ts", "src", "test"]
 }

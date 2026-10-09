@@ -4,6 +4,5 @@ node_modules/
 .dev.vars.*
 .env
 .env.*
-/services.json
 .tower/
 worker-configuration.d.ts

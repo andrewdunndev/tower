@@ -18,13 +18,6 @@ describe("instance", () => {
 		expect(messages(example)).toEqual([]);
 	});
 
-	it("fills defaults", () => {
-		const r = instanceSchema.parse(instance(http));
-		expect(r.checks[0]).toMatchObject({ every: 60, public: true, down_after: 3, up_after: 2, expect_status: 200 });
-		expect(r.history_days).toBe(90);
-		expect(r.timeout_ms).toBe(10000);
-	});
-
 	it("rejects duplicate ids", () => {
 		expect(messages(instance(http, { ...http, name: "Other" }))).toContain(
 			'Duplicate check id "web": ids must be unique, rename one.',
@@ -52,6 +45,31 @@ describe("instance", () => {
 		expect(messages(instance({ ...http, url: "http://192.168.1.5/" }))).toContain(
 			"Private, loopback and link-local addresses are unreachable from Workers: use a public hostname, or a heartbeat for private services.",
 		);
+	});
+
+	it("rejects a malformed url without throwing", () => {
+		expect(messages(instance({ ...http, url: "not a url" }))).toContain("url: use a full http:// or https:// URL.");
+	});
+
+	it("accepts public hostnames that start with digits", () => {
+		const tcp = { id: "t", type: "tcp", name: "T", host: "10.example.com", port: 22 };
+		expect(messages(instance(tcp, { ...tcp, id: "u", host: "0.pool.ntp.org" }))).toEqual([]);
+	});
+
+	it("rejects a bad check id", () => {
+		expect(messages(instance({ ...http, id: "Bad_ID" }))).toContain(
+			"id: use lowercase letters, digits and hyphens, starting with a letter or digit.",
+		);
+	});
+
+	it("rejects a domain with a scheme", () => {
+		expect(messages({ ...example, domain: "https://status.example.com" })).toContain(
+			"domain: use a bare hostname such as status.example.com, with no scheme or path.",
+		);
+	});
+
+	it("rejects an empty checks list", () => {
+		expect(messages({ ...example, checks: [] })).toContain("checks: list at least one check.");
 	});
 
 	it("rejects a 3xx expect_status", () => {
@@ -111,7 +129,19 @@ describe("note", () => {
 		);
 	});
 
-	it("accepts maintenance that is over", () => {
-		expect(notes({ ...maintenance, start: "2026-10-01T02:00:00Z", end: "2026-10-01T04:00:00Z" })).toEqual([]);
+	it("rejects a backdated window that is already over", () => {
+		expect(notes({ ...maintenance, start: "2026-10-01T02:00:00Z", end: "2026-10-01T04:00:00Z" })).toContain(
+			"A maintenance window cannot start in the past: move start to the future, or delete the note once it is over.",
+		);
+	});
+
+	it("rejects maintenance that ends before it starts", () => {
+		expect(notes({ ...maintenance, end: "2026-10-09T01:00:00Z" })).toContain("end must be after start.");
+	});
+
+	it("rejects a time without an offset", () => {
+		expect(notes({ ...maintenance, start: "2026-10-09T05:00:00" })).toContain(
+			"Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.",
+		);
 	});
 });

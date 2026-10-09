@@ -48,8 +48,7 @@ CREATE TABLE outbox (
   since INTEGER NOT NULL,
   reason TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
-  dead INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY ("check", at)
+  dead INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE meta (

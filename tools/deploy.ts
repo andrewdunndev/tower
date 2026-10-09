@@ -18,13 +18,8 @@ const wrangler = (cwd: string, ...args: string[]) =>
 run("node", [join(root, "tools/stage.ts"), instance]);
 const { domain } = JSON.parse(readFileSync(join(root, ".tower/tower.json"), "utf8")) as Instance;
 
+const dry = dryRun ? ["--dry-run"] : [];
+wrangler("prober", "deploy", ...dry);
 if (!dryRun) wrangler("prober", "d1", "migrations", "apply", "DB", "--remote");
-wrangler("prober", "deploy", ...(dryRun ? ["--dry-run", "--outdir", "../.tower/dry/prober"] : []));
 run("npm", ["run", "build", "-w", "page"]);
-wrangler(
-	"page",
-	"deploy",
-	"--route",
-	`${domain}/*`,
-	...(dryRun ? ["--dry-run", "--outdir", "../.tower/dry/page"] : []),
-);
+wrangler("page", "deploy", "--route", `${domain}/*`, ...dry);

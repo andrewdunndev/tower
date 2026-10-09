@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const UNITS = { m: 60, h: 3600, d: 86400 } as const;
+const UNITS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
 const duration = z
 	.string({ error: 'Use a duration such as "1m", "5m", "1h" or "1d".' })
@@ -14,12 +14,18 @@ const id = z
 		"id: use lowercase letters, digits and hyphens, starting with a letter or digit.",
 	);
 
+const DOTTED_QUAD = /^\d+\.\d+\.\d+\.\d+$/;
 const PRIVATE_V4 = /^(0\.|10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/;
 const PRIVATE_V6 = /^(::1?|f[cd][0-9a-f]{2}:.*|fe[89ab][0-9a-f]:.*)$/;
 
 function isPrivateHost(host: string): boolean {
 	const h = host.toLowerCase().replace(/^\[|\]$/g, "");
-	return h === "localhost" || h.endsWith(".localhost") || PRIVATE_V4.test(h) || PRIVATE_V6.test(h);
+	return (
+		h === "localhost" ||
+		h.endsWith(".localhost") ||
+		(DOTTED_QUAD.test(h) && PRIVATE_V4.test(h)) ||
+		(h.includes(":") && PRIVATE_V6.test(h))
+	);
 }
 
 const PRIVATE_MESSAGE =
@@ -41,9 +47,9 @@ const common = {
 const http = z.object({
 	...common,
 	type: z.literal("http"),
-	every: duration.default(60),
+	every: duration.default(60_000),
 	url: z
-		.url({ protocol: /^https?$/, error: "url: use a full http:// or https:// URL." })
+		.url({ protocol: /^https?$/, error: "url: use a full http:// or https:// URL.", abort: true })
 		.refine((u) => !isPrivateHost(new URL(u).hostname), PRIVATE_MESSAGE),
 	expect_status: z
 		.number()
@@ -67,7 +73,7 @@ const http = z.object({
 const tcp = z.object({
 	...common,
 	type: z.literal("tcp"),
-	every: duration.default(60),
+	every: duration.default(60_000),
 	host,
 	port: z
 		.number()
@@ -80,7 +86,7 @@ const tcp = z.object({
 const dns = z.object({
 	...common,
 	type: z.literal("dns"),
-	every: duration.default(60),
+	every: duration.default(60_000),
 	query: z.string().min(1, "query: required, the DNS name to resolve."),
 	record: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"], { error: "record: use A, AAAA, CNAME, MX, TXT or NS." }),
 	expect: z.string().optional(),
@@ -89,7 +95,7 @@ const dns = z.object({
 const tls = z.object({
 	...common,
 	type: z.literal("tls"),
-	every: duration.default(3600),
+	every: duration.default(3_600_000),
 	host: z.string().min(1, "host: required."),
 	zone: z.string().min(1, "zone: name the Cloudflare zone holding the certificate, such as example.com."),
 });
@@ -139,12 +145,11 @@ export const instanceSchema = z
 		}
 	});
 
+const ISO_WITH_OFFSET = /T\d\d:\d\d(:\d\d)?(\.\d+)?(Z|[+-]\d\d:\d\d)$/;
 const WEEK_MS = 7 * 86400_000;
 
 export function noteSchema(now: Date) {
-	const when = z
-		.string()
-		.refine((s) => !Number.isNaN(Date.parse(s)), "Use an ISO 8601 time such as 2026-11-01T02:00:00Z.");
+	const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.");
 	return z
 		.object({
 			title: z.string().min(1, "title: required."),
@@ -174,7 +179,7 @@ export function noteSchema(now: Date) {
 					message: "A maintenance window is at most 7 days: shorten it or split it.",
 				});
 			}
-			if (start < now.getTime() && end > now.getTime()) {
+			if (start < now.getTime()) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["start"],

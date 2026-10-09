@@ -2,14 +2,8 @@
 	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
 	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
 	"files": {
-		"includes": ["**", "!**/*.astro", "!page/src/styles", "!**/worker-configuration.d.ts", "!package-lock.json"]
+		"includes": ["**", "!**/*.astro", "!page/src/styles"]
 	},
 	"formatter": { "indentStyle": "tab", "lineWidth": 120 },
-	"overrides": [
-		{
-			"includes": ["page/**"],
-			"formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 200 },
-			"javascript": { "formatter": { "quoteStyle": "single" } }
-		}
-	]
+	"overrides": [{ "includes": ["page/**"], "formatter": { "enabled": false } }]
 }
