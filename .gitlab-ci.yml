@@ -13,7 +13,7 @@ stages:
   - test
 
 include:
-  - component: gitlab.com/dunn.dev/pipeline/reference-check@4
+  - component: gitlab.com/dunn.dev/pipeline/reference-check@4.10.0
     inputs:
       reference_ref: main
       fail_on_violation: true
