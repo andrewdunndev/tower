@@ -1,0 +1,131 @@
+---
+import '../styles/page.css';
+import { fixture as data } from '../fixtures';
+import { statusLabel, fmtDateTime, fmtDuration, fmtPct, dayLabel, dayLevel, spark } from '../lib';
+
+const order = { down: 0, degraded: 1, maintenance: 2, unknown: 3, up: 4 } as const;
+const worst = data.checks.reduce((w, c) => (order[c.status] < order[w] ? c.status : w), 'up' as keyof typeof order);
+const banner =
+  worst === 'down' ? { tone: 'bad', title: 'Major outage', note: 'One or more systems are down.' }
+  : worst === 'degraded' ? { tone: 'warn', title: 'Partial degradation', note: 'Some systems are slower than usual.' }
+  : worst === 'maintenance' ? { tone: 'info', title: 'Maintenance in progress', note: 'Planned work is under way.' }
+  : { tone: 'ok', title: 'All systems operational', note: 'Every check is passing.' };
+const bannerTone = banner.tone === 'info' ? 'warn' : banner.tone;
+const levelText = { none: 'no data', ok: 'fully operational', minor: 'minor disruption', major: 'major disruption' } as const;
+const sevText = { down: 'Outage', degraded: 'Degraded', info: 'Notice' } as const;
+const range = (a: string, b: string) => `${fmtDateTime(a)} to ${fmtDateTime(b)}`;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Status</title>
+    <meta name="description" content="Current status, 90-day history and incidents." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="mast">
+        <img src="/favicon.svg" alt="" width="24" height="24" />
+        <strong>Status</strong>
+        <span>Updated <time datetime={data.generatedAt}>{fmtDateTime(data.generatedAt)}</time></span>
+      </header>
+
+      <main>
+        <section class="banner" data-tone={bannerTone} aria-labelledby="overall">
+          <span class="dot" aria-hidden="true"></span>
+          <div>
+            <h1 id="overall">{banner.title}</h1>
+            <p>{banner.note}</p>
+          </div>
+        </section>
+
+        <h2 id="checks-h">Systems</h2>
+        <ul class="checks" aria-labelledby="checks-h">
+          {data.checks.map((c, ci) => {
+            const sp = spark(c);
+            return (
+              <li>
+                <article class="row" aria-label={c.name}>
+                  <div class="head">
+                    <h3>{c.name}</h3>
+                    <span class="type">{c.type}</span>
+                    <span class="pill" data-s={c.status}>{statusLabel[c.status]}</span>
+                  </div>
+
+                  <ol class="bars" aria-label={`Daily uptime, last 90 days, ${c.name}`}>
+                    {c.days.map((d, i) => {
+                      const id = `tip-${ci}-${i}`;
+                      const lvl = dayLevel(d);
+                      return (
+                        <li>
+                          <button class="bar" data-l={lvl} popovertarget={id} aria-label={`${dayLabel(data.generatedAt, i)}: ${d === null ? 'no data' : fmtPct(d) + ' uptime, ' + levelText[lvl]}`}></button>
+                          <div id={id} popover class="tip">
+                            <b>{dayLabel(data.generatedAt, i)}</b>
+                            <span>{d === null ? 'No data' : `${fmtPct(d)} uptime, ${levelText[lvl]}`}</span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+
+                  <div class="sparkwrap">
+                    {sp.paths.length ? (
+                      <svg class="spark" data-s={c.status} viewBox="0 0 160 36" preserveAspectRatio="none" role="img" aria-label={sp.summary}>
+                        <title>{sp.summary}</title>
+                        {sp.paths.map((p) => <path d={p} />)}
+                      </svg>
+                    ) : (
+                      <span class="nospark">{sp.summary}</span>
+                    )}
+                  </div>
+
+                  <dl class="nums">
+                    <div><dt>90 day</dt><dd>{fmtPct(c.uptime90)}</dd></div>
+                    <div><dt>p95</dt><dd>{c.p95 === null ? 'n/a' : `${c.p95} ms`}</dd></div>
+                  </dl>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+        <div class="legend" aria-hidden="true"><span>90 days ago</span><span>Today</span></div>
+
+        <h2 id="inc-h">Incidents</h2>
+        {data.incidents.length ? (
+          <ol class="timeline" aria-labelledby="inc-h">
+            {data.incidents.map((i) => (
+              <li data-sev={i.severity}>
+                <h3><span class="badge">{i.resolved ? 'Resolved' : 'Ongoing'} &middot; {sevText[i.severity]}</span>{i.title}</h3>
+                <div class="when">
+                  {i.resolved ? `${range(i.started, i.resolved)} (${fmtDuration(i.started, i.resolved)})` : `Since ${fmtDateTime(i.started)}`}
+                </div>
+                <div class="tags">{i.checks.map((n) => <span class="tag">{n}</span>)}</div>
+                {i.bodyHtml && <div class="body" set:html={i.bodyHtml} />}
+                {i.kind === 'auto' && <div class="body">Detected automatically.</div>}
+              </li>
+            ))}
+          </ol>
+        ) : <p class="empty">No incidents in the last 90 days.</p>}
+
+        <h2 id="maint-h">Upcoming maintenance</h2>
+        {data.maintenance.length ? (
+          <ul class="maint" aria-labelledby="maint-h">
+            {data.maintenance.map((m) => (
+              <li>
+                <h3>{m.title}</h3>
+                <div class="when">{range(m.starts, m.ends)}</div>
+                <div class="tags"><span class="tag">{m.checks.join(', ')}</span></div>
+                {m.bodyHtml && <div class="body" set:html={m.bodyHtml} />}
+              </li>
+            ))}
+          </ul>
+        ) : <p class="empty">Nothing scheduled.</p>}
+      </main>
+
+      <footer>Mock data. Times are UTC.</footer>
+    </div>
+  </body>
+</html>

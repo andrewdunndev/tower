@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:page": "npm run dev -w page"
   },
   "devDependencies": {
     "miniflare": "5.20261006.0-alpha",
@@ -13,5 +14,8 @@
   },
   "engines": {
     "node": ">=22.15"
-  }
+  },
+  "workspaces": [
+    "page"
+  ]
 }
