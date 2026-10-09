@@ -45,9 +45,12 @@ if (!parsed.success) report("tower.json", parsed.error.issues);
 
 const notesDir = join(instance, "notes");
 const notes = existsSync(notesDir) ? readdirSync(notesDir).filter((f) => f.endsWith(".md")) : [];
+const parsedNotes: { file: string; note: z.output<typeof noteSchema>; body: string }[] = [];
 for (const f of notes) {
-	const r = noteSchema.safeParse(frontmatter(readFileSync(join(notesDir, f), "utf8")));
-	if (!r.success) report(`notes/${f}`, r.error.issues);
+	const text = readFileSync(join(notesDir, f), "utf8");
+	const r = noteSchema.safeParse(frontmatter(text));
+	if (r.success) parsedNotes.push({ file: f, note: r.data, body: text.replace(/^---\n[\s\S]*?\n---\n?/, "") });
+	else report(`notes/${f}`, r.error.issues);
 }
 
 if (errors.length || !parsed.success) {
@@ -58,6 +61,17 @@ if (errors.length || !parsed.success) {
 const out = join(root, ".tower");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, "notes"), { recursive: true });
-writeFileSync(join(out, "tower.json"), `${JSON.stringify(parsed.data, null, "\t")}\n`);
-for (const f of notes) cpSync(join(notesDir, f), join(out, "notes", f));
+const maintenance = parsedNotes.flatMap(({ note }) =>
+	note.kind === "maintenance" && note.end
+		? [{ title: note.title, start: note.start, end: note.end, checks: note.checks }]
+		: [],
+);
+writeFileSync(join(out, "tower.json"), `${JSON.stringify({ ...parsed.data, maintenance }, null, "\t")}\n`);
+// The page gets check names, never ids, and only for public checks.
+const names = new Map(parsed.data.checks.filter((c) => c.public).map((c) => [c.id, c.name]));
+for (const { file, note, body } of parsedNotes) {
+	const shown = { ...note, checks: note.checks.flatMap((id) => names.get(id) ?? []) };
+	const head = Object.entries(shown).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
+	writeFileSync(join(out, "notes", file), `---\n${head.join("\n")}\n---\n${body}`);
+}
 if (existsSync(join(instance, "theme.css"))) cpSync(join(instance, "theme.css"), join(out, "theme.css"));

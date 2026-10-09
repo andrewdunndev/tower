@@ -114,6 +114,13 @@ const check = z.discriminatedUnion("type", [http, tcp, dns, tls, heartbeat], {
 	error: 'type: use "http", "tcp", "dns", "tls" or "heartbeat".',
 });
 
+const ISO_WITH_OFFSET = /T\d\d:\d\d(:\d\d)?(\.\d+)?(Z|[+-]\d\d:\d\d)$/;
+const WEEK_MS = 7 * 86400_000;
+
+const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.");
+
+const maintenanceWindow = z.object({ title: z.string(), start: when, end: when, checks: z.array(id) });
+
 export const instanceSchema = z
 	.object({
 		title: z.string().min(1, "title: required."),
@@ -130,6 +137,7 @@ export const instanceSchema = z
 		history_days: z.number().int().min(1).max(365).default(90),
 		timeout_ms: z.number().int().min(1000).max(30000).default(10000),
 		checks: z.array(check).min(1, "checks: list at least one check."),
+		maintenance: z.array(maintenanceWindow).default([]),
 	})
 	.superRefine((inst, ctx) => {
 		const seen = new Set<string>();
@@ -144,11 +152,6 @@ export const instanceSchema = z
 			seen.add(c.id);
 		}
 	});
-
-const ISO_WITH_OFFSET = /T\d\d:\d\d(:\d\d)?(\.\d+)?(Z|[+-]\d\d:\d\d)$/;
-const WEEK_MS = 7 * 86400_000;
-
-const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.");
 
 export const noteSchema = z
 	.object({
