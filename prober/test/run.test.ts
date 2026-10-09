@@ -56,6 +56,36 @@ describe("slot claims", () => {
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 0 }]);
 	});
 
+	it("writes no sample, event or outbox row from a superseded run", async () => {
+		const { runEnv } = mailbox();
+		const config = makeConfig([{ ...web, down_after: 1 }]);
+		let release = () => {};
+		let started = () => {};
+		const hasStarted = new Promise<void>((r) => {
+			started = r;
+		});
+		const slowFailure = (async () => {
+			started();
+			await new Promise<void>((r) => {
+				release = r;
+			});
+			return new Response("", { status: 500 });
+		}) as typeof fetch;
+		const late = tick(runEnv, config, T0, slowFailure);
+		await hasStarted;
+		await tick(runEnv, config, T0 + MINUTE, respond(200));
+		release();
+		await late;
+		const rows = () =>
+			all<{ n: number }>(
+				"SELECT (SELECT COUNT(*) FROM samples) + (SELECT COUNT(*) FROM events) + (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM daily WHERE runs > 1) AS n",
+			);
+		expect(await rows()).toEqual([{ n: 1 }]);
+
+		await tick(runEnv, config, T0 + 2 * MINUTE, respond(500));
+		expect(await all('SELECT "to" FROM events')).toEqual([{ to: "down" }]);
+	});
+
 	it("honours each check's own interval", async () => {
 		const { runEnv } = mailbox();
 		const { calls, fetch } = counting();

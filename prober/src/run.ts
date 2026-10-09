@@ -108,36 +108,35 @@ export async function tick(env: RunEnv, config: Instance, t: number, doFetch: ty
 		const { next, transition } = step(before, ok, t, check);
 		const window = (ok ? [ms] : []).concat(recent[i].results.map((r) => r.ms)).slice(0, RECENT_SAMPLES);
 		const degraded = check.slow_ms !== undefined && window.length > 0 && median(window) > check.slow_ms;
+		const current = `EXISTS (SELECT 1 FROM state WHERE "check" = ?1 AND slot = ?2)`;
 		writes.push(
 			env.DB.prepare(
-				`UPDATE state SET avail = ?2, degraded = ?3, fails = ?4, passes = ?5, since = ?6, last_ok = ?7, last_run = ?7, reason = ?8 WHERE "check" = ?1 AND slot = ?9`,
-			).bind(check.id, next.avail ? 1 : 0, degraded ? 1 : 0, next.fails, next.passes, next.since, t, reason, row.slot),
-			env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES (?1, ?2, ?3, ?4)`).bind(
+				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_ok = ?8, last_run = ?8, reason = ?9 WHERE "check" = ?1 AND slot = ?2`,
+			).bind(check.id, row.slot, next.avail ? 1 : 0, degraded ? 1 : 0, next.fails, next.passes, next.since, t, reason),
+			env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) SELECT ?1, ?3, ?4, ?5 WHERE ${current}`).bind(
 				check.id,
+				row.slot,
 				t,
 				ms,
 				ok ? 1 : 0,
 			),
 			env.DB.prepare(
-				`INSERT INTO daily ("check", day, runs, down, maint) VALUES (?1, ?2, 1, ?3, 0)
-					 ON CONFLICT ("check", day) DO UPDATE SET runs = runs + 1, down = down + ?3`,
-			).bind(check.id, day, next.avail ? 0 : 1),
+				`INSERT INTO daily ("check", day, runs, down, maint) SELECT ?1, ?3, 1, ?4, 0 WHERE ${current}
+					 ON CONFLICT ("check", day) DO UPDATE SET runs = runs + 1, down = down + ?4`,
+			).bind(check.id, row.slot, day, next.avail ? 0 : 1),
 		);
 		if (transition) {
 			writes.push(
-				env.DB.prepare(`INSERT INTO events ("check", at, "from", "to") VALUES (?1, ?2, ?3, ?4)`).bind(
+				env.DB.prepare(`INSERT INTO events ("check", at, "from", "to") SELECT ?1, ?3, ?4, ?5 WHERE ${current}`).bind(
 					check.id,
+					row.slot,
 					t,
 					transition === "down" ? "up" : "down",
 					transition,
 				),
-				env.DB.prepare(`INSERT INTO outbox ("check", at, kind, since, reason) VALUES (?1, ?2, ?3, ?4, ?5)`).bind(
-					check.id,
-					t,
-					transition,
-					before.since,
-					reason,
-				),
+				env.DB.prepare(
+					`INSERT INTO outbox ("check", at, kind, since, reason) SELECT ?1, ?3, ?4, ?5, ?6 WHERE ${current}`,
+				).bind(check.id, row.slot, t, transition, before.since, reason),
 			);
 		}
 	}
