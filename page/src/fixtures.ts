@@ -99,7 +99,6 @@ function build(s: Spec): CheckStatus {
   };
 }
 
-
 export const fixture: StatusResponse = {
   generatedAt: iso(0),
   checks: [
@@ -110,27 +109,63 @@ export const fixture: StatusResponse = {
     build({ name: 'DNS resolution', type: 'dns', status: 'up', since: 88 * DAY, base: 12, jitter: 6, seed: 55, dips: {} }),
     build({ name: 'TLS certificate', type: 'tls', status: 'up', since: 63 * DAY, base: 58, jitter: 18, seed: 66, dips: {} }),
     build({ name: 'Nightly backup', type: 'heartbeat', status: 'maintenance', since: 25 * MIN, base: 0, jitter: 0, seed: 77, dips: { 5: 0.9167 }, latencyGap: [276, 288] }),
-    build({ name: 'Media storage', type: 'http', status: 'unknown', since: 2 * HOUR, base: 210, jitter: 70, seed: 88, dips: {}, noData: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63], latencyGap: [240, 288] }),
+    build({
+      name: 'Media storage',
+      type: 'http',
+      status: 'unknown',
+      since: 2 * HOUR,
+      base: 210,
+      jitter: 70,
+      seed: 88,
+      dips: {},
+      noData: [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
+        50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+      ],
+      latencyGap: [240, 288],
+    }),
   ],
   incidents: [
     { kind: 'auto', title: 'Mail delivery is not responding', checks: ['Mail delivery'], severity: 'down', started: iso(-19 * MIN), resolved: null, bodyHtml: null },
     {
-      kind: 'note', title: 'Elevated API latency', checks: ['API'], severity: 'degraded', started: iso(-47 * MIN), resolved: null,
-      bodyHtml: '<p>Responses are slower than usual. We are looking at a <strong>database connection pool</strong> that stopped recycling.</p><p>Reads still succeed; writes may take several seconds.</p>',
+      kind: 'note',
+      title: 'Elevated API latency',
+      checks: ['API'],
+      severity: 'degraded',
+      started: iso(-47 * MIN),
+      resolved: null,
+      bodyHtml:
+        '<p>Responses are slower than usual. We are looking at a <strong>database connection pool</strong> that stopped recycling.</p><p>Reads still succeed; writes may take several seconds.</p>',
     },
-    { kind: 'auto', title: 'Authentication check failed', checks: ['Authentication'], severity: 'down', started: iso(-11 * DAY - 3 * HOUR), resolved: iso(-11 * DAY - 2 * HOUR - 18 * MIN), bodyHtml: null },
     {
-      kind: 'note', title: 'Sign-in outage after key rotation', checks: ['Authentication'], severity: 'down', started: iso(-11 * DAY - 3 * HOUR), resolved: iso(-11 * DAY - 2 * HOUR - 18 * MIN),
-      bodyHtml: '<p>A signing key rotated before every service had the new public key.</p><ul><li>Sign-in failed for 42 minutes.</li><li>Existing sessions were unaffected.</li></ul><p>Rotation now waits for acknowledgement from each consumer.</p>',
+      kind: 'auto',
+      title: 'Authentication check failed',
+      checks: ['Authentication'],
+      severity: 'down',
+      started: iso(-11 * DAY - 3 * HOUR),
+      resolved: iso(-11 * DAY - 2 * HOUR - 18 * MIN),
+      bodyHtml: null,
+    },
+    {
+      kind: 'note',
+      title: 'Sign-in outage after key rotation',
+      checks: ['Authentication'],
+      severity: 'down',
+      started: iso(-11 * DAY - 3 * HOUR),
+      resolved: iso(-11 * DAY - 2 * HOUR - 18 * MIN),
+      bodyHtml:
+        '<p>A signing key rotated before every service had the new public key.</p><ul><li>Sign-in failed for 42 minutes.</li><li>Existing sessions were unaffected.</li></ul><p>Rotation now waits for acknowledgement from each consumer.</p>',
     },
     { kind: 'auto', title: 'Website returned errors', checks: ['Website'], severity: 'degraded', started: iso(-28 * DAY - 5 * HOUR), resolved: iso(-28 * DAY - 4 * HOUR - 40 * MIN), bodyHtml: null },
   ],
   maintenance: [
     {
-      title: 'Database version upgrade', checks: ['API', 'Authentication'], starts: iso(2 * DAY + 3 * HOUR), ends: iso(2 * DAY + 4 * HOUR),
+      title: 'Database version upgrade',
+      checks: ['API', 'Authentication'],
+      starts: iso(2 * DAY + 3 * HOUR),
+      ends: iso(2 * DAY + 4 * HOUR),
       bodyHtml: '<p>Writes pause for about ten minutes while the primary restarts.</p>',
     },
     { title: 'Mail relay migration', checks: ['Mail delivery'], starts: iso(9 * DAY), ends: iso(9 * DAY + 2 * HOUR), bodyHtml: null },
   ],
 };
-

@@ -10,7 +10,12 @@ export const statusLabel: Record<Status, string> = {
 
 const dateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const dateTimeFmt = new Intl.DateTimeFormat('en-US', {
-  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC',
+  month: 'short',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: 'UTC',
 });
 
 export const fmtDate = (iso: string) => dateFmt.format(new Date(iso));
@@ -70,8 +75,6 @@ export function spark(c: CheckStatus, w = 160, h = 36): Spark {
   });
   if (cur.length) paths.push(cur.join(' '));
   const missing = c.latency.length - vals.length;
-  const summary =
-    `Latency over the last 24 hours: median ${c.p50} ms, 95th percentile ${c.p95} ms, range ${min} to ${max} ms` +
-    (missing ? `, ${missing * 5} minutes without data.` : '.');
+  const summary = `Latency over the last 24 hours: median ${c.p50} ms, 95th percentile ${c.p95} ms, range ${min} to ${max} ms` + (missing ? `, ${missing * 5} minutes without data.` : '.');
   return { paths, min, max, summary };
 }
