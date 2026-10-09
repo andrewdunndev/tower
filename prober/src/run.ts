@@ -2,6 +2,7 @@ import { connect } from "cloudflare:sockets";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { message, type Pending, sendMail } from "./mail.ts";
+import { inWindow } from "./maintenance.ts";
 import { type Outcome, probe } from "./probe.ts";
 
 export type RunEnv = Pick<Env, "DB"> & { EMAIL: Pick<SendEmail, "send">; CF_API_TOKEN?: string };
@@ -21,6 +22,7 @@ interface StateRow {
 	passes: number;
 	since: number;
 	slot: number;
+	mailed: number;
 }
 
 const TIMED = new Set<Check["type"]>(["http", "tcp", "dns"]);
@@ -78,7 +80,7 @@ async function claim(db: D1Database, config: Instance, t: number) {
 	const claims = config.checks.map((c) =>
 		db
 			.prepare(
-				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, degraded, fails, passes, since, slot`,
+				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, degraded, fails, passes, since, slot, mailed`,
 			)
 			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c))),
 	);
@@ -138,10 +140,12 @@ export async function tick(
 		const slow =
 			check.type === "http" && check.slow_ms !== undefined && window.length > 0 && median(window) > check.slow_ms;
 		const degraded = conclusive ? (check.type === "http" ? slow : outcome.degraded === true) : row.degraded === 1;
+		const quiet = inWindow(config, check.id, t);
+		const mail = conclusive && !quiet && (next.avail ? 1 : 0) !== row.mailed;
 		const current = `EXISTS (SELECT 1 FROM state WHERE "check" = ?1 AND slot = ?2)`;
 		writes.push(
 			env.DB.prepare(
-				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_ok = COALESCE(?8, last_ok), last_run = ?9, reason = ?10, config_error = ?11 WHERE "check" = ?1 AND slot = ?2`,
+				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_ok = COALESCE(?8, last_ok), last_run = ?9, reason = ?10, config_error = ?11, mailed = ?12 WHERE "check" = ?1 AND slot = ?2`,
 			).bind(
 				check.id,
 				row.slot,
@@ -154,6 +158,7 @@ export async function tick(
 				t,
 				outcome.reason,
 				outcome.verdict === "config-error" ? 1 : 0,
+				mail ? (next.avail ? 1 : 0) : row.mailed,
 			),
 		);
 		if (!conclusive) continue;
@@ -170,9 +175,9 @@ export async function tick(
 		}
 		writes.push(
 			env.DB.prepare(
-				`INSERT INTO daily ("check", day, runs, down, maint) SELECT ?1, ?3, 1, ?4, 0 WHERE ${current}
-					 ON CONFLICT ("check", day) DO UPDATE SET runs = runs + 1, down = down + ?4`,
-			).bind(check.id, row.slot, day, next.avail ? 0 : 1),
+				`INSERT INTO daily ("check", day, runs, down, maint) SELECT ?1, ?3, 1, ?4, ?5 WHERE ${current}
+					 ON CONFLICT ("check", day) DO UPDATE SET runs = runs + 1, down = down + ?4, maint = maint + ?5`,
+			).bind(check.id, row.slot, day, next.avail || quiet ? 0 : 1, !next.avail && quiet ? 1 : 0),
 		);
 		if (transition) {
 			writes.push(
@@ -183,9 +188,20 @@ export async function tick(
 					transition === "down" ? "up" : "down",
 					transition,
 				),
+			);
+		}
+		if (mail) {
+			writes.push(
 				env.DB.prepare(
 					`INSERT INTO outbox ("check", at, kind, since, reason) SELECT ?1, ?3, ?4, ?5, ?6 WHERE ${current}`,
-				).bind(check.id, row.slot, t, transition, before.since, outcome.reason),
+				).bind(
+					check.id,
+					row.slot,
+					t,
+					next.avail ? "up" : "down",
+					transition ? before.since : next.since,
+					outcome.reason,
+				),
 			);
 		}
 	}

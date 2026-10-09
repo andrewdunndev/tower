@@ -3,6 +3,7 @@ CREATE TABLE state (
   avail INTEGER NOT NULL,
   degraded INTEGER NOT NULL,
   config_error INTEGER NOT NULL DEFAULT 0,
+  mailed INTEGER NOT NULL DEFAULT 1,
   fails INTEGER NOT NULL,
   passes INTEGER NOT NULL,
   since INTEGER NOT NULL,

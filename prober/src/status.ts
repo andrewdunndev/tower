@@ -1,4 +1,5 @@
 import type { Instance } from "../../tools/schema.ts";
+import { inWindow } from "./maintenance.ts";
 
 interface Incident {
 	kind: "auto";
@@ -71,15 +72,17 @@ export async function status(db: D1Database, config: Instance, now: number) {
 	const all = config.checks.map((check) => {
 		const state = stateOf.get(check.id);
 		const stale = state?.last_ok == null || now - state.last_ok > 3 * check.every;
-		const level = state?.config_error
-			? "config-error"
-			: stale
-				? "unknown"
-				: state.avail === 0
-					? "down"
-					: state.degraded === 1
-						? "degraded"
-						: "up";
+		const level = inWindow(config, check.id, now)
+			? "maintenance"
+			: state?.config_error
+				? "config-error"
+				: stale
+					? "unknown"
+					: state.avail === 0
+						? "down"
+						: state.degraded === 1
+							? "degraded"
+							: "up";
 		return { check, state, level, stale };
 	});
 
@@ -133,12 +136,25 @@ export async function status(db: D1Database, config: Instance, now: number) {
 	}
 	incidents.sort((a, b) => b.started.localeCompare(a.started));
 
+	const names = new Map(config.checks.filter((c) => c.public).map((c) => [c.id, c.name]));
+	const maintenance = config.maintenance
+		.filter((w) => now < Date.parse(w.end))
+		.map((w) => ({
+			title: w.title,
+			checks: w.checks.flatMap((id) => names.get(id) ?? []),
+			starts: iso(Date.parse(w.start)),
+			ends: iso(Date.parse(w.end)),
+		}))
+		.filter((w) => w.checks.length)
+		.sort((a, b) => a.starts.localeCompare(b.starts));
+
 	const lastRun = Math.max(0, ...states.map((s) => s.last_run ?? 0));
 	return {
 		v: 1 as const,
 		generatedAt: iso(now),
 		checks,
 		incidents,
+		maintenance,
 		last_run: lastRun ? iso(lastRun) : null,
 		outbox_oldest_unsent_at: queue.oldest === null ? null : iso(queue.oldest),
 		dead_outbox: queue.dead,
