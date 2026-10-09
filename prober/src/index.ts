@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import config from "../../.tower/tower.json";
 import type { Instance } from "../../tools/schema.ts";
+import { recordBeat } from "./heartbeat.ts";
 import { tick } from "./run.ts";
 import { status } from "./status.ts";
 
@@ -16,8 +17,8 @@ export class Tower extends WorkerEntrypoint<Env> {
 		}
 	}
 
-	async beat(_id: string, _token: string, _ok: boolean) {
-		return new Response(null, { status: 404 });
+	async beat(id: string, token: string, ok: boolean) {
+		return recordBeat(this.env.DB, instance.checks, id, token, ok, Date.now());
 	}
 }
 
