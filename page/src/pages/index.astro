@@ -4,12 +4,23 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles/theme.css';
 import '../styles/page.css';
-import { fixture as data } from '../fixtures';
-import type { CheckStatus, Status } from '../fixtures';
+import { env } from 'cloudflare:workers';
+import type { CheckStatus, Maintenance, Status } from '../lib';
 import { statusLabel, fmtDateTime, fmtPct, dayLabel, dayLevel, spark } from '../lib';
+import { load } from '../server';
+
+const data = await load(env.TOWER);
+if (!data) Astro.response.status = 503;
+const checks = data?.checks ?? [];
+const incidents = data?.incidents ?? [];
+const now = data?.generatedAt ?? new Date().toISOString();
+const maintenance: Maintenance[] = [];
+const STALE_MS = 3 * 60_000;
+const lastRun = data?.last_run;
+const stale = data && (!lastRun || Date.parse(data.generatedAt) - Date.parse(lastRun) > STALE_MS);
 
 const order: Status[] = ['down', 'degraded', 'maintenance', 'unknown', 'up'];
-const worst = order.find((s) => data.checks.some((c) => c.status === s)) ?? 'up';
+const worst = order.find((s) => checks.some((c) => c.status === s)) ?? 'up';
 const overall: Record<Status, string> = {
   down: 'Some checks are down',
   degraded: 'Some checks are degraded',
@@ -18,7 +29,7 @@ const overall: Record<Status, string> = {
   up: 'All checks operational',
 };
 const counts = order
-  .map((s) => ({ s, n: data.checks.filter((c) => c.status === s).length }))
+  .map((s) => ({ s, n: checks.filter((c) => c.status === s).length }))
   .filter((x) => x.n);
 const word = (s: Status) => statusLabel[s].toLowerCase();
 const sevWord = { down: 'down', degraded: 'degraded', info: 'maintenance' } as const;
@@ -31,7 +42,7 @@ const dur = (fromIso: string, toIso: string) => {
   if (h < 48) return m ? `${h}h ${m}m` : `${h}h`;
   return `${Math.floor(h / 24)}d`;
 };
-const ago = (iso: string) => dur(iso, data.generatedAt);
+const ago = (iso: string) => dur(iso, now);
 
 const SW = 120;
 const SH = 22;
@@ -85,119 +96,128 @@ function sparkPaths(c: CheckStatus): string[] {
           </svg>
           <span class="mark">status</span>
         </span>
-        <span class="upd">updated <time datetime={data.generatedAt}>{fmtDateTime(data.generatedAt)}</time></span>
+        {data && <span class="upd">updated <time datetime={data.generatedAt}>{fmtDateTime(data.generatedAt)}</time></span>}
       </div>
     </header>
 
-    <main class="in">
-      <section class="now" aria-labelledby="overall">
-        <h1 id="overall"><i class="g" data-s={worst} aria-hidden="true"></i>{overall[worst]}</h1>
-        <ul class="counts" aria-label="Checks by state">
-          {counts.map(({ s, n }) => (
-            <li><i class="g" data-s={s} aria-hidden="true"></i><b>{n}</b> {word(s)}</li>
-          ))}
-        </ul>
-      </section>
-
-      <section aria-labelledby="checks-h">
-        <div class="label">
-          <h2 id="checks-h">checks <span>{data.checks.length}</span></h2>
-          <span class="ph" aria-hidden="true"><i data-l="minor">▄</i> minor <i data-l="major">█</i> major <i data-l="none">▁</i> no data · 90 days → today</span>
-        </div>
-        <div class="panel">
-          <div class="row head" aria-hidden="true">
-            <span>name</span><span>state</span><span>90 days</span><span>24h latency</span><span class="r">uptime</span><span class="r">p95</span>
-          </div>
-          <ul class="checks">
-            {data.checks.map((c) => {
-              const paths = sparkPaths(c);
-              const levels = c.days.map(dayLevel);
-              const problems = c.days
-                .map((d, i) => ({ d, i, l: levels[i] }))
-                .filter((x) => x.l === 'minor' || x.l === 'major')
-                .reverse();
-              const none = levels.filter((l) => l === 'none').length;
-              const stripLabel = `Last 90 days: ${problems.length ? `${problems.length} with disruption` : 'no disruption'}${none ? `, ${none} without data` : ''}.`;
-              const strip = (
-                <span class="days" role="img" aria-label={stripLabel}>
-                  {levels.map((l) => <span class="d" data-l={l}></span>)}
-                </span>
-              );
-              return (
-                <li class="row" data-s={c.status}>
-                  <h3 class="name">{c.name}</h3>
-                  <span class="state"><i class="g" data-s={c.status} aria-hidden="true"></i>{word(c.status)}<span class="for"> · {ago(c.since)}</span><span class="up90"> · {fmtPct(c.uptime90)}</span></span>
-                  {problems.length ? (
-                    <details class="hist">
-                      <summary>{strip}</summary>
-                      <ul class="probs">
-                        {problems.map(({ d, i, l }) => (
-                          <li data-l={l}><span>{dayLabel(data.generatedAt, i)}</span><span>{fmtPct(d)}</span><span>{l}</span></li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : (
-                    <div class="hist">{strip}</div>
-                  )}
-                  <div class="spark">
-                    {paths.length ? (
-                      <svg viewBox={`0 0 ${SW} ${SH}`} preserveAspectRatio="none" role="img" aria-label={spark(c).summary}>
-                        {paths.map((p) => <path d={p} />)}
-                      </svg>
-                    ) : (
-                      <span class="nil">no data</span>
-                    )}
-                  </div>
-                  <dl class="fig">
-                    <div><dt>uptime</dt><dd>{fmtPct(c.uptime90)}</dd></div>
-                    <div><dt>p95</dt><dd>{c.p95 === null ? 'n/a' : <>{c.p95}<small> ms</small></>}</dd></div>
-                  </dl>
-                </li>
-              );
-            })}
+    {data ? (
+      <main class="in">
+        {stale && (
+          <p class="panel empty" role="status">
+            {lastRun ? `No probe has run since ${fmtDateTime(lastRun)}.` : 'No probe has run yet.'}
+          </p>
+        )}
+        <section class="now" aria-labelledby="overall">
+          <h1 id="overall"><i class="g" data-s={worst} aria-hidden="true"></i>{overall[worst]}</h1>
+          <ul class="counts" aria-label="Checks by state">
+            {counts.map(({ s, n }) => (
+              <li><i class="g" data-s={s} aria-hidden="true"></i><b>{n}</b> {word(s)}</li>
+            ))}
           </ul>
-        </div>
-      </section>
+        </section>
 
-      <section aria-labelledby="inc-h">
-        <div class="label"><h2 id="inc-h">incidents</h2><span>last 90 days</span></div>
-        {data.incidents.length ? (
-          <ol class="panel log">
-            {data.incidents.map((i) => (
-              <li data-open={i.resolved ? undefined : ''} data-done={i.resolved ? '' : undefined}>
-                <time datetime={i.started}>{fmtDateTime(i.started)}</time>
-                <span class="state"><i class="g" data-s={sevWord[i.severity]} aria-hidden="true"></i>{sevWord[i.severity]}</span>
-                <div class="what">
-                  <h3>{i.title}</h3>
-                  {i.bodyHtml && <div class="body" set:html={i.bodyHtml} />}
-                  <p class="on">{i.checks.join(', ')}{i.kind === 'auto' && <span class="tag">auto</span>}</p>
-                </div>
-                <span class="dur">{i.resolved ? `resolved · ${dur(i.started, i.resolved)}` : `ongoing · ${ago(i.started)}`}</span>
-              </li>
-            ))}
-          </ol>
-        ) : <p class="panel empty">No incidents in the last 90 days.</p>}
-      </section>
+        <section aria-labelledby="checks-h">
+          <div class="label">
+            <h2 id="checks-h">checks <span>{checks.length}</span></h2>
+            <span class="ph" aria-hidden="true"><i data-l="minor">▄</i> minor <i data-l="major">█</i> major <i data-l="none">▁</i> no data · 90 days → today</span>
+          </div>
+          <div class="panel">
+            <div class="row head" aria-hidden="true">
+              <span>name</span><span>state</span><span>90 days</span><span>24h latency</span><span class="r">uptime</span><span class="r">p95</span>
+            </div>
+            <ul class="checks">
+              {checks.map((c) => {
+                const paths = sparkPaths(c);
+                const levels = c.days.map(dayLevel);
+                const problems = c.days
+                  .map((d, i) => ({ d, i, l: levels[i] }))
+                  .filter((x) => x.l === 'minor' || x.l === 'major')
+                  .reverse();
+                const none = levels.filter((l) => l === 'none').length;
+                const stripLabel = `Last 90 days: ${problems.length ? `${problems.length} with disruption` : 'no disruption'}${none ? `, ${none} without data` : ''}.`;
+                const strip = (
+                  <span class="days" role="img" aria-label={stripLabel}>
+                    {levels.map((l) => <span class="d" data-l={l}></span>)}
+                  </span>
+                );
+                return (
+                  <li class="row" data-s={c.status}>
+                    <h3 class="name">{c.name}</h3>
+                    <span class="state"><i class="g" data-s={c.status} aria-hidden="true"></i>{word(c.status)}<span class="for"> · {ago(c.since)}</span><span class="up90"> · {fmtPct(c.uptime90)}</span></span>
+                    {problems.length ? (
+                      <details class="hist">
+                        <summary>{strip}</summary>
+                        <ul class="probs">
+                          {problems.map(({ d, i, l }) => (
+                            <li data-l={l}><span>{dayLabel(now, i)}</span><span>{fmtPct(d)}</span><span>{l}</span></li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : (
+                      <div class="hist">{strip}</div>
+                    )}
+                    <div class="spark">
+                      {paths.length ? (
+                        <svg viewBox={`0 0 ${SW} ${SH}`} preserveAspectRatio="none" role="img" aria-label={spark(c).summary}>
+                          {paths.map((p) => <path d={p} />)}
+                        </svg>
+                      ) : (
+                        <span class="nil">no data</span>
+                      )}
+                    </div>
+                    <dl class="fig">
+                      <div><dt>uptime</dt><dd>{fmtPct(c.uptime90)}</dd></div>
+                      <div><dt>p95</dt><dd>{c.p95 === null ? 'n/a' : <>{c.p95}<small> ms</small></>}</dd></div>
+                    </dl>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </section>
 
-      <section aria-labelledby="maint-h">
-        <div class="label"><h2 id="maint-h">maintenance</h2><span>scheduled</span></div>
-        {data.maintenance.length ? (
-          <ol class="panel log">
-            {data.maintenance.map((m) => (
-              <li>
-                <time datetime={m.starts}>{fmtDateTime(m.starts)}</time>
-                <span class="state"><i class="g" data-s="maintenance" aria-hidden="true"></i>planned</span>
-                <div class="what">
-                  <h3>{m.title}</h3>
-                  {m.bodyHtml && <div class="body" set:html={m.bodyHtml} />}
-                  <p class="on">{m.checks.join(', ')}</p>
-                </div>
-                <span class="dur">{dur(m.starts, m.ends)}</span>
-              </li>
-            ))}
-          </ol>
-        ) : <p class="panel empty">Nothing scheduled.</p>}
-      </section>
-    </main>
+        <section aria-labelledby="inc-h">
+          <div class="label"><h2 id="inc-h">incidents</h2><span>last 90 days</span></div>
+          {incidents.length ? (
+            <ol class="panel log">
+              {incidents.map((i) => (
+                <li data-open={i.resolved ? undefined : ''} data-done={i.resolved ? '' : undefined}>
+                  <time datetime={i.started}>{fmtDateTime(i.started)}</time>
+                  <span class="state"><i class="g" data-s={sevWord[i.severity]} aria-hidden="true"></i>{sevWord[i.severity]}</span>
+                  <div class="what">
+                    <h3>{i.title}</h3>
+                    {i.bodyHtml && <div class="body" set:html={i.bodyHtml} />}
+                    <p class="on">{i.checks.join(', ')}{i.kind === 'auto' && <span class="tag">auto</span>}</p>
+                  </div>
+                  <span class="dur">{i.resolved ? `resolved · ${dur(i.started, i.resolved)}` : `ongoing · ${ago(i.started)}`}</span>
+                </li>
+              ))}
+            </ol>
+          ) : <p class="panel empty">No incidents in the last 90 days.</p>}
+        </section>
+
+        <section aria-labelledby="maint-h">
+          <div class="label"><h2 id="maint-h">maintenance</h2><span>scheduled</span></div>
+          {maintenance.length ? (
+            <ol class="panel log">
+              {maintenance.map((m) => (
+                <li>
+                  <time datetime={m.starts}>{fmtDateTime(m.starts)}</time>
+                  <span class="state"><i class="g" data-s="maintenance" aria-hidden="true"></i>planned</span>
+                  <div class="what">
+                    <h3>{m.title}</h3>
+                    {m.bodyHtml && <div class="body" set:html={m.bodyHtml} />}
+                    <p class="on">{m.checks.join(', ')}</p>
+                  </div>
+                  <span class="dur">{dur(m.starts, m.ends)}</span>
+                </li>
+              ))}
+            </ol>
+          ) : <p class="panel empty">Nothing scheduled.</p>}
+        </section>
+      </main>
+    ) : (
+      <main class="in"><p class="panel empty" role="alert">status unavailable</p></main>
+    )}
   </body>
 </html>

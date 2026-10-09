@@ -11,7 +11,7 @@ export default defineConfig({
 		}),
 	],
 	test: {
-		include: ["tools/**/*.test.ts", "prober/test/**/*.test.ts"],
+		include: ["tools/**/*.test.ts", "prober/test/**/*.test.ts", "page/test/**/*.test.ts"],
 		setupFiles: ["./prober/test/setup.ts"],
 	},
 });

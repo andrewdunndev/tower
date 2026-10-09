@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "typecheck": "astro check"
+    "typecheck": "wrangler types -c wrangler.jsonc -c ../prober/wrangler.jsonc && astro check"
   },
   "dependencies": {
     "@astrojs/cloudflare": "14.3.4",

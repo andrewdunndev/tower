@@ -1,4 +1,15 @@
-import type { CheckStatus, Status } from './fixtures';
+import type { StatusResponse } from '../../prober/src/status.ts';
+
+export type { StatusResponse };
+export type CheckStatus = StatusResponse['checks'][number];
+export interface Maintenance {
+  title: string;
+  checks: string[];
+  starts: string;
+  ends: string;
+  bodyHtml: string | null;
+}
+export type Status = CheckStatus['status'] | 'maintenance';
 
 export const statusLabel: Record<Status, string> = {
   up: 'Operational',

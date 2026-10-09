@@ -19,7 +19,7 @@
 			"json": { "path": "data.status", "equals": "ok" }
 		},
 		{ "id": "ssh", "type": "tcp", "name": "SSH", "host": "ssh.example.com", "port": 22 },
-		{ "id": "dns", "type": "dns", "name": "DNS", "query": "www.example.com", "record": "A" },
+		{ "id": "resolver", "type": "dns", "name": "DNS", "query": "www.example.com", "record": "A" },
 		{ "id": "cert", "type": "tls", "name": "Certificate", "host": "www.example.com", "zone": "example.com" },
 		{
 			"id": "backup",
