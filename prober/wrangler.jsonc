@@ -1,0 +1,10 @@
+{
+	"name": "tower-prober",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-01",
+	"workers_dev": false,
+	"preview_urls": false,
+	"triggers": { "crons": ["* * * * *"] },
+	"d1_databases": [{ "binding": "DB", "database_name": "tower", "migrations_dir": "migrations" }],
+	"send_email": [{ "name": "EMAIL" }]
+}
