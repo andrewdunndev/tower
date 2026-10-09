@@ -40,6 +40,10 @@ describe("heartbeat deadlines", () => {
 		expect(await state()).toEqual([{ avail: 0 }]);
 		expect(await all("SELECT reason FROM state")).toEqual([{ reason: "heartbeat missed its deadline" }]);
 		expect(box.sends).toBe(1);
+		await tick(runEnv, config, T0 + DEADLINE + 2 * MINUTE);
+		await tick(runEnv, config, T0 + DEADLINE + 3 * MINUTE);
+		expect(await state()).toEqual([{ avail: 0 }]);
+		expect(box.sends).toBe(1);
 	});
 
 	it("measures the deadline from the last ok beat", async () => {

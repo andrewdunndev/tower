@@ -1,30 +1,29 @@
-import type { Instance } from "../../tools/schema.ts";
+import type { Check, Instance } from "../../tools/schema.ts";
 
-interface Incident {
-	kind: "auto";
-	title: string;
-	checks: string[];
-	severity: "down";
-	started: string;
-	resolved: string | null;
-	bodyHtml: null;
-}
-
+const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 const BUCKET_MS = 300_000;
 const POINTS = 288;
-const DAYS = 90;
+export const DAYS = 90;
 
 const iso = (t: number) => new Date(t).toISOString();
 
-export const inWindow = (config: Instance, id: string, t: number) =>
-	config.maintenance.some((w) => w.checks.includes(id) && Date.parse(w.start) <= t && t < Date.parse(w.end));
+export const interval = (c: Check) => (c.type === "heartbeat" ? MINUTE_MS : c.every);
+
+const windowEnd = (config: Instance, id: string, t: number): number | null => {
+	const ends = config.maintenance
+		.filter((w) => w.checks.includes(id) && Date.parse(w.start) <= t && t < Date.parse(w.end))
+		.map((w) => Date.parse(w.end));
+	return ends.length ? Math.max(...ends) : null;
+};
+
+export const inWindow = (config: Instance, id: string, t: number) => windowEnd(config, id, t) !== null;
 
 export async function status(db: D1Database, config: Instance, now: number) {
 	const firstDay = iso(now - (DAYS - 1) * DAY_MS).slice(0, 10);
 	const firstBucket = Math.floor(now / BUCKET_MS) * BUCKET_MS - (POINTS - 1) * BUCKET_MS;
 	const sets = await db.batch([
-		db.prepare(`SELECT "check", avail, degraded, config_error, since, last_ok, last_run FROM state`),
+		db.prepare(`SELECT "check", avail, degraded, config_error, since, last_conclusive, last_run FROM state`),
 		db.prepare(`SELECT "check", day, runs, down FROM daily WHERE day >= ?1`).bind(firstDay),
 		db
 			.prepare(
@@ -54,7 +53,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 			degraded: number;
 			config_error: number;
 			since: number;
-			last_ok: number | null;
+			last_conclusive: number | null;
 			last_run: number | null;
 		}[],
 		{ check: string; day: string; runs: number; down: number }[],
@@ -73,7 +72,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 
 	const all = config.checks.map((check) => {
 		const state = stateOf.get(check.id);
-		const stale = state?.last_ok == null || now - state.last_ok > 3 * check.every;
+		const stale = state?.last_conclusive == null || now - state.last_conclusive > 3 * interval(check);
 		const level = inWindow(config, check.id, now)
 			? "maintenance"
 			: state?.config_error
@@ -115,27 +114,30 @@ export async function status(db: D1Database, config: Instance, now: number) {
 			};
 		});
 
-	const incidents: Incident[] = [];
+	const incidents: { checks: string[]; started: string; resolved: string | null }[] = [];
 	for (const { check } of all.filter(({ check }) => check.public)) {
-		let open: Incident | undefined;
+		const incident = (from: number, to: number | null) => ({
+			checks: [check.name],
+			started: iso(from),
+			resolved: to === null ? null : iso(to),
+		});
+		let open: ReturnType<typeof incident> | undefined;
+		let held: number | null = null;
 		for (const e of eventsOf.get(check.id) ?? []) {
-			if (e.to === "down" && !open) {
-				if (inWindow(config, check.id, e.at)) continue;
-				open = {
-					kind: "auto",
-					title: `${check.name} is not responding`,
-					checks: [check.name],
-					severity: "down",
-					started: iso(e.at),
-					resolved: null,
-					bodyHtml: null,
-				};
-				incidents.push(open);
-			} else if (e.to === "up" && open) {
-				open.resolved = iso(e.at);
+			if (e.to === "down" && !open && held === null) {
+				held = windowEnd(config, check.id, e.at);
+				if (held === null) {
+					open = incident(e.at, null);
+					incidents.push(open);
+				}
+			} else if (e.to === "up") {
+				if (open) open.resolved = iso(e.at);
+				else if (held !== null && e.at > held) incidents.push(incident(held, e.at));
 				open = undefined;
+				held = null;
 			}
 		}
+		if (held !== null && held <= now) incidents.push(incident(held, null));
 	}
 	incidents.sort((a, b) => b.started.localeCompare(a.started));
 
@@ -161,7 +163,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		last_run: lastRun ? iso(lastRun) : null,
 		outbox_oldest_unsent_at: queue.oldest === null ? null : iso(queue.oldest),
 		dead_outbox: queue.dead,
-		stuck: all.filter(({ stale }) => stale).length,
+		stuck: all.filter(({ check, stale }) => check.public && stale).length,
 	};
 }
 

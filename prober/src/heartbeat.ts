@@ -36,12 +36,18 @@ export async function recordBeat(
 	return new Response(null, { status: 204 });
 }
 
-export async function judgeBeat(db: D1Database, c: HeartbeatCheck, now: number, since: number): Promise<Outcome> {
+export async function judgeBeat(
+	db: D1Database,
+	c: HeartbeatCheck,
+	now: number,
+	state: { avail: number; since: number },
+): Promise<Outcome> {
 	const row = await db
 		.prepare(`SELECT at, ok FROM beats WHERE "check" = ?1`)
 		.bind(c.id)
 		.first<{ at: number; ok: number }>();
-	const beat = row ?? { at: since, ok: 1 };
+	if (!row && state.avail === 0) return { verdict: "down", reason: "heartbeat missed its deadline" };
+	const beat = row ?? { at: state.since, ok: 1 };
 	if (beat.ok === 0) return { verdict: "down", reason: "heartbeat reported failure" };
 	if (now > beat.at + c.every + c.grace) return { verdict: "down", reason: "heartbeat missed its deadline" };
 	return { verdict: "ok", reason: null };

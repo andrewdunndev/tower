@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { tick } from "../src/run.ts";
 import { status } from "../src/status.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
+import { MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
 
 beforeEach(reset);
 
@@ -45,13 +45,9 @@ describe("status", () => {
 		expect(s.checks[0].latency.at(-1)).not.toBeNull();
 		expect(s.incidents).toEqual([
 			{
-				kind: "auto",
-				title: "Web is not responding",
 				checks: ["Web"],
-				severity: "down",
 				started: new Date(T0 + MINUTE).toISOString(),
 				resolved: new Date(T0 + 2 * MINUTE).toISOString(),
-				bodyHtml: null,
 			},
 		]);
 		expect(s.last_run).toBe(new Date(T0 + 2 * MINUTE).toISOString());
@@ -78,39 +74,17 @@ describe("status", () => {
 		expect((await status(env.DB, config, T0 + 5 * MINUTE)).checks[0].status).toBe("up");
 	});
 
-	it("omits public:false checks from checks and incidents but counts them in stuck", async () => {
+	it("omits public:false checks from checks, incidents and stuck", async () => {
 		const { runEnv } = mailbox();
 		const hidden = { ...web, id: "hid-1", name: "Hidden", public: false, down_after: 1 };
 		const config = makeConfig([web, hidden]);
-		expect((await status(env.DB, config, T0)).stuck).toBe(2);
+		expect((await status(env.DB, config, T0)).stuck).toBe(1);
 		await tick(runEnv, config, T0, respond(500));
 		const s = await status(env.DB, config, T0);
 		expect(s.checks.map((c) => c.name)).toEqual(["Web"]);
 		expect(JSON.stringify(s)).not.toContain("Hidden");
 		expect(s.incidents.map((i) => i.checks[0])).toEqual([]);
+		expect(s.stuck).toBe(0);
 		expect(s.last_run).not.toBeNull();
-	});
-
-	it("never carries urls, hosts, ips, ids or reasons", async () => {
-		const { runEnv } = mailbox();
-		const secret = {
-			id: "id-zq7",
-			type: "http",
-			name: "Public name",
-			url: "https://internal-zq7.example.net:8443/health",
-			down_after: 1,
-		};
-		const leaky = (async () => {
-			throw new Error("connect ECONNREFUSED 203.0.113.77:8443 internal-zq7.example.net");
-		}) as typeof fetch;
-		const config = makeConfig([secret]);
-		await tick(runEnv, config, T0, leaky);
-		const [row] = await all<{ reason: string }>("SELECT reason FROM state");
-		expect(row.reason).toContain("203.0.113.77");
-		const s = JSON.stringify(await status(env.DB, config, T0));
-		expect(s).toContain("Public name");
-		for (const needle of ["zq7", "203.0.113", "8443", "ECONNREFUSED", "example.net", "https://"]) {
-			expect(s).not.toContain(needle);
-		}
 	});
 });

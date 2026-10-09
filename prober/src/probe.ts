@@ -20,16 +20,14 @@ export interface Deps {
 	now: number;
 }
 
-export async function probe(check: Exclude<Check, { type: "heartbeat" }>, d: Deps): Promise<Outcome> {
+export function probe(check: Exclude<Check, { type: "heartbeat" }>, d: Deps): Promise<Outcome> {
 	switch (check.type) {
-		case "http": {
-			const reason = await probeHttp(check, d.timeoutMs, d.fetch);
-			return reason === null ? { verdict: "ok", reason: null } : { verdict: "down", reason };
-		}
+		case "http":
+			return probeHttp(check, d);
 		case "tcp":
-			return probeTcp(check, d.timeoutMs, d.connect);
+			return probeTcp(check, d);
 		case "dns":
-			return probeDns(check, d.timeoutMs, d.fetch);
+			return probeDns(check, d);
 		case "tls":
 			return probeTls(check, d);
 	}

@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { z } from "zod";
-import { instanceSchema, type Note, noteSchema } from "./schema.ts";
+import { instanceSchema, type Note, noteSchema, publicNote, unknownIds } from "./schema.ts";
 
 const root = join(import.meta.dirname, "..");
 const instance = process.argv[2];
@@ -54,6 +54,9 @@ for (const f of notes) {
 	if (r.success) parsedNotes.push({ file: f, note: r.data, body });
 	else report(`notes/${f}`, r.error.issues);
 }
+if (parsed.success) {
+	for (const { file, note } of parsedNotes) errors.push(...unknownIds(file, note, parsed.data.checks));
+}
 
 if (errors.length || !parsed.success) {
 	console.error(errors.join("\n"));
@@ -70,9 +73,9 @@ const maintenance = parsedNotes.flatMap(({ note }) =>
 );
 writeFileSync(join(out, "tower.json"), `${JSON.stringify({ ...parsed.data, maintenance }, null, "\t")}\n`);
 // The page gets check names, never ids, and only for public checks.
-const names = new Map(parsed.data.checks.filter((c) => c.public).map((c) => [c.id, c.name]));
 for (const { file, note, body } of parsedNotes) {
-	const shown = { ...note, checks: note.checks.flatMap((id) => names.get(id) ?? []) };
+	const shown = publicNote(note, parsed.data.checks);
+	if (!shown) continue;
 	const head = Object.entries(shown).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
 	writeFileSync(join(out, "notes", file), `---\n${head.join("\n")}\n---\n${body}`);
 }

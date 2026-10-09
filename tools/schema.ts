@@ -40,12 +40,16 @@ const common = {
 	id,
 	name: z.string().min(1, "name: required."),
 	public: z.boolean().default(true),
+};
+
+const limits = {
 	down_after: z.number().int().min(1, "down_after: use a whole number of 1 or more.").default(3),
 	up_after: z.number().int().min(1, "up_after: use a whole number of 1 or more.").default(2),
 };
 
 const http = z.object({
 	...common,
+	...limits,
 	type: z.literal("http"),
 	every: duration.default(60_000),
 	url: z
@@ -72,6 +76,7 @@ const http = z.object({
 
 const tcp = z.object({
 	...common,
+	...limits,
 	type: z.literal("tcp"),
 	every: duration.default(60_000),
 	host,
@@ -85,6 +90,7 @@ const tcp = z.object({
 
 const dns = z.object({
 	...common,
+	...limits,
 	type: z.literal("dns"),
 	every: duration.default(60_000),
 	query: z.string().min(1, "query: required, the DNS name to resolve."),
@@ -94,6 +100,7 @@ const dns = z.object({
 
 const tls = z.object({
 	...common,
+	...limits,
 	type: z.literal("tls"),
 	every: duration.default(3_600_000),
 	host: z.string().min(1, "host: required."),
@@ -132,7 +139,6 @@ export const instanceSchema = z
 			from: z.email("alert.from: use an email address."),
 			to: z.email("alert.to: use an email address."),
 		}),
-		history_days: z.number().int().min(1).max(365).default(90),
 		timeout_ms: z.number().int().min(1000).max(30000).default(10000),
 		checks: z.array(check).min(1, "checks: list at least one check."),
 	})
@@ -185,3 +191,17 @@ export type Instance = z.output<typeof instanceSchema> & {
 };
 export type Check = Instance["checks"][number];
 export type Note = z.output<typeof noteSchema>;
+
+const unknownId = (file: string, id: string) =>
+	`notes/${file}: checks: unknown id "${id}": use a check id from tower.json`;
+
+export function unknownIds(file: string, note: Note, checks: Check[]): string[] {
+	return note.checks.filter((id) => !checks.some((c) => c.id === id)).map((id) => unknownId(file, id));
+}
+
+/** The page's view of a note: check names for public checks only; null when every named check is private. */
+export function publicNote(note: Note, checks: Check[]): Note | null {
+	const names = new Map(checks.filter((c) => c.public).map((c) => [c.id, c.name]));
+	const shown = note.checks.flatMap((id) => names.get(id) ?? []);
+	return note.checks.length > 0 && shown.length === 0 ? null : { ...note, checks: shown };
+}

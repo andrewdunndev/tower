@@ -65,7 +65,7 @@ tower cannot report its own death. Poll `/api/status` from outside and alert whe
 - `last_run` is more than three minutes old;
 - `outbox_oldest_unsent_at` is not null and older than a few minutes;
 - `dead_outbox` is above 0 (alerts that gave up);
-- `stuck` is above 0 (checks with no success inside three intervals).
+- `stuck` is above 0 (public checks with no conclusive run inside three intervals).
 
 ## Update
 

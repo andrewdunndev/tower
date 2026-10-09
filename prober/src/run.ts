@@ -3,7 +3,7 @@ import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { message, type Pending, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
-import { inWindow } from "./status.ts";
+import { DAYS, interval, inWindow } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & { EMAIL: Pick<SendEmail, "send">; CF_API_TOKEN?: string };
 
@@ -26,10 +26,8 @@ interface StateRow {
 }
 
 const TIMED = new Set<Check["type"]>(["http", "tcp", "dns"]);
-const interval = (c: Check) => (c.type === "heartbeat" ? MINUTE_MS : c.every);
 
 const SKEW_MS = 2000;
-const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 const CONCURRENCY = 6;
 const MAX_ATTEMPTS = 10;
@@ -70,19 +68,19 @@ async function pool<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>)
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)];
 
 async function claim(db: D1Database, config: Instance, t: number) {
-	const seeds = config.checks.flatMap((c) => [
+	const seeds = config.checks.map((c) =>
 		db
 			.prepare(
 				`INSERT OR IGNORE INTO state ("check", avail, degraded, fails, passes, since, slot) VALUES (?1, 1, 0, 0, 0, ?2, -1)`,
 			)
 			.bind(c.id, t),
-	]);
+	);
 	const claims = config.checks.map((c) =>
 		db
 			.prepare(
 				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, degraded, fails, passes, since, slot, mailed`,
 			)
-			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c))),
+			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c)) * interval(c)),
 	);
 	const results = await db.batch<StateRow>([...seeds, ...claims]);
 	return config.checks.flatMap((check, i) => {
@@ -104,7 +102,7 @@ export async function tick(
 		const started = Date.now();
 		const outcome: Outcome =
 			check.type === "heartbeat"
-				? await judgeBeat(env.DB, check, t, row.since)
+				? await judgeBeat(env.DB, check, t, row)
 				: await probe(check, {
 						db: env.DB,
 						fetch: doFetch,
@@ -131,7 +129,7 @@ export async function tick(
 	for (const [i, { check, row, outcome, ms }] of ran.entries()) {
 		const conclusive = outcome.verdict === "ok" || outcome.verdict === "down";
 		const before = { avail: row.avail === 1, fails: row.fails, passes: row.passes, since: row.since };
-		const limits = check.type === "heartbeat" ? { down_after: 1, up_after: 1 } : check;
+		const limits = "down_after" in check ? check : { down_after: 1, up_after: 1 };
 		const { next, transition } = conclusive
 			? step(before, outcome.verdict === "ok", t, limits)
 			: { next: before, transition: null };
@@ -145,7 +143,7 @@ export async function tick(
 		const current = `EXISTS (SELECT 1 FROM state WHERE "check" = ?1 AND slot = ?2)`;
 		writes.push(
 			env.DB.prepare(
-				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_ok = COALESCE(?8, last_ok), last_run = ?9, reason = ?10, config_error = ?11, mailed = ?12 WHERE "check" = ?1 AND slot = ?2`,
+				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_conclusive = COALESCE(?8, last_conclusive), last_run = ?9, reason = ?10, config_error = ?11, mailed = ?12 WHERE "check" = ?1 AND slot = ?2`,
 			).bind(
 				check.id,
 				row.slot,
@@ -206,7 +204,7 @@ export async function tick(
 
 function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
 	const ids = JSON.stringify(config.checks.map((c) => c.id));
-	const cutoff = t - config.history_days * DAY_MS;
+	const cutoff = t - DAYS * DAY_MS;
 	return [
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
 		db.prepare(`DELETE FROM daily WHERE day < ?1`).bind(new Date(cutoff).toISOString().slice(0, 10)),
@@ -219,20 +217,33 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 
 async function drain(env: RunEnv, config: Instance) {
 	const { results } = await env.DB.prepare(
-		`SELECT "check", at, kind, since, reason FROM outbox WHERE dead = 0 ORDER BY at`,
-	).all<Pending & { check: string }>();
+		`SELECT rowid, "check", at, kind, since, reason, attempts FROM outbox WHERE dead = 0 ORDER BY at`,
+	).all<Pending & { rowid: number; check: string; attempts: number }>();
 	const byCheck = Map.groupBy(results, (r) => r.check);
 	for (const [id, rows] of byCheck) {
 		const check = config.checks.find((c) => c.id === id);
 		if (!check) continue;
 		const latest = rows[rows.length - 1];
+		// Bumping attempts only where it still holds the value read makes the claim exclusive to one overlapping tick.
+		const [claim] = await env.DB.batch([
+			env.DB.prepare(`UPDATE outbox SET attempts = attempts + 1 WHERE rowid = ?1 AND attempts = ?2 AND dead = 0`).bind(
+				latest.rowid,
+				latest.attempts,
+			),
+			env.DB.prepare(
+				`UPDATE outbox SET attempts = attempts + 1 WHERE "check" = ?1 AND dead = 0 AND at <= ?2 AND rowid <> ?3 AND changes() > 0`,
+			).bind(id, latest.at, latest.rowid),
+		]);
+		if (claim.meta.changes === 0) continue;
 		const [subject, text] = message(check, latest);
 		const sent = await sendMail(env.EMAIL, config.alert, subject, text);
 		const update = sent
 			? env.DB.prepare(`DELETE FROM outbox WHERE "check" = ?1 AND dead = 0 AND at <= ?2`).bind(id, latest.at)
-			: env.DB.prepare(
-					`UPDATE outbox SET attempts = attempts + 1, dead = attempts + 1 >= ?3 WHERE "check" = ?1 AND dead = 0 AND at <= ?2`,
-				).bind(id, latest.at, MAX_ATTEMPTS);
+			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?3 WHERE "check" = ?1 AND dead = 0 AND at <= ?2`).bind(
+					id,
+					latest.at,
+					MAX_ATTEMPTS,
+				);
 		await update.run();
 	}
 }

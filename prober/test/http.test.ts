@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { hint, probeHttp } from "../src/http.ts";
 import { message } from "../src/mail.ts";
+import type { Deps } from "../src/probe.ts";
 import { makeConfig, respond, web } from "./util.ts";
 
 const check = (extra: object = {}) => makeConfig([{ ...web, ...extra }]).checks[0] as Parameters<typeof probeHttp>[0];
-const probe = (extra: object, doFetch: typeof fetch) => probeHttp(check(extra), 1000, doFetch);
+const run = async (extra: object, doFetch: typeof fetch, timeoutMs = 1000) =>
+	(await probeHttp(check(extra), { fetch: doFetch, timeoutMs } as Deps)).reason;
+const probe = (extra: object, doFetch: typeof fetch) => run(extra, doFetch);
 
 describe("tunnel classifier", () => {
 	it("reads 530 with error 1033 as a dead tunnel connector", async () => {
@@ -77,7 +80,7 @@ describe("http probe", () => {
 			new Promise((_, reject) =>
 				init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
 			)) as unknown as typeof fetch;
-		expect(await probeHttp(check(), 20, hang)).toBe("timeout");
+		expect(await run({}, hang, 20)).toBe("timeout");
 		const refuse = async () => {
 			throw new Error("connection refused");
 		};

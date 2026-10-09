@@ -1,5 +1,5 @@
 import type { Check } from "../../tools/schema.ts";
-import type { Outcome } from "./probe.ts";
+import type { Deps, Outcome } from "./probe.ts";
 
 const TYPES = { A: 1, NS: 2, CNAME: 5, MX: 15, TXT: 16, AAAA: 28 } as const;
 
@@ -10,17 +10,13 @@ interface Doh {
 
 const normal = (s: string) => s.replace(/^"|"$/g, "").replace(/\.$/, "").toLowerCase();
 
-export async function probeDns(
-	c: Extract<Check, { type: "dns" }>,
-	timeoutMs: number,
-	doFetch: typeof fetch,
-): Promise<Outcome> {
+export async function probeDns(c: Extract<Check, { type: "dns" }>, d: Deps): Promise<Outcome> {
 	let doh: Doh;
 	try {
 		const url = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(c.query)}&type=${c.record}`;
-		const res = await doFetch(url, {
+		const res = await d.fetch(url, {
 			headers: { accept: "application/dns-json" },
-			signal: AbortSignal.timeout(timeoutMs),
+			signal: AbortSignal.timeout(d.timeoutMs),
 		});
 		if (!res.ok) return { verdict: "inconclusive", reason: `resolver HTTP ${res.status}` };
 		doh = await res.json();

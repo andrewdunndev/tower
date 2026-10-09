@@ -9,7 +9,6 @@
 		"test": "vitest run",
 		"lint": "biome check",
 		"typecheck": "npm run typecheck -w prober && npm run typecheck -w page && tsc -p tools",
-		"stage": "node tools/stage.ts",
 		"deploy": "node tools/deploy.ts"
 	},
 	"devDependencies": {

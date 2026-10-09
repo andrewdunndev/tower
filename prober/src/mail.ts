@@ -43,7 +43,7 @@ export function message(check: Check, p: Pending): [subject: string, text: strin
 	];
 }
 
-function mime(from: string, to: string, subject: string, text: string): string {
+export function mime(from: string, to: string, subject: string, text: string): string {
 	const domain = line(from).split("@").pop();
 	return [
 		`From: ${line(from)}`,
@@ -55,7 +55,7 @@ function mime(from: string, to: string, subject: string, text: string): string {
 		"Content-Type: text/plain; charset=us-ascii",
 		"Content-Transfer-Encoding: 7bit",
 		"",
-		ascii(text).replace(/\r?\n/g, "\r\n"),
+		text.replace(/[^\x20-\x7e\n]/g, "?").replace(/\n/g, "\r\n"),
 	].join("\r\n");
 }
 

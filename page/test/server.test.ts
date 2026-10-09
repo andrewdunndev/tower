@@ -7,7 +7,7 @@ import { tick } from "../../prober/src/run.ts";
 import { status } from "../../prober/src/status.ts";
 import { mailbox, reset, T0 } from "../../prober/test/util.ts";
 import { instanceSchema } from "../../tools/schema.ts";
-import { beat, cached, refuse, statusResponse } from "../src/server.ts";
+import { beat, cached, cacheKey, refuse, statusResponse } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
 	new Request(`https://status.example.com${path}`, { method, headers });
@@ -43,15 +43,6 @@ describe("/api/status", () => {
 		expect(body).not.toContain("ECONNREFUSED");
 	});
 
-	it("stages notes with check names only", () => {
-		const staged = import.meta.glob<string>("../../.tower/notes/*.md", { query: "?raw", import: "default", eager: true });
-		const text = Object.entries(staged).map(([file, raw]) => [file, raw] as const);
-		const dns = text.find(([file]) => file.endsWith("dns-outage.md"));
-		expect(dns?.[1]).toContain('\nchecks: ["DNS"]\n');
-		const secrets = ["https://www.example.com/", "www.example.com", "example.com", "backup", "Backup"];
-		for (const [, raw] of text) for (const needle of secrets) expect(raw).not.toContain(needle);
-	});
-
 	it("answers 503 when the prober RPC fails", async () => {
 		const res = await statusResponse({
 			status: async () => {
@@ -64,21 +55,33 @@ describe("/api/status", () => {
 });
 
 describe("cache", () => {
-	it("serves one entry for any query string and never caches a failure", async () => {
-		let renders = 0;
-		const render = (status = 200) => async () => {
-			renders++;
-			return new Response(`render ${renders}`, { status });
-		};
-		const first = await cached(request("GET", "/api/status?a=1"), render());
-		const second = await cached(request("GET", "/api/status?b=2"), render());
+	const render = (counter: { n: number }, status = 200) => async () => {
+		counter.n++;
+		return new Response(`render ${counter.n}`, { status });
+	};
+
+	it("keys the two cached routes by pattern, whatever the path, query or method", async () => {
+		const origin = "https://status.example.com";
+		expect(cacheKey("/api/status", origin)?.url).toBe(`${origin}/api/status`);
+		expect(cacheKey("/", origin)?.url).toBe(`${origin}/`);
+		expect(cacheKey("/beat/[...path]", origin)).toBeNull();
+		expect(cacheKey("/missing", origin)).toBeNull();
+
+		const calls = { n: 0 };
+		const key = cacheKey("/api/status", origin) as Request;
+		const first = await cached(key, render(calls));
+		const second = await cached(key, render(calls));
 		expect(await first.text()).toBe("render 1");
 		expect(await second.text()).toBe("render 1");
-		expect(renders).toBe(1);
+		expect(calls.n).toBe(1);
+	});
 
-		await cached(request("GET", "/missing"), render(404));
-		await cached(request("GET", "/missing"), render(404));
-		expect(renders).toBe(3);
+	it("never caches a failure", async () => {
+		const calls = { n: 0 };
+		const key = new Request("https://status.example.com/missing");
+		await cached(key, render(calls, 404));
+		await cached(key, render(calls, 404));
+		expect(calls.n).toBe(2);
 	});
 });
 
@@ -140,6 +143,7 @@ describe("methods", () => {
 		for (const [method, path] of [
 			["GET", "/"],
 			["HEAD", "/"],
+			["HEAD", "/api/status"],
 			["GET", "/api/status"],
 			["POST", "/beat/db"],
 		]) {

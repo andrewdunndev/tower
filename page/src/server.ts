@@ -1,6 +1,7 @@
 import type { StatusResponse } from './lib.ts';
 
 const CACHE_SECONDS = 30;
+const CACHED_ROUTES = ['/', '/api/status'];
 const BEAT_PATH = /^\/beat\/([^/]+)(\/fail)?$/;
 
 type Tower = {
@@ -29,10 +30,12 @@ export function refuse(request: Request): Response | null {
   return new Response(null, { status: 405, headers: { Allow: allowed.join(', ') } });
 }
 
-export async function cached(request: Request, render: () => Promise<Response>): Promise<Response> {
-  const url = new URL(request.url);
-  url.search = '';
-  const key = new Request(url);
+// One fixed key per route: neither the request path nor its method can mint another cache entry.
+export function cacheKey(routePattern: string, origin: string): Request | null {
+  return CACHED_ROUTES.includes(routePattern) ? new Request(new URL(routePattern, origin)) : null;
+}
+
+export async function cached(key: Request, render: () => Promise<Response>): Promise<Response> {
   const cache = await caches.open('tower');
   const hit = await cache.match(key);
   if (hit) return hit;

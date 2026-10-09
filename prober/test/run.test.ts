@@ -33,6 +33,18 @@ describe("slot claims", () => {
 		expect(calls.n).toBe(3);
 	});
 
+	it("runs at the next boundary after every is lengthened", async () => {
+		const { runEnv } = mailbox();
+		const { calls, fetch } = counting();
+		await tick(runEnv, makeConfig(), T0, fetch);
+		await tick(runEnv, makeConfig(), T0 + MINUTE, fetch);
+		const longer = makeConfig([{ ...web, every: "5m" }]);
+		for (const m of [2, 3, 4]) await tick(runEnv, longer, T0 + m * MINUTE, fetch);
+		expect(calls.n).toBe(2);
+		await tick(runEnv, longer, T0 + 5 * MINUTE, fetch);
+		expect(calls.n).toBe(3);
+	});
+
 	it("keeps a superseded run from overwriting newer state", async () => {
 		const { runEnv } = mailbox();
 		const config = makeConfig([{ ...web, down_after: 1 }]);
@@ -169,6 +181,15 @@ describe("outbox", () => {
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 	});
 
+	it("sends once when two ticks drain at the same time", async () => {
+		const { runEnv, box } = mailbox();
+		await env.DB.prepare(
+			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', 1, 'down', 0, 'HTTP 500')`,
+		).run();
+		await Promise.all([tick(runEnv, makeConfig(), T0, respond(200)), tick(runEnv, makeConfig(), T0, respond(200))]);
+		expect(box.sends).toBe(1);
+	});
+
 	it("retries a failed send and marks the row dead after 10 attempts", async () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
@@ -208,17 +229,17 @@ describe("pruning", () => {
 		expect(await all(`SELECT "check" FROM state`)).toEqual([{ check: "web" }]);
 	});
 
-	it("keeps samples for 24 hours and daily rows for history_days", async () => {
+	it("keeps samples for 24 hours and daily rows and events for 90 days", async () => {
 		const { runEnv } = mailbox();
-		const config = makeConfig([web], { history_days: 2 });
+		const config = makeConfig([web]);
 		await tick(runEnv, config, T0, respond(200));
 		await env.DB.prepare(`INSERT INTO events ("check", at, "from", "to") VALUES ('web', ?1, 'up', 'down')`)
 			.bind(T0)
 			.run();
 		await tick(runEnv, config, T0 + 25 * 3_600_000, respond(200));
 		expect(await all("SELECT at FROM samples")).toEqual([{ at: T0 + 25 * 3_600_000 }]);
-		await tick(runEnv, config, T0 + 3 * 86_400_000, respond(200));
-		expect(await all("SELECT day FROM daily")).toEqual([{ day: "2026-10-09" }, { day: "2026-10-11" }]);
+		await tick(runEnv, config, T0 + 91 * 86_400_000, respond(200));
+		expect(await all("SELECT day FROM daily")).toEqual([{ day: "2026-10-09" }, { day: "2027-01-07" }]);
 		expect(await all("SELECT * FROM events")).toEqual([]);
 	});
 });

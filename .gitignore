@@ -6,3 +6,6 @@ node_modules/
 .env.*
 .tower/
 worker-configuration.d.ts
+.dev.log
+dist/
+.astro/

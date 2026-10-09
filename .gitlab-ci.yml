@@ -20,8 +20,7 @@ include:
 
 test:
   stage: test
-  image: quay.io/fedora/fedora:44
+  image: node:24.21.0
   script:
-    - dnf -y -q install nodejs npm
     - npm ci --ignore-scripts
     - npm run check

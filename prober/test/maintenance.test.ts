@@ -85,7 +85,20 @@ describe("maintenance", () => {
 		await tick(runEnv, config, T0, respond(200));
 		await tick(runEnv, config, T0 + MINUTE, respond(500));
 		await tick(runEnv, config, T0 + 5 * MINUTE, respond(500));
-		expect((await status(env.DB, config, T0 + 6 * MINUTE)).incidents).toEqual([]);
+		expect((await status(env.DB, config, T0 + 3 * MINUTE)).incidents).toEqual([]);
+	});
+
+	it("opens one incident at window end when the outage outlasts the window", async () => {
+		const { runEnv } = mailbox();
+		const config = configWith([window()]);
+		await tick(runEnv, config, T0, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 5 * MINUTE, respond(500));
+		const { incidents } = await status(env.DB, config, T0 + 6 * MINUTE);
+		expect(incidents).toEqual([{ checks: ["Web"], started: new Date(T0 + 4 * MINUTE).toISOString(), resolved: null }]);
+		await tick(runEnv, config, T0 + 7 * MINUTE, respond(200));
+		const [healed] = (await status(env.DB, config, T0 + 8 * MINUTE)).incidents;
+		expect(healed.resolved).toBe(new Date(T0 + 7 * MINUTE).toISOString());
 	});
 
 	it("reports maintenance and lists upcoming and open windows by check name", async () => {

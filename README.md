@@ -14,7 +14,7 @@ Shared as-is: no roadmap, no support promise. Design after [herdr.dev](https://h
 
 | Product | Job |
 |---|---|
-| Cron Triggers | run every check each minute |
+| Cron Triggers | run due checks each minute, each on its own `every` |
 | D1 | check history, state, alert outbox and heartbeats |
 | Workers RPC | the page reads status from the prober; no shared storage |
 | Sockets | tcp checks |

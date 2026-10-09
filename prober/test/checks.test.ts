@@ -4,13 +4,22 @@ import { tick } from "../src/run.ts";
 import { status } from "../src/status.ts";
 import { all, MINUTE, mailbox, makeConfig, reset, T0, web } from "./util.ts";
 
-beforeEach(reset);
+beforeEach(async () => {
+	closed = 0;
+	await reset();
+});
 
 const DAY = 86_400_000;
 const strict = { down_after: 1, up_after: 1 };
 
+let closed = 0;
 function socket(opened: Promise<unknown>) {
-	return { opened, close: async () => {} };
+	return {
+		opened,
+		close: async () => {
+			closed++;
+		},
+	};
 }
 const dialing = (open: () => Promise<unknown>) => (() => socket(open())) as unknown as typeof connect;
 const reachable = dialing(async () => ({}));
@@ -40,6 +49,7 @@ describe("tcp", () => {
 		await tick(runEnv, config, T0 + 2 * MINUTE, noFetch, reachable);
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
 		expect(box.sends).toBe(2);
+		expect(closed).toBe(3);
 	});
 
 	it("fails a connection that never opens at the timeout", async () => {
@@ -97,8 +107,8 @@ describe("dns", () => {
 		await tick(runEnv, config, T0, resolver(answer));
 		const failing = [noFetch, resolver(503), (async () => new Response("<html>", { status: 200 })) as typeof fetch];
 		for (const [i, f] of failing.entries()) await tick(runEnv, config, T0 + (i + 1) * MINUTE, f);
-		expect(await all("SELECT avail, fails, last_ok, last_run FROM state")).toEqual([
-			{ avail: 1, fails: 0, last_ok: T0, last_run: T0 + 3 * MINUTE },
+		expect(await all("SELECT avail, fails, last_conclusive, last_run FROM state")).toEqual([
+			{ avail: 1, fails: 0, last_conclusive: T0, last_run: T0 + 3 * MINUTE },
 		]);
 		expect(await all("SELECT * FROM samples")).toHaveLength(1);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
@@ -241,8 +251,8 @@ describe("tls", () => {
 		for (const code of [401, 403]) {
 			const { runEnv, box } = mailbox();
 			await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, cloudflare(code).fetch);
-			expect(await all("SELECT avail, config_error, last_ok FROM state")).toEqual([
-				{ avail: 1, config_error: 1, last_ok: null },
+			expect(await all("SELECT avail, config_error, last_conclusive FROM state")).toEqual([
+				{ avail: 1, config_error: 1, last_conclusive: null },
 			]);
 			expect(box.sends).toBe(0);
 			await reset();
@@ -275,8 +285,8 @@ describe("tls", () => {
 		for (const f of [noFetch, cloudflare(502).fetch]) {
 			const { runEnv, box } = mailbox();
 			await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, f);
-			expect(await all("SELECT avail, config_error, last_ok FROM state")).toEqual([
-				{ avail: 1, config_error: 0, last_ok: null },
+			expect(await all("SELECT avail, config_error, last_conclusive FROM state")).toEqual([
+				{ avail: 1, config_error: 0, last_conclusive: null },
 			]);
 			expect(box.sends).toBe(0);
 			await reset();

@@ -1,4 +1,5 @@
 import type { Check } from "../../tools/schema.ts";
+import type { Deps, Outcome } from "./probe.ts";
 
 export type HttpCheck = Extract<Check, { type: "http" }>;
 
@@ -55,17 +56,21 @@ async function judge(c: HttpCheck, res: Response): Promise<string | null> {
 	return null;
 }
 
-export async function probeHttp(c: HttpCheck, timeoutMs: number, doFetch: typeof fetch): Promise<string | null> {
+export async function probeHttp(c: HttpCheck, d: Deps): Promise<Outcome> {
 	try {
-		const res = await doFetch(c.url, {
+		const res = await d.fetch(c.url, {
 			redirect: "manual",
-			signal: AbortSignal.timeout(timeoutMs),
+			signal: AbortSignal.timeout(d.timeoutMs),
 			headers: { "user-agent": "tower" },
 		});
-		return await judge(c, res);
+		const reason = await judge(c, res);
+		return reason === null ? { verdict: "ok", reason: null } : { verdict: "down", reason };
 	} catch (e) {
 		const { name, message } = e as Error;
-		return name === "TimeoutError" || name === "AbortError" ? "timeout" : `fetch failed: ${message}`;
+		return {
+			verdict: "down",
+			reason: name === "TimeoutError" || name === "AbortError" ? "timeout" : `fetch failed: ${message}`,
+		};
 	}
 }
 

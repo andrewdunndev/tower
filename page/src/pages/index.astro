@@ -4,6 +4,7 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles/theme.css';
 import '../styles/page.css';
+import.meta.glob('../../../.tower/theme.css', { eager: true });
 import { env } from 'cloudflare:workers';
 import type { CheckStatus, Status } from '../lib';
 import { statusLabel, fmtDateTime, fmtPct, dayLabel, dayLevel, sparkSummary, mergeIncidents, maintenanceWithBodies, type NoteModule } from '../lib';
@@ -38,7 +39,7 @@ const counts = order
   .map((s) => ({ s, n: checks.filter((c) => c.status === s).length }))
   .filter((x) => x.n);
 const word = (s: Status) => statusLabel[s].toLowerCase();
-const sevWord = { down: 'down', degraded: 'degraded', info: 'maintenance' } as const;
+const sevWord = { down: 'down', info: 'maintenance' } as const;
 
 const dur = (fromIso: string, toIso: string) => {
   const mins = Math.max(0, Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 60_000));

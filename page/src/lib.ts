@@ -1,4 +1,4 @@
-import type { StatusResponse } from '../../prober/src/status.ts';
+import { DAYS, type StatusResponse } from '../../prober/src/status.ts';
 import type { Note as NoteFrontmatter } from '../../tools/schema.ts';
 
 export type { StatusResponse };
@@ -28,7 +28,7 @@ export function fmtPct(f: number | null): string {
 }
 
 export function dayLabel(generatedAt: string, index: number): string {
-  const d = new Date(Date.parse(generatedAt) - (89 - index) * 86_400_000);
+  const d = new Date(Date.parse(generatedAt) - (DAYS - 1 - index) * 86_400_000);
   return dateFmt.format(d);
 }
 
@@ -67,7 +67,7 @@ export interface NoteModule {
 export type Note = NoteFrontmatter & { bodyHtml: string | null };
 
 export function mergeIncidents(auto: StatusResponse['incidents'], notes: Note[], now: string): Incident[] {
-  const cutoff = Date.parse(now) - 90 * 86_400_000;
+  const cutoff = Date.parse(now) - DAYS * 86_400_000;
   const fromNotes: Incident[] = notes
     .filter((n) => n.kind === 'incident' && Date.parse(n.start) >= cutoff)
     .map((n) => ({
@@ -79,7 +79,16 @@ export function mergeIncidents(auto: StatusResponse['incidents'], notes: Note[],
       resolved: n.end ? new Date(n.end).toISOString() : null,
       bodyHtml: n.bodyHtml,
     }));
-  return [...auto, ...fromNotes].sort((a, b) => b.started.localeCompare(a.started));
+  const fromChecks: Incident[] = auto.map((a) => ({
+    kind: 'auto',
+    title: `${a.checks[0]} is not responding`,
+    checks: a.checks,
+    severity: 'down',
+    started: a.started,
+    resolved: a.resolved,
+    bodyHtml: null,
+  }));
+  return [...fromChecks, ...fromNotes].sort((a, b) => b.started.localeCompare(a.started));
 }
 
 export function maintenanceWithBodies(windows: StatusResponse['maintenance'], notes: Note[]): Maintenance[] {

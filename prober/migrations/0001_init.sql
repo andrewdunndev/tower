@@ -8,7 +8,7 @@ CREATE TABLE state (
   passes INTEGER NOT NULL,
   since INTEGER,
   slot INTEGER NOT NULL,
-  last_ok INTEGER,
+  last_conclusive INTEGER,
   last_run INTEGER,
   reason TEXT
 );
