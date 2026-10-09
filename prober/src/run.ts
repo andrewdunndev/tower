@@ -1,8 +1,10 @@
-import type { Instance } from "../../tools/schema.ts";
-import { type HttpCheck, probeHttp } from "./http.ts";
+import { connect } from "cloudflare:sockets";
+import type { Check, Instance } from "../../tools/schema.ts";
+import { judgeBeat } from "./heartbeat.ts";
 import { message, type Pending, sendMail } from "./mail.ts";
+import { type Outcome, probe } from "./probe.ts";
 
-export type RunEnv = Pick<Env, "DB"> & { EMAIL: Pick<SendEmail, "send"> };
+export type RunEnv = Pick<Env, "DB"> & { EMAIL: Pick<SendEmail, "send">; CF_API_TOKEN?: string };
 
 interface Track {
 	avail: boolean;
@@ -14,13 +16,18 @@ interface Track {
 interface StateRow {
 	check: string;
 	avail: number;
+	degraded: number;
 	fails: number;
 	passes: number;
 	since: number;
 	slot: number;
 }
 
+const TIMED = new Set<Check["type"]>(["http", "tcp", "dns"]);
+const interval = (c: Check) => (c.type === "heartbeat" ? MINUTE_MS : c.every);
+
 const SKEW_MS = 2000;
+const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 const CONCURRENCY = 6;
 const MAX_ATTEMPTS = 10;
@@ -60,66 +67,111 @@ async function pool<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>)
 
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)];
 
-async function claim(db: D1Database, config: Instance, probed: HttpCheck[], t: number) {
-	const seeds = config.checks.map((c) =>
+async function claim(db: D1Database, config: Instance, t: number) {
+	const seeds = config.checks.flatMap((c) => [
 		db
 			.prepare(
 				`INSERT OR IGNORE INTO state ("check", avail, degraded, fails, passes, since, slot) VALUES (?1, 1, 0, 0, 0, ?2, -1)`,
 			)
 			.bind(c.id, t),
-	);
-	const claims = probed.map((c) =>
+		...(c.type === "heartbeat"
+			? [db.prepare(`INSERT OR IGNORE INTO beats ("check", at, ok) VALUES (?1, ?2, 1)`).bind(c.id, t)]
+			: []),
+	]);
+	const claims = config.checks.map((c) =>
 		db
 			.prepare(
-				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, fails, passes, since, slot`,
+				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, degraded, fails, passes, since, slot`,
 			)
-			.bind(c.id, Math.floor((t + SKEW_MS) / c.every)),
+			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c))),
 	);
 	const results = await db.batch<StateRow>([...seeds, ...claims]);
-	return probed.flatMap((check, i) => {
+	return config.checks.flatMap((check, i) => {
 		const row = results[seeds.length + i].results[0];
 		return row ? [{ check, row }] : [];
 	});
 }
 
-export async function tick(env: RunEnv, config: Instance, t: number, doFetch: typeof fetch = fetch) {
-	const probed = config.checks.filter((c): c is HttpCheck => c.type === "http");
-	const claimed = await claim(env.DB, config, probed, t);
+export async function tick(
+	env: RunEnv,
+	config: Instance,
+	t: number,
+	doFetch: typeof fetch = fetch,
+	doConnect: typeof connect = connect,
+) {
+	const claimed = await claim(env.DB, config, t);
 
 	const ran = await pool(claimed, CONCURRENCY, async ({ check, row }) => {
 		const started = Date.now();
-		const reason = await probeHttp(check, config.timeout_ms, doFetch);
-		return { check, row, reason, ms: Date.now() - started };
+		const outcome: Outcome =
+			check.type === "heartbeat"
+				? await judgeBeat(env.DB, check, t)
+				: await probe(check, {
+						db: env.DB,
+						fetch: doFetch,
+						connect: doConnect,
+						token: env.CF_API_TOKEN,
+						timeoutMs: config.timeout_ms,
+						now: t,
+					});
+		return { check, row, outcome, ms: Date.now() - started };
 	});
 
 	const recent = await Promise.all(
 		ran.map(({ check }) =>
-			env.DB.prepare(`SELECT ms FROM samples WHERE "check" = ?1 AND ok = 1 ORDER BY at DESC LIMIT ?2`)
-				.bind(check.id, RECENT_SAMPLES)
-				.all<{ ms: number }>(),
+			check.type === "http" && check.slow_ms !== undefined
+				? env.DB.prepare(`SELECT ms FROM samples WHERE "check" = ?1 AND ok = 1 ORDER BY at DESC LIMIT ?2`)
+						.bind(check.id, RECENT_SAMPLES)
+						.all<{ ms: number }>()
+				: null,
 		),
 	);
 
 	const day = new Date(t).toISOString().slice(0, 10);
 	const writes: D1PreparedStatement[] = [];
-	for (const [i, { check, row, reason, ms }] of ran.entries()) {
-		const ok = reason === null;
+	for (const [i, { check, row, outcome, ms }] of ran.entries()) {
+		const conclusive = outcome.verdict === "ok" || outcome.verdict === "down";
 		const before = { avail: row.avail === 1, fails: row.fails, passes: row.passes, since: row.since };
-		const { next, transition } = step(before, ok, t, check);
-		const window = (ok ? [ms] : []).concat(recent[i].results.map((r) => r.ms)).slice(0, RECENT_SAMPLES);
-		const degraded = check.slow_ms !== undefined && window.length > 0 && median(window) > check.slow_ms;
+		const limits = check.type === "heartbeat" ? { down_after: 1, up_after: 1 } : check;
+		const { next, transition } = conclusive
+			? step(before, outcome.verdict === "ok", t, limits)
+			: { next: before, transition: null };
+		const samples = recent[i]?.results.map((r) => r.ms) ?? [];
+		const window = (outcome.verdict === "ok" ? [ms] : []).concat(samples).slice(0, RECENT_SAMPLES);
+		const slow =
+			check.type === "http" && check.slow_ms !== undefined && window.length > 0 && median(window) > check.slow_ms;
+		const degraded = conclusive ? (check.type === "http" ? slow : outcome.degraded === true) : row.degraded === 1;
 		const current = `EXISTS (SELECT 1 FROM state WHERE "check" = ?1 AND slot = ?2)`;
 		writes.push(
 			env.DB.prepare(
-				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_ok = ?8, last_run = ?8, reason = ?9 WHERE "check" = ?1 AND slot = ?2`,
-			).bind(check.id, row.slot, next.avail ? 1 : 0, degraded ? 1 : 0, next.fails, next.passes, next.since, t, reason),
-			env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) SELECT ?1, ?3, ?4, ?5 WHERE ${current}`).bind(
+				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_ok = COALESCE(?8, last_ok), last_run = ?9, reason = ?10, config_error = ?11 WHERE "check" = ?1 AND slot = ?2`,
+			).bind(
 				check.id,
 				row.slot,
+				next.avail ? 1 : 0,
+				degraded ? 1 : 0,
+				next.fails,
+				next.passes,
+				next.since,
+				conclusive ? t : null,
 				t,
-				ms,
-				ok ? 1 : 0,
+				outcome.reason,
+				outcome.verdict === "config-error" ? 1 : 0,
 			),
+		);
+		if (!conclusive) continue;
+		if (TIMED.has(check.type)) {
+			writes.push(
+				env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) SELECT ?1, ?3, ?4, ?5 WHERE ${current}`).bind(
+					check.id,
+					row.slot,
+					t,
+					ms,
+					outcome.verdict === "ok" ? 1 : 0,
+				),
+			);
+		}
+		writes.push(
 			env.DB.prepare(
 				`INSERT INTO daily ("check", day, runs, down, maint) SELECT ?1, ?3, 1, ?4, 0 WHERE ${current}
 					 ON CONFLICT ("check", day) DO UPDATE SET runs = runs + 1, down = down + ?4`,
@@ -136,7 +188,7 @@ export async function tick(env: RunEnv, config: Instance, t: number, doFetch: ty
 				),
 				env.DB.prepare(
 					`INSERT INTO outbox ("check", at, kind, since, reason) SELECT ?1, ?3, ?4, ?5, ?6 WHERE ${current}`,
-				).bind(check.id, row.slot, t, transition, before.since, reason),
+				).bind(check.id, row.slot, t, transition, before.since, outcome.reason),
 			);
 		}
 	}
@@ -165,7 +217,7 @@ async function drain(env: RunEnv, config: Instance) {
 	).all<Pending & { check: string }>();
 	const byCheck = Map.groupBy(results, (r) => r.check);
 	for (const [id, rows] of byCheck) {
-		const check = config.checks.find((c): c is HttpCheck => c.id === id && c.type === "http");
+		const check = config.checks.find((c) => c.id === id);
 		if (!check) continue;
 		const latest = rows[rows.length - 1];
 		const [subject, text] = message(check, latest);

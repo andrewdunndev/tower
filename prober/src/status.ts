@@ -21,7 +21,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 	const firstDay = iso(now - (DAYS - 1) * DAY_MS).slice(0, 10);
 	const firstBucket = Math.floor(now / BUCKET_MS) * BUCKET_MS - (POINTS - 1) * BUCKET_MS;
 	const sets = await db.batch([
-		db.prepare(`SELECT "check", avail, degraded, since, last_ok, last_run FROM state`),
+		db.prepare(`SELECT "check", avail, degraded, config_error, since, last_ok, last_run FROM state`),
 		db.prepare(`SELECT "check", day, runs, down FROM daily WHERE day >= ?1`).bind(firstDay),
 		db
 			.prepare(
@@ -49,6 +49,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 			check: string;
 			avail: number;
 			degraded: number;
+			config_error: number;
 			since: number;
 			last_ok: number | null;
 			last_run: number | null;
@@ -70,8 +71,16 @@ export async function status(db: D1Database, config: Instance, now: number) {
 	const all = config.checks.map((check) => {
 		const state = stateOf.get(check.id);
 		const stale = state?.last_ok == null || now - state.last_ok > 3 * check.every;
-		const level = stale ? "unknown" : state.avail === 0 ? "down" : state.degraded === 1 ? "degraded" : "up";
-		return { check, state, level };
+		const level = state?.config_error
+			? "config-error"
+			: stale
+				? "unknown"
+				: state.avail === 0
+					? "down"
+					: state.degraded === 1
+						? "degraded"
+						: "up";
+		return { check, state, level, stuck: stale && (level === "unknown" || level === "config-error") };
 	});
 
 	const checks = all
@@ -85,7 +94,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 			const q = quantilesOf.get(check.id);
 			return {
 				name: check.name,
-				status: level,
+				status: level === "config-error" ? "unknown" : level,
 				since: iso(state?.since ?? now),
 				uptime90: runs ? 1 - down / runs : null,
 				p50: q?.p50 ?? null,
@@ -133,7 +142,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		last_run: lastRun ? iso(lastRun) : null,
 		outbox_oldest_unsent_at: queue.oldest === null ? null : iso(queue.oldest),
 		dead_outbox: queue.dead,
-		stuck: all.filter(({ level }) => level === "unknown").length,
+		stuck: all.filter(({ stuck }) => stuck).length,
 	};
 }
 

@@ -1,3 +1,4 @@
+import type { connect } from "cloudflare:sockets";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import example from "../../example/tower.json";
@@ -17,13 +18,16 @@ describe("/api/status", () => {
 		const leaky = (async (input: RequestInfo | URL) => {
 			throw new Error(`connect ECONNREFUSED ${String(input)}`);
 		}) as typeof fetch;
-		for (let i = 0; i < 3; i++) await tick(mailbox().runEnv, config, T0 + i * 60_000, leaky);
+		const leakyConnect = ((address: { hostname: string; port: number }) => {
+			throw new Error(`connect ECONNREFUSED ${address.hostname}:${address.port}`);
+		}) as unknown as typeof connect;
+		for (let i = 0; i < 3; i++) await tick(mailbox().runEnv, config, T0 + i * 60_000, leaky, leakyConnect);
 		const tower = { status: () => status(env.DB, config, T0 + 180_000) };
 
 		const res = await statusResponse(tower);
 		const body = await res.text();
 		expect(res.status).toBe(200);
-		expect(JSON.parse(body).incidents).toHaveLength(2);
+		expect(JSON.parse(body).incidents).toHaveLength(3);
 		const forbidden = config.checks.flatMap((c) => {
 			const fields = ["url", "host", "query", "zone", "token_sha256"] as const;
 			const values = fields.flatMap((f) => (f in c ? [String((c as Record<string, unknown>)[f])] : []));

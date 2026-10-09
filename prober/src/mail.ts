@@ -1,5 +1,6 @@
 import { EmailMessage } from "cloudflare:email";
-import { type HttpCheck, hint } from "./http.ts";
+import type { Check } from "../../tools/schema.ts";
+import { hint } from "./http.ts";
 
 export interface Pending {
 	at: number;
@@ -13,16 +14,31 @@ const SEND_TIMEOUT_MS = 10_000;
 const line = (s: string) => s.replace(/[\r\n]+/g, " ");
 const ascii = (s: string) => line(s).replace(/[^\x20-\x7e]/g, "?");
 
-export function message(check: HttpCheck, p: Pending): [subject: string, text: string] {
+function target(c: Check): string {
+	switch (c.type) {
+		case "http":
+			return ` (${c.url})`;
+		case "tcp":
+			return ` (${c.host}:${c.port})`;
+		case "dns":
+			return ` (${c.query} ${c.record})`;
+		case "tls":
+			return ` (${c.host})`;
+		case "heartbeat":
+			return "";
+	}
+}
+
+export function message(check: Check, p: Pending): [subject: string, text: string] {
 	const at = new Date(p.at).toISOString();
 	const since = new Date(p.since).toISOString();
 	if (p.kind === "up") {
-		return [`UP: ${check.name}`, `${check.name} (${check.url}) answers again.\nDown since ${since}, up ${at}.\n`];
+		return [`UP: ${check.name}`, `${check.name}${target(check)} is back.\nDown since ${since}, up ${at}.\n`];
 	}
 	const why = [p.reason, hint(p.reason)].filter(Boolean).join(": ");
 	return [
 		`DOWN: ${check.name}`,
-		`${check.name} (${check.url}) failed ${check.down_after} checks in a row, detected ${at}.\nLast failure: ${why}.\nUp since ${since}.\n`,
+		`${check.name}${target(check)} is down, detected ${at}.\nLast failure: ${why}.\nUp since ${since}.\n`,
 	];
 }
 
