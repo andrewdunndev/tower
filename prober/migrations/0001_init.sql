@@ -6,7 +6,7 @@ CREATE TABLE state (
   mailed INTEGER NOT NULL DEFAULT 1,
   fails INTEGER NOT NULL,
   passes INTEGER NOT NULL,
-  since INTEGER NOT NULL,
+  since INTEGER,
   slot INTEGER NOT NULL,
   last_ok INTEGER,
   last_run INTEGER,
@@ -47,7 +47,7 @@ CREATE TABLE outbox (
   "check" TEXT NOT NULL,
   at INTEGER NOT NULL,
   kind TEXT NOT NULL,
-  since INTEGER NOT NULL,
+  since INTEGER,
   reason TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   dead INTEGER NOT NULL DEFAULT 0

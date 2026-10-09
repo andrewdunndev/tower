@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { z } from "zod";
-import { instanceSchema, noteSchema } from "./schema.ts";
+import { instanceSchema, type Note, noteSchema } from "./schema.ts";
 
 const root = join(import.meta.dirname, "..");
 const instance = process.argv[2];
@@ -10,14 +10,15 @@ if (!instance) {
 	process.exit(1);
 }
 
-function frontmatter(text: string): Record<string, unknown> {
-	const block = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? "";
+function frontmatter(text: string): { data: Record<string, unknown>; body: string } {
+	const m = /^---\n([\s\S]*?)\n---\n?/.exec(text);
+	const block = m?.[1] ?? "";
 	const out: Record<string, unknown> = {};
 	for (const line of block.split("\n")) {
-		const m = /^(\w+):\s*(.*)$/.exec(line);
-		if (!m) continue;
-		const value = m[2].trim();
-		out[m[1]] = value.startsWith("[")
+		const kv = /^(\w+):\s*(.*)$/.exec(line);
+		if (!kv) continue;
+		const value = kv[2].trim();
+		out[kv[1]] = value.startsWith("[")
 			? value
 					.slice(1, -1)
 					.split(",")
@@ -25,7 +26,7 @@ function frontmatter(text: string): Record<string, unknown> {
 					.filter(Boolean)
 			: value.replace(/^(["'])(.*)\1$/, "$2");
 	}
-	return out;
+	return { data: out, body: text.slice(m?.[0].length ?? 0) };
 }
 
 const errors: string[] = [];
@@ -45,11 +46,12 @@ if (!parsed.success) report("tower.json", parsed.error.issues);
 
 const notesDir = join(instance, "notes");
 const notes = existsSync(notesDir) ? readdirSync(notesDir).filter((f) => f.endsWith(".md")) : [];
-const parsedNotes: { file: string; note: z.output<typeof noteSchema>; body: string }[] = [];
+const parsedNotes: { file: string; note: Note; body: string }[] = [];
 for (const f of notes) {
 	const text = readFileSync(join(notesDir, f), "utf8");
-	const r = noteSchema.safeParse(frontmatter(text));
-	if (r.success) parsedNotes.push({ file: f, note: r.data, body: text.replace(/^---\n[\s\S]*?\n---\n?/, "") });
+	const { data, body } = frontmatter(text);
+	const r = noteSchema.safeParse(data);
+	if (r.success) parsedNotes.push({ file: f, note: r.data, body });
 	else report(`notes/${f}`, r.error.issues);
 }
 

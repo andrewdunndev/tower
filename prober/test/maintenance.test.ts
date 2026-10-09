@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Instance } from "../../tools/schema.ts";
+import { message } from "../src/mail.ts";
 import { tick } from "../src/run.ts";
 import { status } from "../src/status.ts";
 import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
@@ -13,7 +15,7 @@ const window = (checks: string[] = ["web"]) => ({
 	end: new Date(T0 + 4 * MINUTE).toISOString(),
 	checks,
 });
-const configWith = (maintenance: object[]) => makeConfig([check], { maintenance });
+const configWith = (maintenance: Instance["maintenance"]) => makeConfig([check], {}, maintenance);
 const daily = () => all<{ down: number; maint: number }>(`SELECT down, maint FROM daily`);
 
 describe("maintenance", () => {
@@ -60,20 +62,44 @@ describe("maintenance", () => {
 		expect(box.sends).toBe(0);
 	});
 
+	it("binds no since to a mail deferred to window end, and the body leaves the line out", async () => {
+		const { box, runEnv } = mailbox();
+		box.failing = true;
+		const config = configWith([window()]);
+		await tick(runEnv, config, T0, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 4 * MINUTE, respond(500));
+		const [row] = await all<{ kind: "down" | "up"; since: number | null; reason: string | null }>(
+			`SELECT at, kind, since, reason FROM outbox`,
+		);
+		expect(row.since).toBeNull();
+		const [, down] = message(config.checks[0], { at: T0, ...row });
+		expect(down).not.toContain("since");
+		const [, up] = message(config.checks[0], { at: T0, kind: "up", since: null, reason: null });
+		expect(up).not.toContain("since");
+	});
+
+	it("shows no automatic incident for downtime inside a window", async () => {
+		const { runEnv } = mailbox();
+		const config = configWith([window()]);
+		await tick(runEnv, config, T0, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 5 * MINUTE, respond(500));
+		expect((await status(env.DB, config, T0 + 6 * MINUTE)).incidents).toEqual([]);
+	});
+
 	it("reports maintenance and lists upcoming and open windows by check name", async () => {
 		const { runEnv } = mailbox();
-		const config = makeConfig([check, { ...web, id: "hidden", name: "Hidden", public: false }], {
-			maintenance: [
-				window(),
-				{ ...window(["hidden"]), title: "Private" },
-				{
-					...window(),
-					title: "Past",
-					start: new Date(T0 - 2 * MINUTE).toISOString(),
-					end: new Date(T0 - MINUTE).toISOString(),
-				},
-			],
-		});
+		const config = makeConfig([check, { ...web, id: "hidden", name: "Hidden", public: false }], {}, [
+			window(),
+			{ ...window(["hidden"]), title: "Private" },
+			{
+				...window(),
+				title: "Past",
+				start: new Date(T0 - 2 * MINUTE).toISOString(),
+				end: new Date(T0 - MINUTE).toISOString(),
+			},
+		]);
 		await tick(runEnv, config, T0, respond(200));
 		const before = await status(env.DB, config, T0);
 		expect(before.checks[0].status).toBe("up");

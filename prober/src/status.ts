@@ -1,5 +1,4 @@
 import type { Instance } from "../../tools/schema.ts";
-import { inWindow } from "./maintenance.ts";
 
 interface Incident {
 	kind: "auto";
@@ -17,6 +16,9 @@ const POINTS = 288;
 const DAYS = 90;
 
 const iso = (t: number) => new Date(t).toISOString();
+
+export const inWindow = (config: Instance, id: string, t: number) =>
+	config.maintenance.some((w) => w.checks.includes(id) && Date.parse(w.start) <= t && t < Date.parse(w.end));
 
 export async function status(db: D1Database, config: Instance, now: number) {
 	const firstDay = iso(now - (DAYS - 1) * DAY_MS).slice(0, 10);
@@ -118,6 +120,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		let open: Incident | undefined;
 		for (const e of eventsOf.get(check.id) ?? []) {
 			if (e.to === "down" && !open) {
+				if (inWindow(config, check.id, e.at)) continue;
 				open = {
 					kind: "auto",
 					title: `${check.name} is not responding`,

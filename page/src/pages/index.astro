@@ -6,13 +6,18 @@ import '../styles/theme.css';
 import '../styles/page.css';
 import { env } from 'cloudflare:workers';
 import type { CheckStatus, Status } from '../lib';
-import { statusLabel, fmtDateTime, fmtPct, dayLabel, dayLevel, sparkSummary, readNotes, mergeIncidents, maintenanceWithBodies, type NoteModule } from '../lib';
+import { statusLabel, fmtDateTime, fmtPct, dayLabel, dayLevel, sparkSummary, mergeIncidents, maintenanceWithBodies, type NoteModule } from '../lib';
 import { load } from '../server';
 
 const data = await load(env.TOWER);
 if (!data) Astro.response.status = 503;
 const checks = data?.checks ?? [];
-const notes = await readNotes(Object.values(import.meta.glob<NoteModule>('../../../.tower/notes/*.md', { eager: true })));
+const notes = await Promise.all(
+  Object.values(import.meta.glob<NoteModule>('../../../.tower/notes/*.md', { eager: true })).map(async (m) => ({
+    ...m.frontmatter,
+    bodyHtml: (await m.compiledContent()).trim() || null,
+  })),
+);
 const incidents = data ? mergeIncidents(data.incidents, notes, data.generatedAt) : [];
 const now = data?.generatedAt ?? '';
 const maintenance = data ? maintenanceWithBodies(data.maintenance, notes) : [];

@@ -2,8 +2,8 @@ import { connect } from "cloudflare:sockets";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { message, type Pending, sendMail } from "./mail.ts";
-import { inWindow } from "./maintenance.ts";
 import { type Outcome, probe } from "./probe.ts";
+import { inWindow } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & { EMAIL: Pick<SendEmail, "send">; CF_API_TOKEN?: string };
 
@@ -194,14 +194,7 @@ export async function tick(
 			writes.push(
 				env.DB.prepare(
 					`INSERT INTO outbox ("check", at, kind, since, reason) SELECT ?1, ?3, ?4, ?5, ?6 WHERE ${current}`,
-				).bind(
-					check.id,
-					row.slot,
-					t,
-					next.avail ? "up" : "down",
-					transition ? before.since : next.since,
-					outcome.reason,
-				),
+				).bind(check.id, row.slot, t, next.avail ? "up" : "down", transition ? before.since : null, outcome.reason),
 			);
 		}
 	}

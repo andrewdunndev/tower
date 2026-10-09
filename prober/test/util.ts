@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { instanceSchema } from "../../tools/schema.ts";
+import { type Instance, instanceSchema } from "../../tools/schema.ts";
 import type { RunEnv } from "../src/run.ts";
 
 export const MINUTE = 60_000;
@@ -7,14 +7,21 @@ export const T0 = Math.floor(Date.UTC(2026, 9, 8, 12) / MINUTE) * MINUTE;
 
 export const web = { id: "web", type: "http", name: "Web", url: "https://www.example.com/" };
 
-export function makeConfig(checks: object[] = [web], extra: object = {}) {
-	return instanceSchema.parse({
-		title: "Example",
-		domain: "status.example.com",
-		alert: { from: "tower@example.com", to: "oncall@example.com" },
-		checks,
-		...extra,
-	});
+export function makeConfig(
+	checks: object[] = [web],
+	extra: object = {},
+	maintenance: Instance["maintenance"] = [],
+): Instance {
+	return {
+		...instanceSchema.parse({
+			title: "Example",
+			domain: "status.example.com",
+			alert: { from: "tower@example.com", to: "oncall@example.com" },
+			checks,
+			...extra,
+		}),
+		maintenance,
+	};
 }
 
 export function respond(status: number, body = "", headers: Record<string, string> = {}) {

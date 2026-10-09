@@ -5,7 +5,7 @@ import { hint } from "./http.ts";
 export interface Pending {
 	at: number;
 	kind: "down" | "up";
-	since: number;
+	since: number | null;
 	reason: string | null;
 }
 
@@ -31,14 +31,15 @@ function target(c: Check): string {
 
 export function message(check: Check, p: Pending): [subject: string, text: string] {
 	const at = new Date(p.at).toISOString();
-	const since = new Date(p.since).toISOString();
+	const since = p.since === null ? null : new Date(p.since).toISOString();
 	if (p.kind === "up") {
-		return [`UP: ${check.name}`, `${check.name}${target(check)} is back.\nDown since ${since}, up ${at}.\n`];
+		const span = since ? `Down since ${since}, up ${at}.` : `Up ${at}.`;
+		return [`UP: ${check.name}`, `${check.name}${target(check)} is back.\n${span}\n`];
 	}
 	const why = [p.reason, hint(p.reason)].filter(Boolean).join(": ");
 	return [
 		`DOWN: ${check.name}`,
-		`${check.name}${target(check)} is down, detected ${at}.\nLast failure: ${why}.\nUp since ${since}.\n`,
+		`${check.name}${target(check)} is down, detected ${at}.\nLast failure: ${why}.\n${since ? `Up since ${since}.\n` : ""}`,
 	];
 }
 

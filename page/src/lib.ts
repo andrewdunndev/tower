@@ -1,15 +1,10 @@
 import type { StatusResponse } from '../../prober/src/status.ts';
+import type { Note as NoteFrontmatter } from '../../tools/schema.ts';
 
 export type { StatusResponse };
 export type CheckStatus = StatusResponse['checks'][number];
-export interface Maintenance {
-  title: string;
-  checks: string[];
-  starts: string;
-  ends: string;
-  bodyHtml: string | null;
-}
-export type Status = CheckStatus['status'] | 'maintenance';
+export type Maintenance = StatusResponse['maintenance'][number] & { bodyHtml: string | null };
+export type Status = CheckStatus['status'];
 
 export const statusLabel: Record<Status, string> = {
   up: 'Operational',
@@ -58,23 +53,18 @@ export interface Incident {
   kind: 'auto' | 'note';
   title: string;
   checks: string[];
-  severity: 'down' | 'degraded' | 'info';
+  severity: 'down';
   started: string;
   resolved: string | null;
   bodyHtml: string | null;
 }
 
 export interface NoteModule {
-  frontmatter: { title: string; kind: 'maintenance' | 'incident'; start: string; end?: string; checks: string[] };
+  frontmatter: NoteFrontmatter;
   compiledContent(): Promise<string>;
 }
 
-export async function readNotes(modules: NoteModule[]) {
-  return Promise.all(
-    modules.map(async (m) => ({ ...m.frontmatter, bodyHtml: (await m.compiledContent()).trim() || null })),
-  );
-}
-export type Note = Awaited<ReturnType<typeof readNotes>>[number];
+export type Note = NoteFrontmatter & { bodyHtml: string | null };
 
 export function mergeIncidents(auto: StatusResponse['incidents'], notes: Note[], now: string): Incident[] {
   const cutoff = Date.parse(now) - 90 * 86_400_000;

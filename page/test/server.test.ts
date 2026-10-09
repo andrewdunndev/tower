@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type { connect } from "cloudflare:sockets";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
@@ -15,7 +16,7 @@ describe("/api/status", () => {
 	it("carries no urls, hosts, ids or probe errors of the example instance", async () => {
 		await reset();
 		const window = { title: "Database upgrade", start: new Date(T0).toISOString(), end: new Date(T0 + 3600_000).toISOString(), checks: ["api"] };
-		const config = instanceSchema.parse({ ...example, maintenance: [window] });
+		const config = { ...instanceSchema.parse(example), maintenance: [window] };
 		const leaky = (async (input: RequestInfo | URL) => {
 			throw new Error(`connect ECONNREFUSED ${String(input)}`);
 		}) as typeof fetch;
@@ -28,7 +29,7 @@ describe("/api/status", () => {
 		const res = await statusResponse(tower);
 		const body = await res.text();
 		expect(res.status).toBe(200);
-		expect(JSON.parse(body).incidents).toHaveLength(3);
+		expect(JSON.parse(body).incidents).toHaveLength(2);
 		expect(JSON.parse(body).maintenance).toEqual([
 			{ title: "Database upgrade", checks: ["API"], starts: window.start, ends: window.end },
 		]);
@@ -40,6 +41,15 @@ describe("/api/status", () => {
 		expect(forbidden).toContain("https://www.example.com/");
 		for (const needle of forbidden) expect(body).not.toContain(needle);
 		expect(body).not.toContain("ECONNREFUSED");
+	});
+
+	it("stages notes with check names only", () => {
+		const staged = import.meta.glob<string>("../../.tower/notes/*.md", { query: "?raw", import: "default", eager: true });
+		const text = Object.entries(staged).map(([file, raw]) => [file, raw] as const);
+		const dns = text.find(([file]) => file.endsWith("dns-outage.md"));
+		expect(dns?.[1]).toContain('\nchecks: ["DNS"]\n');
+		const secrets = ["https://www.example.com/", "www.example.com", "example.com", "backup", "Backup"];
+		for (const [, raw] of text) for (const needle of secrets) expect(raw).not.toContain(needle);
 	});
 
 	it("answers 503 when the prober RPC fails", async () => {
