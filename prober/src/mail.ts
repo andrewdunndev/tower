@@ -11,35 +11,37 @@ export interface Pending {
 
 const SEND_TIMEOUT_MS = 10_000;
 
+const clip = (s: string) => (s.length > 200 ? `${s.slice(0, 200)}...` : s);
 const line = (s: string) => s.replace(/[\r\n]+/g, " ");
 const ascii = (s: string) => line(s).replace(/[^\x20-\x7e]/g, "?");
 
 function target(c: Check): string {
 	switch (c.type) {
 		case "http":
-			return ` (${c.url})`;
+			return ` (${clip(c.url)})`;
 		case "tcp":
-			return ` (${c.host}:${c.port})`;
+			return ` (${clip(c.host)}:${c.port})`;
 		case "dns":
-			return ` (${c.query} ${c.record})`;
+			return ` (${clip(c.query)} ${c.record})`;
 		case "tls":
-			return ` (${c.host})`;
+			return ` (${clip(c.host)})`;
 		case "heartbeat":
 			return "";
 	}
 }
 
 export function message(check: Check, p: Pending): [subject: string, text: string] {
+	const name = clip(check.name);
 	const at = new Date(p.at).toISOString();
 	const since = p.since === null ? null : new Date(p.since).toISOString();
 	if (p.kind === "up") {
 		const span = since ? `Down since ${since}, up ${at}.` : `Up ${at}.`;
-		return [`UP: ${check.name}`, `${check.name}${target(check)} is back.\n${span}\n`];
+		return [`UP: ${name}`, `${name}${target(check)} is back.\n${span}\n`];
 	}
-	const why = [p.reason, hint(p.reason)].filter(Boolean).join(": ");
+	const why = [p.reason && clip(p.reason), hint(p.reason)].filter(Boolean).join(": ");
 	return [
-		`DOWN: ${check.name}`,
-		`${check.name}${target(check)} is down, detected ${at}.\nLast failure: ${why}.\n${since ? `Up since ${since}.\n` : ""}`,
+		`DOWN: ${name}`,
+		`${name}${target(check)} is down, detected ${at}.\nLast failure: ${why}.\n${since ? `Up since ${since}.\n` : ""}`,
 	];
 }
 
