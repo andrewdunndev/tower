@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- A Cloudflare account on the Workers Paid plan, and a zone on it for the status hostname. On Free, a cron run gets 10 ms of CPU and 50 subrequests, and every D1 call counts toward the 50; Email sending is Paid only.
+- A Cloudflare account on the Workers Paid plan, and a zone on it for the status hostname. tower is not tested against the Free plan's per-invocation CPU and subrequest limits.
 - Node (the version in `mise.toml`) and `npm ci` in this repository.
 - For alerts: the `alert.from` domain onboarded to Cloudflare Email Service, and `alert.to` verified as a destination address in the account.
 
@@ -44,7 +44,7 @@ export CLOUDFLARE_ACCOUNT_ID=<account id>
 npm run deploy -- path/to/instance
 ```
 
-Authenticate wrangler with `npx wrangler login` or `CLOUDFLARE_API_TOKEN`. An API token needs these permissions: Account Workers Scripts Edit, Account D1 Edit, Account Settings Read, Zone Workers Routes Edit, and User Details and Memberships Read.
+Authenticate wrangler with `npx wrangler login` or `CLOUDFLARE_API_TOKEN`. An API token needs Account Workers Scripts Edit and D1 Edit, and Zone Workers Routes Edit on the zone.
 
 The command validates the instance, deploys the prober, applies D1 migrations, builds the page and deploys it on the instance `domain`. The first deploy creates the D1 database. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round.
 
