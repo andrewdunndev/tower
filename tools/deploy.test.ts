@@ -11,6 +11,8 @@ describe("deploy", () => {
 		const r = spawnSync("node", [join(import.meta.dirname, "deploy.ts"), dir, "--dry-run"], { encoding: "utf8" });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("tower.json: title: required.");
+		expect(r.stderr).toContain("tower.json: name: required.");
+		expect(r.stderr).toContain("tower.json: alert: required.");
 		expect(r.stderr).not.toMatch(/^\s+at /m);
 		expect(r.stderr).not.toContain("title: title:");
 	});

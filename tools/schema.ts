@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+z.config({ customError: (iss) => (iss.code === "invalid_type" && iss.input === undefined ? "required." : undefined) });
+
 const UNITS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
 const duration = z
