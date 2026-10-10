@@ -144,8 +144,14 @@ describe("unknown keys", () => {
 		expect(messages({ ...example, titel: "x" })).toEqual(["unknown key titel."]);
 	});
 
-	it("names a typo inside a check", () => {
-		expect(messages(instance({ ...http, down_afer: 2 }))).toEqual(["unknown key down_afer."]);
+	it.each([
+		http,
+		{ id: "t", type: "tcp", name: "T", host: "db.example.com", port: 5432 },
+		{ id: "d", type: "dns", name: "D", query: "example.com", record: "A" },
+		{ id: "s", type: "tls", name: "S", host: "www.example.com", zone: "example.com" },
+		{ id: "b", type: "heartbeat", name: "B", every: "1h", grace: "5m", token_sha256: "a".repeat(64) },
+	])("names a typo inside a $type check", (check) => {
+		expect(messages(instance({ ...check, down_afer: 2 }))).toEqual(["unknown key down_afer."]);
 	});
 
 	it("names a typo in alert, json and notes", () => {
