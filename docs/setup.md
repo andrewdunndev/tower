@@ -48,7 +48,7 @@ OnFailure=beat@fail.service
 
 where `beat@.service` runs the curl above, posting to `/fail` when the instance is `fail`.
 
-Add a WAF rate limiting rule on `/beat/*` for the zone. The page Worker also rate limits beats, as a second layer.
+Add a WAF rate limiting rule on `/beat/*` for the zone: a request that reaches the Worker is billed whether or not it is refused.
 
 ## Backup
 

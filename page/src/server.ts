@@ -47,14 +47,9 @@ export async function cached(key: Request, render: () => Promise<Response>): Pro
   return fresh;
 }
 
-export async function beat(
-  request: Request,
-  env: { TOWER: Pick<Tower, 'beat'>; BEAT_LIMIT: Pick<RateLimit, 'limit'> },
-): Promise<Response> {
+export async function beat(request: Request, env: { TOWER: Pick<Tower, 'beat'> }): Promise<Response> {
   const match = BEAT_PATH.exec(new URL(request.url).pathname);
   if (!match) return new Response(null, { status: 404 });
-  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
-  if (!(await env.BEAT_LIMIT.limit({ key: ip })).success) return new Response(null, { status: 429 });
   const token = /^Bearer (.+)$/.exec(request.headers.get('Authorization') ?? '')?.[1] ?? '';
   return env.TOWER.beat(match[1], token, match[2] === undefined);
 }

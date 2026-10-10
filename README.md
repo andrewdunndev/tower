@@ -21,7 +21,6 @@ Shared as-is: no roadmap, no support promise. Design after [herdr.dev](https://h
 | 1.1.1.1 DoH | dns checks |
 | Certificate packs API | tls checks |
 | Email | alert mail through the `send_email` binding |
-| Rate Limiting | caps heartbeat requests to the page |
 | Static assets | the page's CSS and favicon |
 
 ## Security model

@@ -37,12 +37,10 @@ describe("cache", () => {
 });
 
 describe("beat", () => {
-	const setup = (allow: boolean) => {
+	const setup = () => {
 		const calls: unknown[][] = [];
-		const keys: string[] = [];
 		return {
 			calls,
-			keys,
 			env: {
 				TOWER: {
 					beat: async (...args: [string, string, boolean]) => {
@@ -50,19 +48,13 @@ describe("beat", () => {
 						return new Response("ok", { status: 202 });
 					},
 				},
-				BEAT_LIMIT: {
-					limit: async ({ key }: { key: string }) => {
-						keys.push(key);
-						return { success: allow };
-					},
-				},
 			},
 		};
 	};
 
 	it("forwards id, bearer token and outcome and returns the prober's response", async () => {
-		const { calls, keys, env } = setup(true);
-		const ok = await beat(request("POST", "/beat/db", { Authorization: "Bearer s3cret", "CF-Connecting-IP": "198.51.100.7" }), env);
+		const { calls, env } = setup();
+		const ok = await beat(request("POST", "/beat/db", { Authorization: "Bearer s3cret" }), env);
 		const fail = await beat(request("POST", "/beat/db/fail", { Authorization: "Bearer s3cret" }), env);
 		expect(ok.status).toBe(202);
 		expect(fail.status).toBe(202);
@@ -70,18 +62,10 @@ describe("beat", () => {
 			["db", "s3cret", true],
 			["db", "s3cret", false],
 		]);
-		expect(keys[0]).toBe("198.51.100.7");
-	});
-
-	it("is refused before the prober when rate limited", async () => {
-		const { calls, env } = setup(false);
-		const res = await beat(request("POST", "/beat/db", { Authorization: "Bearer s3cret" }), env);
-		expect(res.status).toBe(429);
-		expect(calls).toEqual([]);
 	});
 
 	it("404s any other path", async () => {
-		const { calls, env } = setup(true);
+		const { calls, env } = setup();
 		for (const path of ["/beat/", "/beat/a/b/fail", "/beat/a/ok"]) {
 			expect((await beat(request("POST", path), env)).status).toBe(404);
 		}
