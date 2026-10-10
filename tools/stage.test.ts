@@ -1,19 +1,23 @@
-/// <reference types="vite/client" />
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import example from "../example/tower.json";
 import { instanceSchema, type Note, publicNote, unknownIds } from "./schema.ts";
+import { stage } from "./stage.ts";
 
 const checks = instanceSchema.parse(example).checks;
 const note = (ids: string[]): Note => ({ title: "T", kind: "incident", start: "2026-09-01T10:00:00Z", checks: ids });
 
 describe("staged notes", () => {
 	it("carry check names only", () => {
-		const staged = import.meta.glob<string>("../.tower/notes/*.md", { query: "?raw", import: "default", eager: true });
-		const text = Object.entries(staged);
-		const dns = text.find(([file]) => file.endsWith("dns-outage.md"));
-		expect(dns?.[1]).toContain('\nchecks: ["DNS"]\n');
+		const out = mkdtempSync(join(tmpdir(), "tower-stage-"));
+		stage(join(import.meta.dirname, "../example"), out);
+		const read = (f: string) => readFileSync(join(out, "notes", f), "utf8");
+		expect(read("dns-outage.md")).toContain('\nchecks: ["DNS"]\n');
+		const text = ["dns-outage.md", "markup.md", "upgrade.md"].map(read);
 		const secrets = ["https://www.example.com/", "www.example.com", "example.com", "backup", "Backup"];
-		for (const [, raw] of text) for (const needle of secrets) expect(raw).not.toContain(needle);
+		for (const raw of text) for (const needle of secrets) expect(raw).not.toContain(needle);
 	});
 
 	it("drop private checks and skip a note that names only private ones", () => {

@@ -12,27 +12,35 @@ const compatibilityDate = JSON.parse(readFileSync(`${built}/wrangler.json`, "utf
 const migrations = await readD1Migrations("./prober/migrations");
 
 export default defineConfig({
-	plugins: [
-		cloudflareTest({
-			wrangler: { configPath: "./prober/wrangler.jsonc" },
-			miniflare: {
-				bindings: { MIGRATIONS: migrations },
-				serviceBindings: { PAGE: "page", STUB: "stub" },
-				workers: [
-					{
-						name: "page",
-						modules: pageModules,
-						compatibilityDate,
-						serviceBindings: { TOWER: { name: "stub", entrypoint: "Tower" } },
-					},
-					{ name: "stub", modules: true, scriptPath: "page/test/tower-stub.mjs", compatibilityDate },
-				],
-			},
-		}),
-	],
 	test: {
-		include: ["tools/**/*.test.ts", "prober/test/**/*.test.ts", "page/test/**/*.test.ts"],
-		globalSetup: ["./prober/test/listener.ts"],
-		setupFiles: ["./prober/test/setup.ts"],
+		projects: [
+			{
+				plugins: [
+					cloudflareTest({
+						wrangler: { configPath: "./prober/wrangler.jsonc" },
+						miniflare: {
+							bindings: { MIGRATIONS: migrations },
+							serviceBindings: { PAGE: "page", STUB: "stub" },
+							workers: [
+								{
+									name: "page",
+									modules: pageModules,
+									compatibilityDate,
+									serviceBindings: { TOWER: { name: "stub", entrypoint: "Tower" } },
+								},
+								{ name: "stub", modules: true, scriptPath: "page/test/tower-stub.mjs", compatibilityDate },
+							],
+						},
+					}),
+				],
+				test: {
+					name: "workers",
+					include: ["prober/test/**/*.test.ts", "page/test/**/*.test.ts"],
+					globalSetup: ["./prober/test/listener.ts"],
+					setupFiles: ["./prober/test/setup.ts"],
+				},
+			},
+			{ test: { name: "tools", environment: "node", include: ["tools/**/*.test.ts"] } },
+		],
 	},
 });
