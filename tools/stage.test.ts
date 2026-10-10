@@ -2,12 +2,11 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import example from "../test/fixture/tower.json";
+import fixture from "../test/fixture/tower.json";
 import { instanceSchema, type Note, publicNote, unknownIds } from "./schema.ts";
 import { stage } from "./stage.ts";
 
-const fixture = example;
-const checks = instanceSchema.parse(example).checks;
+const checks = instanceSchema.parse(fixture).checks;
 const note = (ids: string[]): Note => ({ title: "T", kind: "incident", start: "2026-09-01T10:00:00Z", checks: ids });
 
 describe("the example", () => {
@@ -40,7 +39,7 @@ describe("resource names", () => {
 		]);
 	});
 
-	it('keep the names "tower" has always had', () => {
+	it('name an instance called "tower" tower-prober, tower-page and tower', () => {
 		const { prober, page } = stageNamed("tower");
 		expect([prober.name, page.name, page.services[0].service, prober.d1_databases[0].database_name]).toEqual([
 			"tower-prober",

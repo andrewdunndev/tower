@@ -41,8 +41,8 @@ function wranglerConfigs(name: string, out: string) {
 	const page = readConfig("page");
 	return {
 		"prober.wrangler.json": {
-			name: `${name}-prober`,
 			...prober,
+			name: `${name}-prober`,
 			main: here(`prober/${prober.main}`),
 			d1_databases: prober.d1_databases.map((d: object) => ({
 				...d,
@@ -51,8 +51,8 @@ function wranglerConfigs(name: string, out: string) {
 			})),
 		},
 		"page.wrangler.json": {
-			name: `${name}-page`,
 			...page,
+			name: `${name}-page`,
 			services: page.services.map((s: object) => ({ ...s, service: `${name}-prober` })),
 		},
 	};
