@@ -138,3 +138,20 @@ describe("note", () => {
 		);
 	});
 });
+
+describe("unknown keys", () => {
+	it("names a typo at the top level", () => {
+		expect(messages({ ...example, titel: "x" })).toEqual(["unknown key titel."]);
+	});
+
+	it("names a typo inside a check", () => {
+		expect(messages(instance({ ...http, down_afer: 2 }))).toEqual(["unknown key down_afer."]);
+	});
+
+	it("names a typo in alert, json and notes", () => {
+		expect(messages({ ...example, alert: { ...example.alert, cc: "a@b.co" } })).toEqual(["unknown key cc."]);
+		expect(messages(instance({ ...http, json: { path: "a", equals: 1, equal: 2 } }))).toEqual(["unknown key equal."]);
+		const note = noteSchema.safeParse({ title: "t", kind: "incident", start: "2026-11-01T02:00:00Z", chek: [] });
+		expect(note.success ? [] : note.error.issues.map((i) => i.message)).toEqual(["unknown key chek."]);
+	});
+});

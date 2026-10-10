@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-z.config({ customError: (iss) => (iss.code === "invalid_type" && iss.input === undefined ? "required." : undefined) });
+z.config({
+	customError: (iss) => {
+		if (iss.code === "invalid_type" && iss.input === undefined) return "required.";
+		if (iss.code === "unrecognized_keys")
+			return `unknown ${iss.keys.length > 1 ? "keys" : "key"} ${iss.keys.join(", ")}.`;
+		return undefined;
+	},
+});
 
 const UNITS = { m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
@@ -46,7 +53,7 @@ const limits = {
 	up_after: z.number().int().min(1, "use a whole number of 1 or more.").default(2),
 };
 
-const http = z.object({
+const http = z.strictObject({
 	...common,
 	...limits,
 	type: z.literal("http"),
@@ -65,7 +72,7 @@ const http = z.object({
 	contains: z.string().optional(),
 	absent: z.string().optional(),
 	json: z
-		.object({
+		.strictObject({
 			path: z.string().min(1, "use a dotted path such as data.status."),
 			equals: z.union([z.string(), z.number(), z.boolean(), z.null()]),
 		})
@@ -73,7 +80,7 @@ const http = z.object({
 	slow_ms: z.number().int().positive("use milliseconds above 0.").optional(),
 });
 
-const tcp = z.object({
+const tcp = z.strictObject({
 	...common,
 	...limits,
 	type: z.literal("tcp"),
@@ -87,7 +94,7 @@ const tcp = z.object({
 		.refine((p) => p !== 25, "Port 25 is blocked by Cloudflare Workers: probe a different port, or use a heartbeat."),
 });
 
-const dns = z.object({
+const dns = z.strictObject({
 	...common,
 	...limits,
 	type: z.literal("dns"),
@@ -97,7 +104,7 @@ const dns = z.object({
 	expect: z.string().optional(),
 });
 
-const tls = z.object({
+const tls = z.strictObject({
 	...common,
 	...limits,
 	type: z.literal("tls"),
@@ -106,7 +113,7 @@ const tls = z.object({
 	zone: z.string().min(1, "name the Cloudflare zone holding the certificate, such as example.com."),
 });
 
-const heartbeat = z.object({
+const heartbeat = z.strictObject({
 	...common,
 	type: z.literal("heartbeat"),
 	every: duration,
@@ -126,7 +133,7 @@ const WEEK_MS = 7 * 86400_000;
 const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.");
 
 export const instanceSchema = z
-	.object({
+	.strictObject({
 		name: z
 			.string()
 			.max(54, "use at most 54 characters.")
@@ -138,7 +145,7 @@ export const instanceSchema = z
 		domain: z
 			.string()
 			.regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "use a bare hostname such as status.example.com, with no scheme or path."),
-		alert: z.object({
+		alert: z.strictObject({
 			from: z.email("use an email address."),
 			to: z.email("use an email address."),
 		}),
@@ -160,7 +167,7 @@ export const instanceSchema = z
 	});
 
 export const noteSchema = z
-	.object({
+	.strictObject({
 		title: z.string().min(1, "required."),
 		kind: z.enum(["maintenance", "incident"], { error: 'use "maintenance" or "incident".' }),
 		start: when,
