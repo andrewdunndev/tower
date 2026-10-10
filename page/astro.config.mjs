@@ -8,6 +8,6 @@ export default defineConfig({
   output: 'server',
   adapter: cloudflare({ imageService: 'compile', configPath: '../.tower/page.wrangler.json' }),
   session: false,
-  markdown: { processor: satteri({ mdastPlugins: [dropRawHtml] }) },
+  markdown: { syntaxHighlight: false, processor: satteri({ mdastPlugins: [dropRawHtml] }) },
   security: { csp: { directives: ["default-src 'self'", "img-src 'self'"] } },
 });
