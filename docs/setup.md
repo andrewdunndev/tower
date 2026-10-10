@@ -32,7 +32,7 @@ The page renders `title` in the header and the tab. Two optional files in the in
 
 - `favicon.svg` is the tab icon and the header logo. Without it the repository's `favicon.svg` is used.
 - `theme.css` is loaded after the built-in theme. Override any of these custom properties on `:root`, most of them with `light-dark(light, dark)`:
-  - surfaces and text: `--bg`, `--panel`, `--mass`, `--ink`, `--dim`, `--faint`, `--line`, `--line2`
+  - surfaces and text: `--bg`, `--panel`, `--ink`, `--dim`, `--faint`, `--line`, `--line2`
   - accent: `--spot`
   - states: `--up`, `--degraded`, `--down`, `--maintenance`, `--unknown`
   - charts: `--spark`, `--day-ok`, `--day-none`
@@ -45,7 +45,7 @@ export CLOUDFLARE_ACCOUNT_ID=<account id>
 npm run deploy -- path/to/instance
 ```
 
-Authenticate wrangler with `wrangler login` or `CLOUDFLARE_API_TOKEN`. An API token needs these permissions: Account Workers Scripts Edit, Account D1 Edit, Account Settings Read, Zone Workers Routes Edit, and User Details and Memberships Read.
+Authenticate wrangler with `npx wrangler login` or `CLOUDFLARE_API_TOKEN`. An API token needs these permissions: Account Workers Scripts Edit, Account D1 Edit, Account Settings Read, Zone Workers Routes Edit, and User Details and Memberships Read.
 
 The command validates the instance, deploys the prober, applies D1 migrations, builds the page and deploys it on the instance `domain`. The first deploy creates the D1 database. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round.
 
