@@ -5,7 +5,7 @@
 - A Cloudflare account and a zone on it for the status hostname.
 - Node (the version in `mise.toml`) and `npm ci` in this repository.
 - An instance directory (see [`example/`](../example)).
-- For alerts: Email Routing enabled on a zone in the account, and the receiving address verified as a destination.
+- For alerts: the `alert.from` domain onboarded to Cloudflare Email Service, and `alert.to` verified as a destination address in the account.
 
 ## Deploy
 
@@ -22,7 +22,7 @@ A tls check reads certificate packs through the API. Give the prober a token as 
 
 ## Alerts
 
-tower mails once when a check goes down and once when it recovers. The destination in `alert.to` must be a verified Email Routing destination, and `alert.from` an address on a routed zone. A failed send is retried on the next run.
+tower mails once when a check goes down and once when it recovers. A failed send is retried on the next run.
 
 ## Heartbeats
 
