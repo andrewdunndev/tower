@@ -1,6 +1,12 @@
 {
 	"name": "tower",
 	"version": "0.1.0",
+	"description": "A status page that runs on Cloudflare Workers: a cron prober, D1 history and email alerts.",
+	"repository": {
+		"type": "git",
+		"url": "https://gitlab.com/dunn.dev/tower.git"
+	},
+	"license": "MIT",
 	"private": true,
 	"type": "module",
 	"scripts": {
