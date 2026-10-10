@@ -125,6 +125,13 @@ const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an off
 
 export const instanceSchema = z
 	.object({
+		name: z
+			.string()
+			.max(54, "use at most 54 characters.")
+			.regex(
+				/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
+				"use lowercase letters, digits and hyphens, starting and ending with a letter or digit. It names the Workers and the database.",
+			),
 		title: z.string().min(1, "required."),
 		domain: z
 			.string()

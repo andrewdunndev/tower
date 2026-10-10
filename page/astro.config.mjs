@@ -6,7 +6,7 @@ const dropRawHtml = { name: 'drop-raw-html', html: (node, ctx) => ctx.removeNode
 
 export default defineConfig({
   output: 'server',
-  adapter: cloudflare({ imageService: 'compile' }),
+  adapter: cloudflare({ imageService: 'compile', configPath: '../.tower/page.wrangler.json' }),
   session: false,
   markdown: { processor: satteri({ mdastPlugins: [dropRawHtml] }) },
   security: { csp: { directives: ["default-src 'self'", "img-src 'self'"] } },

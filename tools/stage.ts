@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { z } from "zod";
 import { type Instance, instanceSchema, type Note, noteSchema, publicNote, unknownIds } from "./schema.ts";
 
@@ -32,6 +32,31 @@ function frontmatter(text: string): { data: Record<string, unknown>; body: strin
 
 const issueLines = (file: string, issues: z.core.$ZodIssue[]) =>
 	issues.map((i) => `${file}: ${i.path.join(".") || "(root)"}: ${i.message}`);
+
+const readConfig = (dir: string) => JSON.parse(readFileSync(join(root, dir, "wrangler.jsonc"), "utf8"));
+
+function wranglerConfigs(name: string, out: string) {
+	const here = (path: string) => relative(out, join(root, path));
+	const prober = readConfig("prober");
+	const page = readConfig("page");
+	return {
+		"prober.wrangler.json": {
+			name: `${name}-prober`,
+			...prober,
+			main: here(`prober/${prober.main}`),
+			d1_databases: prober.d1_databases.map((d: object) => ({
+				...d,
+				database_name: name,
+				migrations_dir: here("prober/migrations"),
+			})),
+		},
+		"page.wrangler.json": {
+			name: `${name}-page`,
+			...page,
+			services: page.services.map((s: object) => ({ ...s, service: `${name}-prober` })),
+		},
+	};
+}
 
 export function stage(instance: string, out = join(root, ".tower")): Omit<Instance, "maintenance"> {
 	let config: unknown;
@@ -72,6 +97,9 @@ export function stage(instance: string, out = join(root, ".tower")): Omit<Instan
 		if (!shown) continue;
 		const head = Object.entries(shown).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
 		writeFileSync(join(out, "notes", file), `---\n${head.join("\n")}\n---\n${body}`);
+	}
+	for (const [file, config] of Object.entries(wranglerConfigs(parsed.data.name, out))) {
+		writeFileSync(join(out, file), `${JSON.stringify(config, null, "\t")}\n`);
 	}
 	if (existsSync(join(instance, "theme.css"))) cpSync(join(instance, "theme.css"), join(out, "theme.css"));
 	return parsed.data;

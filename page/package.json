@@ -1,12 +1,11 @@
 {
   "name": "tower-page",
-  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "typecheck": "wrangler types -c wrangler.jsonc -c ../prober/wrangler.jsonc && astro check"
+    "typecheck": "wrangler types -c ../.tower/page.wrangler.json -c ../.tower/prober.wrangler.json && astro check"
   },
   "dependencies": {
     "@astrojs/cloudflare": "14.3.4",

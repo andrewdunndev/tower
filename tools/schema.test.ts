@@ -17,6 +17,13 @@ describe("instance", () => {
 		expect(messages(example)).toEqual([]);
 	});
 
+	it("rejects an instance name that cannot name a Worker", () => {
+		for (const name of ["", "Tower", "-a", "a-", "a_b", "a".repeat(55)]) {
+			expect(messages({ ...example, name })).not.toEqual([]);
+		}
+		expect(messages({ ...example, name: "a".repeat(54) })).toEqual([]);
+	});
+
 	it("rejects duplicate ids", () => {
 		expect(messages(instance(http, { ...http, name: "Other" }))).toContain(
 			'Duplicate check id "web": ids must be unique, rename one.',

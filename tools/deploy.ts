@@ -25,8 +25,9 @@ try {
 	process.exit(1);
 }
 
+const config = ["-c", "../.tower/prober.wrangler.json"];
 const dry = dryRun ? ["--dry-run"] : [];
-wrangler("prober", "deploy", ...dry);
-if (!dryRun) wrangler("prober", "d1", "migrations", "apply", "DB", "--remote");
+wrangler("prober", "deploy", ...config, ...dry);
+if (!dryRun) wrangler("prober", "d1", "migrations", "apply", "DB", "--remote", ...config);
 run("npm", ["run", "build", "-w", "page"]);
 wrangler("page", "deploy", "--route", `${domain}/*`, ...dry);

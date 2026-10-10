@@ -1,10 +1,9 @@
 {
 	"name": "tower-prober",
-	"version": "0.1.0",
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "wrangler d1 migrations apply DB --local && wrangler dev --test-scheduled",
-		"typecheck": "wrangler types && tsc"
+		"dev": "wrangler d1 migrations apply DB --local -c ../.tower/prober.wrangler.json && wrangler dev --test-scheduled -c ../.tower/prober.wrangler.json",
+		"typecheck": "wrangler types -c ../.tower/prober.wrangler.json && tsc"
 	}
 }

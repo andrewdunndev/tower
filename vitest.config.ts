@@ -17,7 +17,7 @@ export default defineConfig({
 			{
 				plugins: [
 					cloudflareTest({
-						wrangler: { configPath: "./prober/wrangler.jsonc" },
+						wrangler: { configPath: "./.tower/prober.wrangler.json" },
 						miniflare: {
 							bindings: { MIGRATIONS: migrations },
 							serviceBindings: { PAGE: "page", STUB: "stub" },

@@ -14,6 +14,7 @@ export function makeConfig(
 ): Instance {
 	return {
 		...instanceSchema.parse({
+			name: "example",
 			title: "Example",
 			domain: "status.example.com",
 			alert: { from: "tower@example.com", to: "oncall@example.com" },

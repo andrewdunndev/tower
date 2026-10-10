@@ -1,4 +1,5 @@
 {
+	"name": "tower",
 	"title": "Example Status",
 	"domain": "status.example.com",
 	"alert": { "from": "tower@example.com", "to": "oncall@example.com" },
