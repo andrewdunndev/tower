@@ -4,10 +4,12 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles/theme.css';
 import '../styles/page.css';
-import.meta.glob('../../../.tower/theme.css', { eager: true });
+import '../../../.tower/theme.css';
+import page from '../../../.tower/page.json';
+import logo from '../../../.tower/favicon.svg?no-inline';
 import { env } from 'cloudflare:workers';
 import type { CheckStatus, Status } from '../lib';
-import { statusLabel, fmtDateTime, fmtPct, dayLabel, dayLevel, sparkSummary, mergeIncidents, maintenanceWithBodies, type NoteModule } from '../lib';
+import { DAYS, statusLabel, fmtDateTime, fmtPct, dayLabel, dayLevel, sparkSummary, mergeIncidents, maintenanceWithBodies, type NoteModule } from '../lib';
 import { load } from '../server';
 
 const data = await load(env.TOWER);
@@ -83,25 +85,16 @@ function sparkPaths(c: CheckStatus): string[] {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>Status</title>
-    <meta name="description" content="Current status, 90-day history and incidents." />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{page.title}</title>
+    <meta name="description" content={`Current status, ${DAYS}-day history and incidents.`} />
+    <link rel="icon" href={logo} type="image/svg+xml" />
   </head>
   <body>
     <header class="bar">
       <div class="in">
         <span class="brand">
-          <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
-            <g stroke="currentColor" fill="none" stroke-linecap="round">
-              <rect x="32" y="16" width="22" height="32" stroke-width="3" />
-              <line x1="8" y1="40" x2="32" y2="32" stroke-width="3.5" />
-              <line x1="36" y1="22" x2="50" y2="22" stroke-width="2" />
-              <line x1="36" y1="30" x2="50" y2="30" stroke-width="2" />
-              <line x1="36" y1="38" x2="46" y2="38" stroke-width="2" />
-            </g>
-            <circle cx="8" cy="40" r="4" fill="currentColor" />
-          </svg>
-          <span class="mark">status</span>
+          <img class="logo" src={logo} alt="" />
+          <span class="mark">{page.title}</span>
         </span>
         {data && <span class="upd">updated <time datetime={data.generatedAt}>{fmtDateTime(data.generatedAt)}</time></span>}
       </div>
@@ -126,11 +119,11 @@ function sparkPaths(c: CheckStatus): string[] {
         <section aria-labelledby="checks-h">
           <div class="label">
             <h2 id="checks-h">checks <span>{checks.length}</span></h2>
-            <span class="ph" aria-hidden="true"><i data-l="minor">▄</i> minor <i data-l="major">█</i> major <i data-l="none">▁</i> no data · 90 days → today</span>
+            <span class="ph" aria-hidden="true"><i data-l="minor">▄</i> minor <i data-l="major">█</i> major <i data-l="none">▁</i> no data · {DAYS} days → today</span>
           </div>
           <div class="panel">
             <div class="row head" aria-hidden="true">
-              <span>name</span><span>state</span><span>90 days</span><span>24h latency</span><span class="r">uptime</span><span class="r">p95</span>
+              <span>name</span><span>state</span><span>{DAYS} days</span><span>24h latency</span><span class="r">uptime</span><span class="r">p95</span>
             </div>
             <ul class="checks">
               {checks.map((c) => {
@@ -141,7 +134,7 @@ function sparkPaths(c: CheckStatus): string[] {
                   .filter((x) => x.l === 'minor' || x.l === 'major')
                   .reverse();
                 const none = levels.filter((l) => l === 'none').length;
-                const stripLabel = `Last 90 days: ${problems.length ? `${problems.length} with disruption` : 'no disruption'}${none ? `, ${none} without data` : ''}.`;
+                const stripLabel = `Last ${DAYS} days: ${problems.length ? `${problems.length} with disruption` : 'no disruption'}${none ? `, ${none} without data` : ''}.`;
                 const strip = (
                   <span class="days" role="img" aria-label={stripLabel}>
                     {levels.map((l) => <span class="d" data-l={l}></span>)}
@@ -184,7 +177,7 @@ function sparkPaths(c: CheckStatus): string[] {
         </section>
 
         <section aria-labelledby="inc-h">
-          <div class="label"><h2 id="inc-h">incidents</h2><span>last 90 days</span></div>
+          <div class="label"><h2 id="inc-h">incidents</h2><span>last {DAYS} days</span></div>
           {incidents.length ? (
             <ol class="panel log">
               {incidents.map((i) => (
@@ -200,7 +193,7 @@ function sparkPaths(c: CheckStatus): string[] {
                 </li>
               ))}
             </ol>
-          ) : <p class="panel empty">No incidents in the last 90 days.</p>}
+          ) : <p class="panel empty">No incidents in the last {DAYS} days.</p>}
         </section>
 
         <section aria-labelledby="maint-h">

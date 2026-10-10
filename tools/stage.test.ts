@@ -57,6 +57,29 @@ describe("resource names", () => {
 	});
 });
 
+describe("look", () => {
+	it("takes the instance favicon and theme, else the tool's favicon and an empty theme", () => {
+		const fixtureDir = join(import.meta.dirname, "../test/fixture");
+		const own = mkdtempSync(join(tmpdir(), "tower-own-"));
+		stage(fixtureDir, own);
+		expect(readFileSync(join(own, "favicon.svg"), "utf8")).toBe(readFileSync(join(fixtureDir, "favicon.svg"), "utf8"));
+		expect(readFileSync(join(own, "theme.css"), "utf8")).toBe(readFileSync(join(fixtureDir, "theme.css"), "utf8"));
+
+		const plain = mkdtempSync(join(tmpdir(), "tower-plain-"));
+		stage(join(import.meta.dirname, "../example"), plain);
+		expect(readFileSync(join(plain, "favicon.svg"), "utf8")).toBe(
+			readFileSync(join(import.meta.dirname, "../favicon.svg"), "utf8"),
+		);
+		expect(readFileSync(join(plain, "theme.css"), "utf8")).toBe("");
+	});
+
+	it("hands the page the title and nothing else", () => {
+		const out = mkdtempSync(join(tmpdir(), "tower-page-"));
+		stage(join(import.meta.dirname, "../example"), out);
+		expect(JSON.parse(readFileSync(join(out, "page.json"), "utf8"))).toEqual({ title: "Example Status" });
+	});
+});
+
 describe("staged notes", () => {
 	it("carry check names only", () => {
 		const out = mkdtempSync(join(tmpdir(), "tower-stage-"));

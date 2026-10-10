@@ -2,6 +2,7 @@ import { DAYS, type StatusResponse } from '../../prober/src/status.ts';
 import type { Note as NoteFrontmatter } from '../../tools/schema.ts';
 
 export type { StatusResponse };
+export { DAYS };
 export type CheckStatus = StatusResponse['checks'][number];
 export type Maintenance = StatusResponse['maintenance'][number] & { bodyHtml: string | null };
 export type Status = CheckStatus['status'];

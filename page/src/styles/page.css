@@ -17,7 +17,7 @@ ul, ol { list-style: none; }
 .bar { border-bottom: 1px solid var(--line2); background: var(--bg); }
 .bar .in { display: flex; align-items: center; justify-content: space-between; height: 60px; }
 .brand { display: flex; align-items: center; gap: 10px; }
-.logo { width: 22px; height: 22px; color: var(--spot); }
+.logo { width: 22px; height: 22px; }
 .mark { font: 900 21px/1 var(--disp); letter-spacing: -.045em; }
 .upd, .label, .head, .log time, .dur, .fig, .state, .counts, .probs {
   font-family: var(--mono); font-size: 11.5px; letter-spacing: .02em;

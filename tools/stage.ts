@@ -101,7 +101,11 @@ export function stage(instance: string, out = join(root, ".tower")): Omit<Instan
 	for (const [file, config] of Object.entries(wranglerConfigs(parsed.data.name, out))) {
 		writeFileSync(join(out, file), `${JSON.stringify(config, null, "\t")}\n`);
 	}
-	if (existsSync(join(instance, "theme.css"))) cpSync(join(instance, "theme.css"), join(out, "theme.css"));
+	writeFileSync(join(out, "page.json"), `${JSON.stringify({ title: parsed.data.title })}\n`);
+	const own = (file: string) => (existsSync(join(instance, file)) ? join(instance, file) : null);
+	cpSync(own("favicon.svg") ?? join(root, "favicon.svg"), join(out, "favicon.svg"));
+	if (own("theme.css")) cpSync(join(instance, "theme.css"), join(out, "theme.css"));
+	else writeFileSync(join(out, "theme.css"), "");
 	return parsed.data;
 }
 

@@ -38,6 +38,18 @@ describe("the built page", () => {
 			expect(res.headers.get("content-security-policy")).toBeTruthy();
 		});
 
+		it("shows the instance title, header image and icon", async () => {
+			await reset();
+			const config = { ...instanceSchema.parse(example), maintenance: [] };
+			await answer(JSON.stringify(await status(env.DB, config, Date.parse("2026-09-10T00:00:00Z"))));
+			const body = await (await get("/", "look")).text();
+			expect(body).toContain("<title>Example Status</title>");
+			expect(body).toContain('<span class="mark">Example Status</span>');
+			const icon = /<link rel="icon" href="([^"]+\.svg)"/.exec(body)?.[1];
+			expect(icon).toBeTruthy();
+			expect(body).toContain(`<img class="logo" src="${icon}"`);
+		});
+
 		it("serves /api/status with names only", async () => {
 			await reset();
 			const window = { title: "Database upgrade", start: new Date(T0).toISOString(), end: new Date(T0 + 3600_000).toISOString(), checks: ["api"] };
