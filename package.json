@@ -4,8 +4,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "node tools/stage.ts example && (npm run dev -w prober & npm run dev -w page; wait)",
-		"check": "node tools/stage.ts example && npm run lint && npm run typecheck && npm test",
+		"dev": "node tools/stage.ts test/fixture && (npm run dev -w prober & npm run dev -w page; wait)",
+		"check": "node tools/stage.ts test/fixture && npm run lint && npm run typecheck && npm test",
 		"test": "npm run build -w page && vitest run",
 		"lint": "biome check",
 		"typecheck": "npm run typecheck -w prober && npm run typecheck -w page && tsc -p tools",

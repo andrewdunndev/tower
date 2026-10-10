@@ -1,0 +1,34 @@
+{
+	"title": "Example Status",
+	"domain": "status.example.com",
+	"alert": { "from": "tower@example.com", "to": "oncall@example.com" },
+	"checks": [
+		{
+			"id": "web",
+			"type": "http",
+			"name": "Website",
+			"url": "https://www.example.com/",
+			"contains": "Example Domain",
+			"slow_ms": 800
+		},
+		{
+			"id": "api",
+			"type": "http",
+			"name": "API",
+			"url": "https://api.example.com/health",
+			"json": { "path": "data.status", "equals": "ok" }
+		},
+		{ "id": "ssh", "type": "tcp", "name": "SSH", "host": "ssh.example.com", "port": 22 },
+		{ "id": "dns", "type": "dns", "name": "DNS", "query": "www.example.com", "record": "A" },
+		{ "id": "cert", "type": "tls", "name": "Certificate", "host": "www.example.com", "zone": "example.com" },
+		{
+			"id": "backup",
+			"type": "heartbeat",
+			"name": "Nightly backup",
+			"every": "1d",
+			"grace": "1h",
+			"token_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+			"public": false
+		}
+	]
+}

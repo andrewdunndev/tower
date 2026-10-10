@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import example from "../example/tower.json";
+import example from "../test/fixture/tower.json";
 import { instanceSchema, noteSchema } from "./schema.ts";
 
 type Json = Record<string, unknown>;

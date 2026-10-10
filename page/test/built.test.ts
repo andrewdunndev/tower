@@ -1,10 +1,10 @@
 import type { connect } from "cloudflare:sockets";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import example from "../../example/tower.json";
 import { tick } from "../../prober/src/run.ts";
 import { status } from "../../prober/src/status.ts";
 import { mailbox, reset, T0 } from "../../prober/test/util.ts";
+import example from "../../test/fixture/tower.json";
 import { instanceSchema } from "../../tools/schema.ts";
 
 const pages = env as unknown as { PAGE: Fetcher; STUB: Fetcher };
