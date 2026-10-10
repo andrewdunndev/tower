@@ -1,7 +1,7 @@
 <svg viewBox="0 0 1200 430" width="1200" height="430" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="tower hero: services, watched from outside.">
   <rect x="0" y="0" width="1200" height="430" fill="#f4f4f4"/>
   <g font-family="IBM Plex Sans, Helvetica, Arial, sans-serif">
-  <text x="60" y="34" font-size="10" font-weight="600" font-family="IBM Plex Mono, Menlo, monospace" fill="#707070" letter-spacing="1.4">CLOUDFLARE WORKER · CRON · D1 · STATUS</text>
+  <text x="60" y="34" font-size="10" font-weight="600" font-family="IBM Plex Mono, Menlo, monospace" fill="#707070" letter-spacing="1.4">WORKERS · CRON · D1 · STATUS</text>
   <text x="1140" y="34" text-anchor="end" font-size="10" font-weight="600" font-family="IBM Plex Mono, Menlo, monospace" fill="#707070" letter-spacing="1.4">2026</text>
   <line x1="60" y1="48" x2="1140" y2="48" stroke="#e0e0e0" stroke-width="1"/>
   <text x="60" y="138" font-size="72" font-weight="700" fill="#4a6741" letter-spacing="-2">tower</text>

@@ -37,14 +37,14 @@ Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
 
 ## Instance
 
-An instance is a directory holding `tower.json`, optional `notes/*.md` for maintenance windows and incident write-ups, and an optional `theme.css`. [`example/`](example) is a complete one; each field's validation message states its rule. Keep your instance outside this repository.
+An instance is a directory holding `tower.json`, optional `notes/*.md` for maintenance windows and incident write-ups, and optional `theme.css` and `favicon.svg`. [`example/`](example) is a complete one; each field's validation message states its rule. Keep your instance outside this repository.
 
 ```sh
 npm ci
 npm run deploy -- ./my-instance
 ```
 
-[docs/setup.md](docs/setup.md) covers the account prerequisites, the API token, alerts, heartbeats, backup and external monitoring.
+[docs/setup.md](docs/setup.md) covers the plan and account prerequisites, the API token, look, alerts, heartbeats, backup, external monitoring and upgrades.
 
 ## Limits
 
@@ -54,4 +54,4 @@ npm run deploy -- ./my-instance
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The GitHub copy is a mirror.
+See [CONTRIBUTING.md](CONTRIBUTING.md). A GitHub mirror follows each release.
