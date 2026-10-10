@@ -1,7 +1,7 @@
 import { connect } from "cloudflare:sockets";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
-import { message, type Pending, sendMail } from "./mail.ts";
+import { message, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
 import { DAYS, interval, inWindow } from "./status.ts";
 
@@ -31,6 +31,7 @@ const SKEW_MS = 2000;
 const DAY_MS = 86_400_000;
 const CONCURRENCY = 6;
 const MAX_ATTEMPTS = 10;
+const LEASE_MS = 50_000;
 const RECENT_SAMPLES = 5;
 const OWNED_TABLES = ["state", "samples", "daily", "beats", "events", "outbox"];
 
@@ -216,26 +217,34 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 	];
 }
 
-async function drain(env: RunEnv, config: Instance) {
+export async function drain(env: RunEnv, config: Instance, now: () => number = Date.now) {
+	const until = now() + LEASE_MS;
+	const lock = await env.DB.prepare(
+		`INSERT INTO meta (key, value) VALUES ('drain', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE CAST(meta.value AS INTEGER) <= ?2`,
+	)
+		.bind(String(until), now())
+		.run();
+	if (lock.meta.changes === 0) return;
+	try {
+		await send(env, config, until, now);
+	} finally {
+		await env.DB.prepare(`UPDATE meta SET value = '0' WHERE key = 'drain' AND value = ?1`).bind(String(until)).run();
+	}
+}
+
+async function send(env: RunEnv, config: Instance, until: number, now: () => number) {
 	const { results } = await env.DB.prepare(
-		`SELECT rowid, "check", at, kind, since, reason, attempts FROM outbox WHERE dead = 0 ORDER BY at`,
-	).all<Pending & { rowid: number; check: string; attempts: number }>();
+		`SELECT rowid, "check", at, kind, since, reason FROM outbox WHERE dead = 0 ORDER BY at`,
+	).all<Pending & { rowid: number; check: string }>();
 	const byCheck = Map.groupBy(results, (r) => r.check);
 	for (const [id, rows] of byCheck) {
 		const check = config.checks.find((c) => c.id === id);
 		if (!check) continue;
+		if (now() + SEND_TIMEOUT_MS > until) return;
 		const latest = rows[rows.length - 1];
-		// Bumping attempts only where it still holds the value read makes the claim exclusive to one overlapping tick.
-		const [claim] = await env.DB.batch([
-			env.DB.prepare(`UPDATE outbox SET attempts = attempts + 1 WHERE rowid = ?1 AND attempts = ?2 AND dead = 0`).bind(
-				latest.rowid,
-				latest.attempts,
-			),
-			env.DB.prepare(
-				`UPDATE outbox SET attempts = attempts + 1 WHERE "check" = ?1 AND dead = 0 AND at <= ?2 AND rowid <> ?3 AND changes() > 0`,
-			).bind(id, latest.at, latest.rowid),
-		]);
-		if (claim.meta.changes === 0) continue;
+		await env.DB.prepare(`UPDATE outbox SET attempts = attempts + 1 WHERE "check" = ?1 AND dead = 0 AND at <= ?2`)
+			.bind(id, latest.at)
+			.run();
 		const [subject, text] = message(check, latest);
 		const sent = await sendMail(env.EMAIL, config.alert, subject, text);
 		const update = sent

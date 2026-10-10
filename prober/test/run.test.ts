@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { step, tick } from "../src/run.ts";
+import { drain, type RunEnv, step, tick } from "../src/run.ts";
 import { status } from "../src/status.ts";
 import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
 
@@ -13,6 +13,29 @@ function counting(status = 200) {
 		return new Response("", { status });
 	};
 	return { calls, fetch };
+}
+
+const ids = ["c1", "c2", "c3"].map((id) => ({ ...web, id, name: id }));
+const [one, two, three] = [ids.slice(0, 1), ids.slice(0, 2), ids];
+
+function before(runEnv: RunEnv, hook: () => unknown) {
+	const send = runEnv.EMAIL.send;
+	runEnv.EMAIL.send = (async (m: Parameters<typeof send>[0]) => {
+		await hook();
+		return send(m);
+	}) as typeof send;
+}
+
+async function seed(n: number) {
+	await env.DB.batch(
+		ids
+			.slice(0, n)
+			.map((c) =>
+				env.DB.prepare(`INSERT INTO outbox ("check", at, kind, since, reason) VALUES (?1, 1, 'down', 0, 'x')`).bind(
+					c.id,
+				),
+			),
+	);
 }
 
 describe("slot claims", () => {
@@ -187,6 +210,43 @@ describe("outbox", () => {
 			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', 1, 'down', 0, 'HTTP 500')`,
 		).run();
 		await Promise.all([tick(runEnv, makeConfig(), T0, respond(200)), tick(runEnv, makeConfig(), T0, respond(200))]);
+		expect(box.sends).toBe(1);
+	});
+
+	it("sends each pending mail once when two drains overlap and the send is slow", async () => {
+		const { runEnv, box } = mailbox();
+		before(runEnv, () => new Promise((r) => setTimeout(r, 50)));
+		await seed(2);
+		await Promise.all([drain(runEnv, makeConfig(two)), drain(runEnv, makeConfig(two))]);
+		expect(box.sends).toBe(2);
+		expect(await all("SELECT * FROM outbox")).toEqual([]);
+		expect(await all("SELECT value FROM meta WHERE key = 'drain'")).toEqual([{ value: "0" }]);
+	});
+
+	it("stops starting sends before the lease ends and the next tick sends the rest", async () => {
+		const { runEnv, box } = mailbox();
+		await seed(3);
+		let clock = T0;
+		before(runEnv, () => {
+			clock += 25_000;
+		});
+		await drain(runEnv, makeConfig(three), () => clock);
+		expect(box.sends).toBe(2);
+		expect(await all('SELECT "check" FROM outbox')).toEqual([{ check: "c3" }]);
+		await drain(runEnv, makeConfig(three), () => T0 + MINUTE);
+		expect(box.sends).toBe(3);
+		expect(await all("SELECT * FROM outbox")).toEqual([]);
+	});
+
+	it("skips the drain while the lease is live and takes over once it expires", async () => {
+		const { runEnv, box } = mailbox();
+		await seed(1);
+		await env.DB.prepare(`INSERT INTO meta (key, value) VALUES ('drain', ?1)`)
+			.bind(String(T0 + 30_000))
+			.run();
+		await drain(runEnv, makeConfig(one), () => T0);
+		expect(box.sends).toBe(0);
+		await drain(runEnv, makeConfig(one), () => T0 + 30_000);
 		expect(box.sends).toBe(1);
 	});
 

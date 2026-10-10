@@ -9,7 +9,7 @@ export interface Pending {
 	reason: string | null;
 }
 
-const SEND_TIMEOUT_MS = 10_000;
+export const SEND_TIMEOUT_MS = 10_000;
 
 const clip = (s: string) => (s.length > 200 ? `${s.slice(0, 200)}...` : s);
 const line = (s: string) => s.replace(/[\r\n]+/g, " ");
