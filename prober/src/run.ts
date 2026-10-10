@@ -105,7 +105,7 @@ export async function tick(
 				? await judgeBeat(env.DB, check, t, row)
 				: await probe(check, {
 						db: env.DB,
-						fetch: doFetch,
+						fetch: (input, init) => doFetch(input, init),
 						connect: doConnect,
 						token: env.CF_API_TOKEN,
 						timeoutMs: config.timeout_ms,
