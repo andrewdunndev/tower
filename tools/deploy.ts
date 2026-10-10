@@ -1,9 +1,7 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import type { Instance } from "./schema.ts";
+import { root, StageError, stage } from "./stage.ts";
 
-const root = join(import.meta.dirname, "..");
 const [instance, ...flags] = process.argv.slice(2);
 if (!instance) {
 	console.error("usage: node tools/deploy.ts <instance-dir> [--dry-run]");
@@ -11,12 +9,21 @@ if (!instance) {
 }
 const dryRun = flags.includes("--dry-run");
 
-const run = (cmd: string, args: string[], cwd = root) => execFileSync(cmd, args, { cwd, stdio: "inherit" });
+function run(cmd: string, args: string[], cwd = root) {
+	const { status } = spawnSync(cmd, args, { cwd, stdio: "inherit" });
+	if (status !== 0) process.exit(status ?? 1);
+}
 const wrangler = (cwd: string, ...args: string[]) =>
 	run(join(root, "node_modules/.bin/wrangler"), args, join(root, cwd));
 
-run("node", [join(root, "tools/stage.ts"), instance]);
-const { domain } = JSON.parse(readFileSync(join(root, ".tower/tower.json"), "utf8")) as Instance;
+let domain: string;
+try {
+	({ domain } = stage(instance));
+} catch (e) {
+	if (!(e instanceof StageError)) throw e;
+	console.error(e.message);
+	process.exit(1);
+}
 
 const dry = dryRun ? ["--dry-run"] : [];
 wrangler("prober", "deploy", ...dry);

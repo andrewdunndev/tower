@@ -47,7 +47,7 @@ describe("instance", () => {
 	});
 
 	it("rejects a malformed url without throwing", () => {
-		expect(messages(instance({ ...http, url: "not a url" }))).toContain("url: use a full http:// or https:// URL.");
+		expect(messages(instance({ ...http, url: "not a url" }))).toContain("use a full http:// or https:// URL.");
 	});
 
 	it("accepts public hostnames that start with digits", () => {
@@ -57,18 +57,18 @@ describe("instance", () => {
 
 	it("rejects a bad check id", () => {
 		expect(messages(instance({ ...http, id: "Bad_ID" }))).toContain(
-			"id: use lowercase letters, digits and hyphens, starting with a letter or digit.",
+			"use lowercase letters, digits and hyphens, starting with a letter or digit.",
 		);
 	});
 
 	it("rejects a domain with a scheme", () => {
 		expect(messages({ ...example, domain: "https://status.example.com" })).toContain(
-			"domain: use a bare hostname such as status.example.com, with no scheme or path.",
+			"use a bare hostname such as status.example.com, with no scheme or path.",
 		);
 	});
 
 	it("rejects an empty checks list", () => {
-		expect(messages({ ...example, checks: [] })).toContain("checks: list at least one check.");
+		expect(messages({ ...example, checks: [] })).toContain("list at least one check.");
 	});
 
 	it("rejects a 3xx expect_status", () => {

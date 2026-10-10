@@ -9,10 +9,7 @@ const duration = z
 
 const id = z
 	.string()
-	.regex(
-		/^[a-z0-9][a-z0-9-]{0,62}$/,
-		"id: use lowercase letters, digits and hyphens, starting with a letter or digit.",
-	);
+	.regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "use lowercase letters, digits and hyphens, starting with a letter or digit.");
 
 const DOTTED_QUAD = /^\d+\.\d+\.\d+\.\d+$/;
 const PRIVATE_V4 = /^(0\.|10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/;
@@ -33,18 +30,18 @@ const PRIVATE_MESSAGE =
 
 const host = z
 	.string()
-	.min(1, "host: required.")
+	.min(1, "required.")
 	.refine((h) => !isPrivateHost(h), PRIVATE_MESSAGE);
 
 const common = {
 	id,
-	name: z.string().min(1, "name: required."),
+	name: z.string().min(1, "required."),
 	public: z.boolean().default(true),
 };
 
 const limits = {
-	down_after: z.number().int().min(1, "down_after: use a whole number of 1 or more.").default(3),
-	up_after: z.number().int().min(1, "up_after: use a whole number of 1 or more.").default(2),
+	down_after: z.number().int().min(1, "use a whole number of 1 or more.").default(3),
+	up_after: z.number().int().min(1, "use a whole number of 1 or more.").default(2),
 };
 
 const http = z.object({
@@ -53,7 +50,7 @@ const http = z.object({
 	type: z.literal("http"),
 	every: duration.default(60_000),
 	url: z
-		.url({ protocol: /^https?$/, error: "url: use a full http:// or https:// URL.", abort: true })
+		.url({ protocol: /^https?$/, error: "use a full http:// or https:// URL.", abort: true })
 		.refine((u) => !isPrivateHost(new URL(u).hostname), PRIVATE_MESSAGE),
 	expect_status: z
 		.number()
@@ -67,11 +64,11 @@ const http = z.object({
 	absent: z.string().optional(),
 	json: z
 		.object({
-			path: z.string().min(1, "json.path: use a dotted path such as data.status."),
+			path: z.string().min(1, "use a dotted path such as data.status."),
 			equals: z.union([z.string(), z.number(), z.boolean(), z.null()]),
 		})
 		.optional(),
-	slow_ms: z.number().int().positive("slow_ms: use milliseconds above 0.").optional(),
+	slow_ms: z.number().int().positive("use milliseconds above 0.").optional(),
 });
 
 const tcp = z.object({
@@ -93,8 +90,8 @@ const dns = z.object({
 	...limits,
 	type: z.literal("dns"),
 	every: duration.default(60_000),
-	query: z.string().min(1, "query: required, the DNS name to resolve."),
-	record: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"], { error: "record: use A, AAAA, CNAME, MX, TXT or NS." }),
+	query: z.string().min(1, "required, the DNS name to resolve."),
+	record: z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "NS"], { error: "use A, AAAA, CNAME, MX, TXT or NS." }),
 	expect: z.string().optional(),
 });
 
@@ -103,8 +100,8 @@ const tls = z.object({
 	...limits,
 	type: z.literal("tls"),
 	every: duration.default(3_600_000),
-	host: z.string().min(1, "host: required."),
-	zone: z.string().min(1, "zone: name the Cloudflare zone holding the certificate, such as example.com."),
+	host: z.string().min(1, "required."),
+	zone: z.string().min(1, "name the Cloudflare zone holding the certificate, such as example.com."),
 });
 
 const heartbeat = z.object({
@@ -118,7 +115,7 @@ const heartbeat = z.object({
 });
 
 const check = z.discriminatedUnion("type", [http, tcp, dns, tls, heartbeat], {
-	error: 'type: use "http", "tcp", "dns", "tls" or "heartbeat".',
+	error: 'use "http", "tcp", "dns", "tls" or "heartbeat".',
 });
 
 const ISO_WITH_OFFSET = /T\d\d:\d\d(:\d\d)?(\.\d+)?(Z|[+-]\d\d:\d\d)$/;
@@ -128,19 +125,16 @@ const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an off
 
 export const instanceSchema = z
 	.object({
-		title: z.string().min(1, "title: required."),
+		title: z.string().min(1, "required."),
 		domain: z
 			.string()
-			.regex(
-				/^[a-z0-9.-]+\.[a-z]{2,}$/,
-				"domain: use a bare hostname such as status.example.com, with no scheme or path.",
-			),
+			.regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "use a bare hostname such as status.example.com, with no scheme or path."),
 		alert: z.object({
-			from: z.email("alert.from: use an email address."),
-			to: z.email("alert.to: use an email address."),
+			from: z.email("use an email address."),
+			to: z.email("use an email address."),
 		}),
 		timeout_ms: z.number().int().min(1000).max(30000).default(10000),
-		checks: z.array(check).min(1, "checks: list at least one check."),
+		checks: z.array(check).min(1, "list at least one check."),
 	})
 	.superRefine((inst, ctx) => {
 		const seen = new Set<string>();
@@ -158,8 +152,8 @@ export const instanceSchema = z
 
 export const noteSchema = z
 	.object({
-		title: z.string().min(1, "title: required."),
-		kind: z.enum(["maintenance", "incident"], { error: 'kind: use "maintenance" or "incident".' }),
+		title: z.string().min(1, "required."),
+		kind: z.enum(["maintenance", "incident"], { error: 'use "maintenance" or "incident".' }),
 		start: when,
 		end: when.optional(),
 		checks: z.array(id).default([]),
