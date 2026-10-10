@@ -25,8 +25,6 @@ Shared as-is: no roadmap, no support promise. Design after [herdr.dev](https://h
 
 ## Security model
 
-The prober sees your targets; visitors never do.
-
 - The page and `/api/status` carry check names, status, uptime and times. They never carry a URL, hostname, address, port or failure reason.
 - The page holds no secrets and no storage. The prober is the only owner of D1.
 - Failure reasons go only to the alert mail and the Worker log.
@@ -37,14 +35,7 @@ Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
 
 ## Instance
 
-An instance is a directory holding `tower.json`, optional `notes/*.md` for maintenance windows and incident write-ups, and optional `theme.css` and `favicon.svg`. [`example/`](example) is a complete one; each field's validation message states its rule. Keep your instance outside this repository.
-
-```sh
-npm ci
-npm run deploy -- ./my-instance
-```
-
-[docs/setup.md](docs/setup.md) covers the plan and account prerequisites, the API token, look, alerts, heartbeats, backup, external monitoring and upgrades.
+An instance is a directory holding `tower.json`, optional `notes/*.md` for maintenance windows and incident write-ups, and optional `theme.css` and `favicon.svg`. [`example/`](example) is a complete one; each field's validation message states its rule. Keep your instance outside this repository. [docs/setup.md](docs/setup.md) covers deploying and running it.
 
 ## Limits
 

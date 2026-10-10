@@ -29,23 +29,13 @@ const stageNamed = (name: string) => {
 
 describe("resource names", () => {
 	it("derive from the instance name and do not overlap between instances", () => {
-		const names = ["a", "b"].map((n) => {
+		const names = ["a", "tower"].map((n) => {
 			const { prober, page } = stageNamed(n);
 			return [prober.name, page.name, page.services[0].service, prober.d1_databases[0].database_name];
 		});
 		expect(names).toEqual([
 			["a-prober", "a-page", "a-prober", "a"],
-			["b-prober", "b-page", "b-prober", "b"],
-		]);
-	});
-
-	it('name an instance called "tower" tower-prober, tower-page and tower', () => {
-		const { prober, page } = stageNamed("tower");
-		expect([prober.name, page.name, page.services[0].service, prober.d1_databases[0].database_name]).toEqual([
-			"tower-prober",
-			"tower-page",
-			"tower-prober",
-			"tower",
+			["tower-prober", "tower-page", "tower-prober", "tower"],
 		]);
 	});
 

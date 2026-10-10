@@ -4,12 +4,11 @@
 
 - A Cloudflare account on the Workers Paid plan, and a zone on it for the status hostname. On Free, a cron run gets 10 ms of CPU and 50 subrequests, and every D1 call counts toward the 50; Email sending is Paid only.
 - Node (the version in `mise.toml`) and `npm ci` in this repository.
-- An instance directory (see [`example/`](../example)).
 - For alerts: the `alert.from` domain onboarded to Cloudflare Email Service, and `alert.to` verified as a destination address in the account.
 
 ## Instance
 
-`tower.json` names the instance with a required `name`, a slug of lowercase letters, digits and hyphens, at most 54 characters. It derives every Cloudflare resource: Workers `<name>-prober` and `<name>-page`, the service binding between them and the D1 database `<name>`. Two instances with different names can share an account.
+`tower.json` ([`example/`](../example) is a starter) names the instance with a required `name`, a slug of lowercase letters, digits and hyphens, at most 54 characters. It derives every Cloudflare resource: Workers `<name>-prober` and `<name>-page`, the service binding between them and the D1 database `<name>`. Two instances with different names can share an account.
 
 Notes are Markdown files in `notes/` with this frontmatter:
 
@@ -28,7 +27,7 @@ Shown on the page under the title.
 
 ## Look
 
-The page renders `title` in the header and the tab. Two optional files in the instance directory change the rest, so a look change never needs a tool release:
+The page renders `title` in the header and the tab. Two optional instance files change the rest:
 
 - `favicon.svg` is the tab icon and the header logo. Without it the repository's `favicon.svg` is used.
 - `theme.css` is loaded after the built-in theme. Override any of these custom properties on `:root`, most of them with `light-dark(light, dark)`:
@@ -101,7 +100,7 @@ D1 time travel also restores the database to any minute inside your plan's reten
 
 ## External monitoring
 
-tower cannot report its own death. Poll `/api/status` from outside. The response is JSON:
+tower cannot report its own death. Poll `/api/status` from outside; its JSON carries:
 
 - `v` is the response-shape version, `1` today. It changes only on a breaking change.
 - `generatedAt`, `checks`, `incidents` and `maintenance` are what the page renders, by check name.
@@ -119,4 +118,4 @@ Alert when:
 
 ## Upgrade
 
-Check out the release tag you want, then run the deploy command again. Migrations apply in the same step. [CHANGELOG.md](../CHANGELOG.md) lists what changed.
+Check out the release tag you want, then run the deploy command again. [CHANGELOG.md](../CHANGELOG.md) lists what changed.

@@ -91,7 +91,6 @@ export function stage(instance: string, out = join(root, ".tower")): Omit<Instan
 			: [],
 	);
 	writeFileSync(join(out, "tower.json"), `${JSON.stringify({ ...parsed.data, maintenance }, null, "\t")}\n`);
-	// The page gets check names, never ids, and only for public checks.
 	for (const { file, note, body } of parsedNotes) {
 		const shown = publicNote(note, parsed.data.checks);
 		if (!shown) continue;
