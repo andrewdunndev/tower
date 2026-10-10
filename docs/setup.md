@@ -8,7 +8,7 @@
 
 ## Instance
 
-`tower.json` ([`example/`](../example) is a starter) names the instance with a required `name`, a slug of lowercase letters, digits and hyphens, at most 54 characters. It derives every Cloudflare resource: Workers `<name>-prober` and `<name>-page`, the service binding between them and the D1 database `<name>`. Two instances with different names can share an account.
+`tower.json` ([`example/`](../example) is a starter) names the instance with a required `name`, a slug of lowercase letters, digits and hyphens, at most 54 characters. It derives every Cloudflare resource: Workers `<name>-prober` and `<name>-page`, the service binding between them and the D1 database `<name>`. Two instances with different names can share an account. Renaming deploys a new, empty instance and leaves the old Workers and D1 database in place to delete by hand.
 
 Notes are Markdown files in `notes/` with this frontmatter:
 
