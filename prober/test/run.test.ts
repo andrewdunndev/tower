@@ -250,6 +250,16 @@ describe("outbox", () => {
 		expect(box.sends).toBe(1);
 	});
 
+	it("leaves a lock taken over mid-drain to its new holder", async () => {
+		const { runEnv } = mailbox();
+		await seed(1);
+		before(runEnv, async () => {
+			await env.DB.prepare(`UPDATE meta SET value = '999' WHERE key = 'drain'`).run();
+		});
+		await drain(runEnv, makeConfig(one), () => T0);
+		expect(await all("SELECT value FROM meta WHERE key = 'drain'")).toEqual([{ value: "999" }]);
+	});
+
 	it("retries a failed send and marks the row dead after 10 attempts", async () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;

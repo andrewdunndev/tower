@@ -32,6 +32,7 @@ const DAY_MS = 86_400_000;
 const CONCURRENCY = 6;
 const MAX_ATTEMPTS = 10;
 const LEASE_MS = 50_000;
+const DB_MARGIN_MS = 5_000;
 const RECENT_SAMPLES = 5;
 const OWNED_TABLES = ["state", "samples", "daily", "beats", "events", "outbox"];
 
@@ -240,7 +241,7 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 	for (const [id, rows] of byCheck) {
 		const check = config.checks.find((c) => c.id === id);
 		if (!check) continue;
-		if (now() + SEND_TIMEOUT_MS > until) return;
+		if (now() + SEND_TIMEOUT_MS + DB_MARGIN_MS > until) return;
 		const latest = rows[rows.length - 1];
 		await env.DB.prepare(`UPDATE outbox SET attempts = attempts + 1 WHERE "check" = ?1 AND dead = 0 AND at <= ?2`)
 			.bind(id, latest.at)
