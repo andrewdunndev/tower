@@ -1,18 +1,53 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import Check from '../figures/02-check.astro';
+import Ov1 from '../figures/07-ov1.astro';
 import Hero from '@dunn.dev/reference/chrome/Hero.astro';
 import Split from '@dunn.dev/reference/chrome/Split.astro';
 import SectionLabel from '@dunn.dev/reference/chrome/SectionLabel.astro';
+
+const days = Array.from({ length: 24 }, (_, i) => i);
+const rows = [
+  { name: 52, dot: 'var(--success)', bad: [17] },
+  { name: 38, dot: 'var(--success)', bad: [] },
+  { name: 60, dot: 'var(--danger)', bad: [23] },
+];
 ---
-<Layout description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
-  <Hero title="tower" eyebrow="status page on cloudflare workers">
-    tower tells you when a service stops answering. It checks from outside, sends one mail when something goes down and one when it comes back, and runs on Cloudflare, so there is no server to keep.
+<Layout title="tower" description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
+  <Hero title="tower" eyebrow="status page" live="https://status.dunn.dev">
+    tower tells you when a service stops answering. It checks from outside, shows a public status page, mails once when something goes down and once when it comes back, and runs on Cloudflare, so there is no server to keep.
     <Fragment slot="actions">
       <a class="cta-primary" href="/setup/">Install</a>
       <a class="cta-secondary" href="/architecture/">Architecture</a>
     </Fragment>
+    <Fragment slot="aside">
+      <span class="tile-prose">status.dunn.dev runs tower against dunn.dev's own services.</span>
+      <svg viewBox="0 0 232 112" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0.5" y="0.5" width="231" height="111" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+        <rect x="12" y="12" width="64" height="8" rx="2" fill="var(--text-2)"/>
+        <rect x="180" y="9" width="40" height="14" rx="7" fill="var(--success-subtle)"/>
+        <circle cx="192" cy="16" r="3" fill="var(--success)"/>
+        <rect x="199" y="14" width="15" height="4" rx="2" fill="var(--success)"/>
+        {rows.map((r, j) => (
+          <g transform={`translate(0 ${40 + j * 24})`}>
+            <circle cx="16" cy="6" r="4" fill={r.dot}/>
+            <rect x="26" y="3" width={r.name} height="6" rx="2" fill="var(--border-strong)"/>
+            {days.map((d) => (
+              <rect x={110 + d * 4.5} y="0" width="3" height="12" rx="1" fill={r.bad.includes(d) ? 'var(--danger)' : 'var(--success)'}/>
+            ))}
+          </g>
+        ))}
+      </svg>
+    </Fragment>
   </Hero>
+
+  <section class="section" id="at-a-glance">
+    <SectionLabel label="At a glance" />
+    <figure class="cat-explainer figure-pair figure-full">
+      <Ov1 />
+      <p>The operator deploys one config file to Cloudflare. The public sees names only; failure detail goes to the inbox.</p>
+    </figure>
+  </section>
 
   <section class="section flow" id="what-it-is">
     <SectionLabel label="What it is" />
