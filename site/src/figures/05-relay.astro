@@ -1,0 +1,86 @@
+<svg class="figure-wide" viewBox="0 0 660 424" role="img" aria-label="A relay key opens when its sender fires and mails FIRING. Repeat firings renew it without mail. It closes when the sender resolves and mails RESOLVED. A key that is not renewed within its grace period mails STOPPED REPORTING. All relay mail goes out at most five a minute, and the rest is batched." xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="relay-arrow-accent" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--accent)"/></marker>
+    <marker id="relay-arrow-muted" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--text-2)"/></marker>
+  </defs>
+  <g font-family="'IBM Plex Sans', Helvetica, Arial, sans-serif">
+    <rect x="20" y="20" width="620" height="384" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <path d="M224,212 H276" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-arrow-muted)"/>
+    <path d="M384,212 H436" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-arrow-muted)"/>
+    <path d="M330,252 V300" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-arrow-muted)"/>
+    <path d="M330,172 V124" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-arrow-muted)"/>
+    <path d="M490,172 V84 H384" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-arrow-muted)"/>
+    <rect x="237" y="198" width="26" height="12" fill="var(--bg)"/>
+    <text x="250" y="207" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">fire</text>
+    <rect x="395" y="198" width="31" height="12" fill="var(--bg)"/>
+    <text x="410" y="207" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">close</text>
+    <text x="337" y="279" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">no repeat</text>
+    <text x="337" y="151" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">mail</text>
+    <text x="497" y="131" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">mail</text>
+    <rect x="116" y="172" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="170" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">KEY</text>
+    <text x="170" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">closed</text>
+    <text x="170" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">no mail</text>
+    <rect x="276" y="172" width="108" height="80" rx="6" fill="var(--accent)"/>
+    <text x="330" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--accent-contrast)" opacity="0.8">KEY OPEN</text>
+    <text x="330" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--accent-contrast)">FIRING</text>
+    <text x="330" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--accent-contrast)" opacity="0.85">repeats renew</text>
+    <text x="330" y="242" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--accent-contrast)" opacity="0.85">no mail</text>
+    <rect x="436" y="172" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="490" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">KEY</text>
+    <text x="490" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">RESOLVED</text>
+    <text x="490" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">sender closed</text>
+    <rect x="276" y="300" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="330" y="326" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">GRACE LAPSED</text>
+    <text x="330" y="342" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">STOPPED</text>
+    <text x="330" y="358" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">REPORTING</text>
+    <rect x="276" y="44" width="108" height="80" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+    <text x="330" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">MAIL</text>
+    <text x="330" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">5 a minute</text>
+    <text x="330" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">rest batched</text>
+    <text x="330" y="114" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">one ALERTS mail</text>
+  </g>
+</svg>
+<svg class="figure-narrow" viewBox="0 0 340 424" role="img" aria-label="A relay key opens when its sender fires and mails FIRING. Repeat firings renew it without mail. It closes when the sender resolves and mails RESOLVED. A key that is not renewed within its grace period mails STOPPED REPORTING. All relay mail goes out at most five a minute, and the rest is batched." xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="relay-n-arrow-accent" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--accent)"/></marker>
+    <marker id="relay-n-arrow-muted" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--text-2)"/></marker>
+  </defs>
+  <g font-family="'IBM Plex Sans', Helvetica, Arial, sans-serif">
+    <rect x="20" y="20" width="300" height="384" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <path d="M94,300 V252" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-n-arrow-muted)"/>
+    <path d="M148,212 H192" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-n-arrow-muted)"/>
+    <path d="M94,172 V124" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-n-arrow-muted)"/>
+    <path d="M246,172 V124" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-n-arrow-muted)"/>
+    <path d="M148,84 H192" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#relay-n-arrow-muted)"/>
+    <text x="101" y="279" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">fire</text>
+    <rect x="155" y="198" width="31" height="12" fill="var(--bg)"/>
+    <text x="170" y="207" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">close</text>
+    <text x="101" y="151" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">no repeat</text>
+    <text x="253" y="151" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">mail</text>
+    <rect x="157" y="70" width="26" height="12" fill="var(--bg)"/>
+    <text x="170" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">mail</text>
+    <rect x="40" y="300" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="94" y="326" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">KEY</text>
+    <text x="94" y="342" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">closed</text>
+    <text x="94" y="358" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">no mail</text>
+    <rect x="40" y="172" width="108" height="80" rx="6" fill="var(--accent)"/>
+    <text x="94" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--accent-contrast)" opacity="0.8">KEY OPEN</text>
+    <text x="94" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--accent-contrast)">FIRING</text>
+    <text x="94" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--accent-contrast)" opacity="0.85">repeats renew</text>
+    <text x="94" y="242" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--accent-contrast)" opacity="0.85">no mail</text>
+    <rect x="192" y="172" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="246" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">KEY</text>
+    <text x="246" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">RESOLVED</text>
+    <text x="246" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">sender closed</text>
+    <rect x="40" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="94" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">GRACE LAPSED</text>
+    <text x="94" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">STOPPED</text>
+    <text x="94" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">REPORTING</text>
+    <rect x="192" y="44" width="108" height="80" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+    <text x="246" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">MAIL</text>
+    <text x="246" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">5 a minute</text>
+    <text x="246" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">rest batched</text>
+    <text x="246" y="114" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">one ALERTS mail</text>
+  </g>
+</svg>

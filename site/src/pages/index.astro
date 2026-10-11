@@ -1,0 +1,84 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Check from '../figures/02-check.astro';
+import mark from '../../public/favicon.svg?raw';
+---
+<Layout title="tower" description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
+  <header class="hero">
+    <div class="hero-mark" aria-hidden="true" set:html={mark} />
+    <div>
+      <p class="hero-eyebrow">status page</p>
+      <h1 class="hero-title">tower</h1>
+      <p class="hero-lede">tower tells you when a service stops answering. It checks from outside, sends one mail when something goes down and one when it comes back, and runs on Cloudflare, so there is no server to keep.</p>
+      <div class="hero-cta">
+        <a class="cta-primary" href="/setup/">Install</a>
+        <a class="cta-secondary" href="/architecture/">Architecture</a>
+      </div>
+    </div>
+  </header>
+
+  <section class="section">
+    <h2 class="section-title" id="what-it-is">What it is</h2>
+    <p class="section-prose">We want to know when a service fails without running a server whose only job is to watch. tower does that on Cloudflare, a company that runs small programs, called Workers, on its network for you.</p>
+    <p class="section-prose">Two Workers do the work. The prober runs on a timer each minute, checks your services and keeps the history in a database. The page Worker shows the result to anyone who visits and holds no secrets of its own.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="how-it-works">How it works</h2>
+    <div class="tile-list">
+      <div class="tile">
+        <p class="tile-eyebrow">1 · check</p>
+        <h3 class="tile-headline">Checks from outside</h3>
+        <p class="tile-prose">Each minute the prober tests whatever is due: a web address, a port, a DNS name, a certificate, or a job that reports in. Every check runs from Cloudflare, outside your own network.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">2 · mail</p>
+        <h3 class="tile-headline">One mail per change</h3>
+        <p class="tile-prose">A check goes down only after it fails a set number of runs in a row. tower then mails once, and once more when it recovers. A mail that fails to send is tried again.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">3 · watch</p>
+        <h3 class="tile-headline">Watches itself</h3>
+        <p class="tile-prose">tower mails when a check stops producing results or probing stalls. A daily digest covers the day both Workers are down: a missing digest is the alarm.</p>
+      </div>
+    </div>
+    <div class="cat-explainer figure-pair">
+      <Check />
+      <p>A check changes state only after several runs in a row agree, and each change queues one mail that is retried until it sends.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="page">What the page shows</h2>
+    <p class="section-prose">The public page shows names only: each check with its status, uptime and the time of its last run. Addresses, ports and failure reasons stay in the prober, and a reason reaches only the alert mail and the log. A check that has not run recently reads as unknown, so a stopped timer cannot leave a green page.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="what-you-need">What you need</h2>
+    <ul class="section-prose">
+      <li>A Cloudflare account on the Workers Paid plan.</li>
+      <li>A zone on that account for the status hostname.</li>
+      <li>Cloudflare Email Service for alerts, with an address to send them to.</li>
+      <li>Node, to run the deploy command.</li>
+      <li>An instance directory: a folder holding your checks in <code>tower.json</code>.</li>
+    </ul>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="next">Where next</h2>
+    <div class="tile-grid">
+      <div class="tile">
+        <h3 class="tile-headline"><a href="/architecture/">Architecture</a></h3>
+        <p class="tile-prose">Each mechanism in figures, from a check's life to what happens when tower itself fails.</p>
+      </div>
+      <div class="tile">
+        <h3 class="tile-headline"><a href="/setup/">Install</a></h3>
+        <p class="tile-prose">The commands to deploy tower and add a first check.</p>
+      </div>
+      <div class="tile">
+        <h3 class="tile-headline"><a href="https://gitlab.com/dunn.dev/tower" rel="external">Source</a></h3>
+        <p class="tile-prose">Shared as-is: no roadmap, no support promise.</p>
+      </div>
+    </div>
+  </section>
+</Layout>

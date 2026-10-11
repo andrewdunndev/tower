@@ -1,0 +1,103 @@
+<svg class="figure-wide" viewBox="0 0 660 296" role="img" aria-label="One check over time. A check is up until it fails down_after runs in a row, then it is down and a DOWN mail goes to the outbox. It stays down until it passes up_after runs in a row, then it is up again and an UP mail goes to the outbox. The outbox retries a failed send on the next run." xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="check-arrow-accent" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--accent)"/></marker>
+    <marker id="check-arrow-muted" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--text-2)"/></marker>
+  </defs>
+  <g font-family="'IBM Plex Sans', Helvetica, Arial, sans-serif">
+    <rect x="20" y="20" width="620" height="256" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <path d="M144,84 H196" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-arrow-muted)"/>
+    <path d="M304,84 H356" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-arrow-muted)"/>
+    <path d="M464,84 H516" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-arrow-muted)"/>
+    <path d="M570,124 V172" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-arrow-muted)"/>
+    <path d="M410,124 V172" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-arrow-muted)"/>
+    <path d="M516,212 H464" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-arrow-muted)"/>
+    <rect x="157" y="70" width="26" height="12" fill="var(--bg)"/>
+    <text x="170" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">fail</text>
+    <rect x="315" y="70" width="31" height="12" fill="var(--bg)"/>
+    <text x="330" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">limit</text>
+    <rect x="477" y="70" width="26" height="12" fill="var(--bg)"/>
+    <text x="490" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">pass</text>
+    <text x="577" y="151" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">limit</text>
+    <text x="417" y="151" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">DOWN</text>
+    <rect x="482" y="198" width="16" height="12" fill="var(--bg)"/>
+    <text x="490" y="207" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">UP</text>
+    <rect x="36" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="90" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">STATE</text>
+    <text x="90" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">up</text>
+    <text x="90" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">runs pass</text>
+    <rect x="196" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="250" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">STILL UP</text>
+    <text x="250" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">failing</text>
+    <text x="250" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">runs fail</text>
+    <text x="250" y="114" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">until down_after</text>
+    <rect x="356" y="44" width="108" height="80" rx="6" fill="var(--accent)"/>
+    <text x="410" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--accent-contrast)" opacity="0.8">STATE</text>
+    <text x="410" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--accent-contrast)">down</text>
+    <text x="410" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--accent-contrast)" opacity="0.85">DOWN mail</text>
+    <rect x="516" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="570" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">STILL DOWN</text>
+    <text x="570" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">passing</text>
+    <text x="570" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">runs pass</text>
+    <text x="570" y="114" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">until up_after</text>
+    <rect x="516" y="172" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="570" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">STATE</text>
+    <text x="570" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">up again</text>
+    <text x="570" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">UP mail</text>
+    <rect x="356" y="172" width="108" height="80" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+    <text x="410" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">OUTBOX</text>
+    <text x="410" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">one mail</text>
+    <text x="410" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">per change</text>
+    <text x="410" y="242" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">retried each run</text>
+  </g>
+</svg>
+<svg class="figure-narrow" viewBox="0 0 340 424" role="img" aria-label="One check over time. A check is up until it fails down_after runs in a row, then it is down and a DOWN mail goes to the outbox. It stays down until it passes up_after runs in a row, then it is up again and an UP mail goes to the outbox. The outbox retries a failed send on the next run." xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="check-n-arrow-accent" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--accent)"/></marker>
+    <marker id="check-n-arrow-muted" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--text-2)"/></marker>
+  </defs>
+  <g font-family="'IBM Plex Sans', Helvetica, Arial, sans-serif">
+    <rect x="20" y="20" width="300" height="384" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <path d="M148,84 H192" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-n-arrow-muted)"/>
+    <path d="M246,124 V172" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-n-arrow-muted)"/>
+    <path d="M192,212 H148" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-n-arrow-muted)"/>
+    <path d="M94,252 V300" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-n-arrow-muted)"/>
+    <path d="M246,252 V300" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-n-arrow-muted)"/>
+    <path d="M148,340 H192" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#check-n-arrow-muted)"/>
+    <rect x="157" y="70" width="26" height="12" fill="var(--bg)"/>
+    <text x="170" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">fail</text>
+    <text x="253" y="151" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">limit</text>
+    <rect x="157" y="198" width="26" height="12" fill="var(--bg)"/>
+    <text x="170" y="207" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">pass</text>
+    <text x="101" y="279" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">limit</text>
+    <text x="253" y="279" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">DOWN</text>
+    <rect x="162" y="326" width="16" height="12" fill="var(--bg)"/>
+    <text x="170" y="335" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">UP</text>
+    <rect x="40" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="94" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">STATE</text>
+    <text x="94" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">up</text>
+    <text x="94" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">runs pass</text>
+    <rect x="192" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="246" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">STILL UP</text>
+    <text x="246" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">failing</text>
+    <text x="246" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">runs fail</text>
+    <text x="246" y="114" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">until down_after</text>
+    <rect x="192" y="172" width="108" height="80" rx="6" fill="var(--accent)"/>
+    <text x="246" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--accent-contrast)" opacity="0.8">STATE</text>
+    <text x="246" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--accent-contrast)">down</text>
+    <text x="246" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--accent-contrast)" opacity="0.85">DOWN mail</text>
+    <rect x="40" y="172" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="94" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">STILL DOWN</text>
+    <text x="94" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">passing</text>
+    <text x="94" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">runs pass</text>
+    <text x="94" y="242" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">until up_after</text>
+    <rect x="40" y="300" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="94" y="326" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">STATE</text>
+    <text x="94" y="342" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">up again</text>
+    <text x="94" y="358" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">UP mail</text>
+    <rect x="192" y="300" width="108" height="80" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+    <text x="246" y="326" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">OUTBOX</text>
+    <text x="246" y="342" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">one mail</text>
+    <text x="246" y="358" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">per change</text>
+    <text x="246" y="370" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">retried each run</text>
+  </g>
+</svg>

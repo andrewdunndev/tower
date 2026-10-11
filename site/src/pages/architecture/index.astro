@@ -1,0 +1,103 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Workers from '../../figures/01-workers.astro';
+import Check from '../../figures/02-check.astro';
+import Names from '../../figures/03-names.astro';
+import Watch from '../../figures/04-watch.astro';
+import Relay from '../../figures/05-relay.astro';
+---
+<Layout title="Architecture" description="How tower works: its two Workers, a check's life, what the page shows, how it watches itself, relays and limits.">
+  <header class="page-header">
+    <p class="page-eyebrow">architecture</p>
+    <h1 class="page-title">How tower works</h1>
+    <p class="page-lede">Two Cloudflare Workers, one database, one mail path. Each section draws one mechanism.</p>
+  </header>
+
+  <section class="section">
+    <h2 class="section-title" id="workers">Two Workers</h2>
+    <div class="cat-explainer figure-pair">
+      <Workers />
+      <p>The page Worker faces the internet and holds nothing; the prober owns the data and sends the mail.</p>
+    </div>
+    <p class="section-prose">The prober runs on a cron each minute. It runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. It is the only owner of D1. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober. It holds no secrets and no storage.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="check">A check's life</h2>
+    <div class="cat-explainer figure-pair">
+      <Check />
+      <p>Runs must agree <code>down_after</code> or <code>up_after</code> times in a row before the state changes.</p>
+    </div>
+    <p class="section-prose">A check is up until it fails <code>down_after</code> runs in a row. It is then down, and a DOWN mail is queued in the outbox. It stays down until it passes <code>up_after</code> runs in a row, and an UP mail is queued. One bad run changes nothing. The outbox holds unsent mail, and a failed send is tried again on the next run. A maintenance note suppresses alerts for its checks inside its window.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="types">Five check types</h2>
+    <div class="tile-grid">
+      <div class="tile">
+        <p class="tile-eyebrow">http</p>
+        <p class="tile-prose">Requests an address and judges the response.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">tcp</p>
+        <p class="tile-prose">Opens a connection to a port. It sends no data.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">dns</p>
+        <p class="tile-prose">Resolves a name through 1.1.1.1 over DoH.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">tls</p>
+        <p class="tile-prose">Reads a zone's edge certificates through the Cloudflare API.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">heartbeat</p>
+        <p class="tile-prose">Waits for a request from your job within its interval plus a grace.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="names">Names only</h2>
+    <div class="cat-explainer figure-pair">
+      <Names />
+      <p>Names, status, uptime and times cross to the public page; addresses and reasons stay behind.</p>
+    </div>
+    <p class="section-prose">The page and <code>/api/status</code> carry check names, status, uptime and times. A URL, hostname, address, port or failure reason never crosses: reasons go to the alert mail and the Worker log. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="watching">Watching itself</h2>
+    <div class="cat-explainer figure-pair">
+      <Watch />
+      <p>Each watcher has a watcher, and the digest is the last one.</p>
+    </div>
+    <p class="section-prose">The prober flags any check with no conclusive result for three of its intervals and mails a self-check failure naming it, then an OK when results return. The page Worker's minute cron asks the prober to watch its last run. If no run has written results for three of the shortest intervals, the mail says probing stalled, so it survives a dead prober cron. If the prober does not answer at all, the page mails that at the top of each hour. When both Workers are dead nothing can mail, so a daily digest at a time you choose is the alarm: a missing digest means something is wrong. An outside poller can also read <code>/api/status</code>, which reports the last run, the oldest unsent mail and stuck checks.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="relays">Relays</h2>
+    <div class="cat-explainer figure-pair">
+      <Relay />
+      <p>A relay key mails when it opens, when it closes and when it goes quiet.</p>
+    </div>
+    <p class="section-prose">A relay accepts an incident.io-format webhook at <code>POST /relay/incident</code>, as HyperDX sends, and mails on transitions only. A firing opens a key and mails FIRING. A repeat firing renews it without mail. A resolved closes it and mails RESOLVED. A key not renewed within its grace closes with STOPPED REPORTING, which also covers a lost resolved. At most five transitions per relay per minute mail at once; the rest wait for the next run and arrive as one mail.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="instances">Instances</h2>
+    <p class="section-prose">An instance is a directory: <code>tower.json</code>, optional <code>notes/*.md</code> for maintenance windows and incident write-ups, and optional <code>theme.css</code> and <code>favicon.svg</code>. Its <code>name</code> derives every Cloudflare resource, the two Workers and the D1 database. Keep it outside this repository.</p>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title" id="limits">Limits</h2>
+    <ul class="section-prose">
+      <li>A tcp check against a Cloudflare-proxied address, or one Cloudflare blocks, reads as down.</li>
+      <li>A tcp check sends no data, so a service that accepts and then fails reads as up.</li>
+      <li>A tls check covers edge certificates. An origin certificate failure shows as http 526.</li>
+      <li>Checks run from one Cloudflare location per cron run, so a failure near it can read as down.</li>
+      <li>Relays have no silences or maintenance windows.</li>
+      <li>If both Workers are dead, nothing mails, and only the missing digest says so.</li>
+    </ul>
+  </section>
+</Layout>
