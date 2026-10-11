@@ -258,6 +258,11 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		),
 		db.prepare(`DELETE FROM outbox WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(owners),
 		db.prepare(`DELETE FROM relay_keys WHERE relay NOT IN (SELECT value FROM json_each(?1))`).bind(relays),
+		db
+			.prepare(
+				`DELETE FROM meta WHERE (key LIKE 'burst:%' OR key LIKE 'full:%') AND substr(key, instr(key, ':') + 1) NOT IN (SELECT value FROM json_each(?1))`,
+			)
+			.bind(relays),
 	];
 }
 
