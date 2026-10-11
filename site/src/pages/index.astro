@@ -2,9 +2,8 @@
 import Layout from '../layouts/Layout.astro';
 import Check from '../figures/02-check.astro';
 import Hero from '@dunn.dev/reference/chrome/Hero.astro';
-import StatStrip from '@dunn.dev/reference/chrome/StatStrip.astro';
+import Split from '@dunn.dev/reference/chrome/Split.astro';
 import SectionLabel from '@dunn.dev/reference/chrome/SectionLabel.astro';
-import { stats } from '../lib/stats';
 ---
 <Layout description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
   <Hero title="tower" eyebrow="status page on cloudflare workers">
@@ -15,9 +14,7 @@ import { stats } from '../lib/stats';
     </Fragment>
   </Hero>
 
-  <StatStrip items={stats} />
-
-  <section class="section" id="what-it-is">
+  <section class="section flow" id="what-it-is">
     <SectionLabel label="What it is" />
     <p class="section-prose">tower runs on Cloudflare, which hosts small programs, called Workers, on its network, so nothing watches your services from a server you maintain.</p>
     <p class="section-prose">Two Workers do the work. The prober runs on a timer each minute, checks your services and keeps the history in a database. The page Worker shows the result to anyone who visits and holds no secrets of its own.</p>
@@ -25,7 +22,7 @@ import { stats } from '../lib/stats';
 
   <section class="section" id="how-it-works">
     <SectionLabel label="How it works" />
-    <div class="tile-list">
+    <div class="tile-grid">
       <div class="tile">
         <p class="tile-eyebrow">1 · check</p>
         <h3 class="tile-headline">Checks from outside</h3>
@@ -42,10 +39,10 @@ import { stats } from '../lib/stats';
         <p class="tile-prose">tower mails when a check stops producing results or probing stalls. A daily digest covers the day both Workers are down: a missing digest is the alarm.</p>
       </div>
     </div>
-    <div class="cat-explainer figure-pair">
-      <Check />
+    <Split>
       <p>A probed check changes state only after several runs in a row agree, and each change queues one mail that is retried on each run.</p>
-    </div>
+      <div class="figure-pair" slot="aside"><Check /></div>
+    </Split>
   </section>
 
   <section class="section" id="page">

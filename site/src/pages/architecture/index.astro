@@ -1,5 +1,5 @@
 ---
-import DiagramTrack from '@dunn.dev/reference/chrome/DiagramTrack.astro';
+import Split from '@dunn.dev/reference/chrome/Split.astro';
 import Layout from '../../layouts/Layout.astro';
 import Workers from '../../figures/01-workers.astro';
 import Check from '../../figures/02-check.astro';
@@ -15,27 +15,31 @@ import Relay from '../../figures/05-relay.astro';
   </header>
   <article>
 
-    <DiagramTrack>
+    <Split>
       <h2 id="workers">Two Workers</h2>
       <p>The prober runs on a cron each minute, runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober.</p>
-      <Fragment slot="figure">
+      <Fragment slot="aside">
+        <figure class="diagram">
         <div class="figure-pair">
           <Workers />
         </div>
         <figcaption class="diagram-caption">The page Worker faces the internet and holds no secrets or storage. The prober owns the data and sends the alert mail; the page Worker mails only when the prober does not answer.</figcaption>
+        </figure>
       </Fragment>
-    </DiagramTrack>
+    </Split>
 
-    <DiagramTrack>
+    <Split>
       <h2 id="check">A check's life</h2>
       <p>Each change queues a DOWN or UP mail in the outbox, and a failed send is tried again on the next run. A maintenance note suppresses alerts for its checks inside its window.</p>
-      <Fragment slot="figure">
+      <Fragment slot="aside">
+        <figure class="diagram">
         <div class="figure-pair">
           <Check />
         </div>
         <figcaption class="diagram-caption">A probed check changes state after <code>down_after</code> or <code>up_after</code> runs in a row; a heartbeat goes down at its first missed deadline.</figcaption>
+        </figure>
       </Fragment>
-    </DiagramTrack>
+    </Split>
 
     <h2 id="types">Five check types</h2>
     <div class="tile-grid">
@@ -61,38 +65,44 @@ import Relay from '../../figures/05-relay.astro';
       </div>
     </div>
 
-    <DiagramTrack>
+    <Split>
       <h2 id="names">Names only</h2>
       <p>Failure reasons go to the alert mail and the Worker log only. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
-      <Fragment slot="figure">
+      <Fragment slot="aside">
+        <figure class="diagram">
         <div class="figure-pair">
           <Names />
         </div>
         <figcaption class="diagram-caption">Names, status, uptime and response times cross to the public page; addresses and reasons stay behind.</figcaption>
+        </figure>
       </Fragment>
-    </DiagramTrack>
+    </Split>
 
-    <DiagramTrack>
+    <Split>
       <h2 id="watching">Watching itself</h2>
       <p>The prober flags any check with no conclusive result for three of its intervals and mails a self-check failure naming it, then an OK when results return. The page Worker's minute cron asks the prober to watch its last run. If no run has written results for three of the shortest intervals, the mail says probing stalled, so it survives a dead prober cron. If the prober does not answer at all, the page mails that at the top of each hour. When both Workers are dead nothing can mail, so a daily digest at a time you choose is the alarm: a missing digest means something is wrong. An outside poller can also read <code>/api/status</code>, which reports the last run, the oldest unsent mail and stuck checks.</p>
-      <Fragment slot="figure">
+      <Fragment slot="aside">
+        <figure class="diagram">
         <div class="figure-pair">
           <Watch />
         </div>
         <figcaption class="diagram-caption">The prober flags stuck checks, the page Worker flags a stalled prober, and a missing digest covers both being down.</figcaption>
+        </figure>
       </Fragment>
-    </DiagramTrack>
+    </Split>
 
-    <DiagramTrack>
+    <Split>
       <h2 id="relays">Relays</h2>
       <p>A relay accepts an incident.io-format webhook at <code>POST /relay/incident</code>, as HyperDX sends, and mails on transitions only. A firing opens a key and mails FIRING. A repeat firing renews it without mail. A resolved closes it and mails RESOLVED. A key not renewed within its grace closes with STOPPED REPORTING, which also covers a lost resolved. At most five transitions per relay per minute mail at once; the rest wait for the next run and, when more than one is waiting, arrive as one mail.</p>
-      <Fragment slot="figure">
+      <Fragment slot="aside">
+        <figure class="diagram">
         <div class="figure-pair">
           <Relay />
         </div>
         <figcaption class="diagram-caption">A relay key mails when it opens, when it closes and when it goes quiet.</figcaption>
+        </figure>
       </Fragment>
-    </DiagramTrack>
+    </Split>
 
     <h2 id="limits">Limits</h2>
     <ul class="section-prose">
