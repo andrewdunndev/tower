@@ -14,14 +14,16 @@ const rows = [
 ];
 ---
 <Layout title="tower" description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
-  <Hero title="tower" eyebrow="status page" live="https://status.dunn.dev">
+  <Hero title="tower" eyebrow="status page">
     tower tells you when a service stops answering. It checks from outside, shows a public status page, mails once when something goes down and once when it comes back, and runs on Cloudflare, so there is no server to keep.
     <Fragment slot="actions">
       <a class="cta-primary" href="/setup/">Install</a>
       <a class="cta-secondary" href="/architecture/">Architecture</a>
     </Fragment>
-    <Fragment slot="aside">
-      <span class="tile-prose">status.dunn.dev runs tower against dunn.dev's own services.</span>
+    <a slot="aside" class="live" href="https://status.dunn.dev" rel="external">
+      <p class="tile-eyebrow">live</p>
+      <p class="tile-headline">See it running</p>
+      <p class="tile-prose">status.dunn.dev runs tower against dunn.dev's own services.</p>
       <svg viewBox="0 0 232 112" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
         <rect x="0.5" y="0.5" width="231" height="111" rx="6" fill="var(--bg)" stroke="var(--border)"/>
         <rect x="12" y="12" width="64" height="8" rx="2" fill="var(--text-2)"/>
@@ -38,7 +40,8 @@ const rows = [
           </g>
         ))}
       </svg>
-    </Fragment>
+      <p><span class="cta-primary">Open status.dunn.dev &rarr;</span></p>
+    </a>
   </Hero>
 
   <section class="section" id="at-a-glance">
