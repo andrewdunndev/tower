@@ -191,9 +191,44 @@ describe("burst", () => {
 		expect(box.sends).toBe(5);
 		await fire(runEnv, 5, T0 + 3000);
 		expect(box.sends).toBe(5);
+		await fire(runEnv, 0, T0 + 4000);
+		await fire(runEnv, 5, T0 + 4001);
+		expect(box.sends).toBe(5);
 		await fire(runEnv, 6, T0 + MINUTE + 3000);
 		expect(box.sends).toBe(6);
+		expect(box.subjects.at(-1)).toBe("ALERTS: Alerts: 2 changed");
 		expect(await outbox()).toEqual([]);
+	});
+
+	it("leaves queued rows for the cron when a duplicate follows a failed inline send", async () => {
+		const { runEnv, box } = mailbox();
+		await fire(runEnv, 0, T0);
+		box.failing = true;
+		await fire(runEnv, 1, T0 + 1);
+		const sent = box.sends;
+		box.failing = false;
+		await fire(runEnv, 1, T0 + 2);
+		expect(box.sends).toBe(sent);
+	});
+
+	it("bounds a relay's pending mail while the mailer is down", async () => {
+		const { runEnv, box } = mailbox();
+		box.failing = true;
+		let last = "";
+		for (let i = 0; i < 300; i++) {
+			last = await result(await fire(runEnv, i, T0));
+			await send(runEnv, payload({ deduplication_key: `k${i}`, status: "resolved" }), T0);
+		}
+		expect(last).toBe("rejected");
+		const [{ n }] = await all<{ n: number }>("SELECT count(*) AS n FROM outbox");
+		expect(n).toBeLessThanOrEqual(400);
+	});
+
+	it("caps the summary lines", async () => {
+		const { runEnv, box } = mailbox();
+		for (let i = 0; i < 80; i++) await fire(runEnv, i, T0);
+		await tick(runEnv, config, T0 + MINUTE, respond(200));
+		expect(box.subjects.at(-1)).toBe("ALERTS: Alerts: 75 changed");
 	});
 
 	it("keeps one relay's burst from queueing another's mail", async () => {

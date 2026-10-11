@@ -61,6 +61,7 @@ export function message(check: Check, p: Pending): [subject: string, text: strin
 type Relay = Instance["relays"][number];
 
 const LABEL = { firing: "FIRING", resolved: "RESOLVED", stale: "STOPPED REPORTING" } as const;
+const SUMMARY_LINES = 50;
 
 function detail(reason: string | null): { title: string; description?: string; source_url?: string } {
 	try {
@@ -80,18 +81,16 @@ export function relayMessage(relay: Relay, p: Pending): [subject: string, text: 
 	else if (p.kind === "stale")
 		when = `No report within ${Math.round(relay.grace / 60_000)} minutes, closed ${at}.${since ? `\nFiring since ${since}.` : ""}`;
 	else when = `Firing, received ${at}.`;
-	const body = [clip(title, 1000), when, description && clip(description, 4000), source_url && `Source: ${source_url}`];
-	return [
-		`${label}: ${clip(relay.name)}: ${clip(line(title))}`,
-		`${body.filter(Boolean).join("\n")}\nKey: ${clip(p.key, 256)}\n`,
-	];
+	const body = [title, when, description, source_url && `Source: ${source_url}`];
+	return [`${label}: ${clip(relay.name)}: ${clip(line(title))}`, `${body.filter(Boolean).join("\n")}\nKey: ${p.key}\n`];
 }
 
-export function relaySummary(relay: Relay, rows: Pending[]): [subject: string, text: string] {
+function relaySummary(relay: Relay, rows: Pending[]): [subject: string, text: string] {
 	const latest = new Map(rows.map((r) => [r.key, r]));
-	const lines = [...latest.values()].map(
-		(r) => `${LABEL[r.kind as keyof typeof LABEL]}: ${clip(line(detail(r.reason).title))}`,
-	);
+	const lines = [...latest.values()]
+		.slice(0, SUMMARY_LINES)
+		.map((r) => `${LABEL[r.kind as keyof typeof LABEL]}: ${clip(line(detail(r.reason).title))}`);
+	if (latest.size > SUMMARY_LINES) lines.push(`and ${latest.size - SUMMARY_LINES} more`);
 	return [`ALERTS: ${clip(relay.name)}: ${latest.size} changed`, `${lines.join("\n")}\n`];
 }
 
@@ -181,7 +180,7 @@ export async function sendMail(
 		]);
 		return true;
 	} catch (e) {
-		console.error(`tower: mail failed, will retry: ${subject}:`, (e as Error).message);
+		console.error("tower: mail failed, will retry:", (e as Error).message);
 		return false;
 	} finally {
 		clearTimeout(timer);

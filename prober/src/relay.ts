@@ -3,8 +3,9 @@ import { sameHex, sha256Hex } from "./heartbeat.ts";
 import { drain, type RunEnv } from "./run.ts";
 
 export const MAX_KEYS = 100;
-export const BURST_INLINE = 5;
-export const BURST_WINDOW_MS = 60_000;
+const MAX_PENDING = 200;
+const BURST_INLINE = 5;
+const BURST_WINDOW_MS = 60_000;
 
 const TITLE_MAX = 1000;
 const DESCRIPTION_MAX = 4000;
@@ -48,7 +49,6 @@ function parse(text: string): Incident | null {
 	};
 }
 
-// Counts a transition against the relay's rolling minute; written only when the statement before it changed a row.
 const BURST = `INSERT INTO meta (key, value) SELECT 'burst:' || ?1, CAST(?3 AS INTEGER) || ':1' WHERE changes() > 0
 	ON CONFLICT (key) DO UPDATE SET value = CASE
 		WHEN CAST(?3 AS INTEGER) - CAST(substr(value, 1, instr(value, ':') - 1) AS INTEGER) >= ${BURST_WINDOW_MS}
@@ -71,6 +71,7 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 	const absent = `NOT EXISTS (SELECT 1 FROM relay_keys WHERE relay = ?1 AND "key" = ?2)`;
 	const room = `(SELECT count(*) FROM relay_keys WHERE relay = ?1) < ${MAX_KEYS}`;
 	const full = `${absent} AND NOT ${room}`;
+	const backlog = `(SELECT count(*) FROM outbox WHERE "check" = ?1 AND dead = 0) < ${MAX_PENDING}`;
 	const db = env.DB;
 
 	let result: "transition" | "duplicate" | "rejected";
@@ -79,13 +80,13 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 		const [, counted, kept] = await db.batch<{ n: number } & { kept: number }>([
 			db
 				.prepare(
-					`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT ?1, ?2, ?3, 'firing', NULL, ?4 WHERE ${absent} AND ${room}`,
+					`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT ?1, ?2, ?3, 'firing', NULL, ?4 WHERE ${absent} AND ${room} AND ${backlog}`,
 				)
 				.bind(id, key, now, detail),
 			db.prepare(BURST).bind(id, key, now),
 			db
 				.prepare(
-					`INSERT INTO relay_keys (relay, "key", title, since, seen) SELECT ?1, ?2, ?3, ?4, ?4 WHERE NOT (${full})
+					`INSERT INTO relay_keys (relay, "key", title, since, seen) SELECT ?1, ?2, ?3, ?4, ?4 WHERE NOT (${full}) AND (NOT ${absent} OR ${backlog})
 					 ON CONFLICT (relay, "key") DO UPDATE SET seen = excluded.seen, title = excluded.title RETURNING 1 AS kept`,
 				)
 				.bind(id, key, body.title, now),
