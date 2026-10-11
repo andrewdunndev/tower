@@ -50,6 +50,33 @@ describe("the built page", () => {
 			expect(body).toContain(`<img class="logo" src="${icon}"`);
 		});
 
+		it("banners a failing self-check and delayed alert mail, and only then", async () => {
+			await reset();
+			const config = { ...instanceSchema.parse(example), maintenance: [] };
+			const now = Date.parse("2026-09-10T00:00:00Z");
+			const base = await status(env.DB, config, now);
+			const iso = (ms: number) => new Date(ms).toISOString();
+			await answer(JSON.stringify({ ...base, last_run: iso(now) }));
+			const quiet = await (await get("/", "banner-quiet")).text();
+			expect(quiet).not.toContain("Self-check failing");
+			expect(quiet).not.toContain("Alert mail delayed");
+
+			await answer(
+				JSON.stringify({
+					...base,
+					last_run: iso(now),
+					self: [{ name: "Cloudflare API token", since: iso(now - 3600_000) }],
+					outbox_oldest_unsent_at: iso(now - 6 * 60_000),
+				}),
+			);
+			const loud = await (await get("/", "banner-loud")).text();
+			expect(loud).toContain("Self-check failing: Cloudflare API token, since Sep 9, 23:00 UTC.");
+			expect(loud).toContain("Alert mail delayed since Sep 9, 23:54 UTC.");
+
+			await answer(JSON.stringify({ ...base, last_run: iso(now), outbox_oldest_unsent_at: iso(now - 4 * 60_000) }));
+			expect(await (await get("/", "banner-fresh")).text()).not.toContain("Alert mail delayed");
+		});
+
 		it("serves /api/status with names only", async () => {
 			await reset();
 			const window = { title: "Database upgrade", start: new Date(T0).toISOString(), end: new Date(T0 + 3600_000).toISOString(), checks: ["api"] };

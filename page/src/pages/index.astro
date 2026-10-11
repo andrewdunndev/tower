@@ -27,6 +27,10 @@ const maintenance = data ? maintenanceWithBodies(data.maintenance, notes) : [];
 const STALE_MS = 3 * 60_000;
 const lastRun = data?.last_run;
 const stale = data && (!lastRun || Date.parse(data.generatedAt) - Date.parse(lastRun) > STALE_MS);
+const MAIL_DELAY_MS = 5 * 60_000;
+const failing = data?.self ?? [];
+const mailSince = data?.outbox_oldest_unsent_at;
+const mailDelayed = data && mailSince && Date.parse(data.generatedAt) - Date.parse(mailSince) > MAIL_DELAY_MS;
 
 const order: Status[] = ['down', 'degraded', 'maintenance', 'unknown', 'up'];
 const worst = order.find((s) => checks.some((c) => c.status === s)) ?? 'up';
@@ -106,6 +110,14 @@ function sparkPaths(c: CheckStatus): string[] {
           <p class="panel empty" role="status">
             {lastRun ? `No probe has run since ${fmtDateTime(lastRun)}.` : 'No probe has run yet.'}
           </p>
+        )}
+        {failing.length > 0 && (
+          <p class="panel empty" role="status">
+            Self-check failing: {failing.map((f) => f.name).join(', ')}, since {fmtDateTime(failing.map((f) => f.since).sort()[0])}.
+          </p>
+        )}
+        {mailDelayed && (
+          <p class="panel empty" role="status">Alert mail delayed since {fmtDateTime(mailSince)}.</p>
         )}
         <section class="now" aria-labelledby="overall">
           <h1 id="overall"><i class="g" data-s={worst} aria-hidden="true"></i>{overall[worst]}</h1>
