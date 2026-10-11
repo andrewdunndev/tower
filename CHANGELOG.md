@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1
+## 0.3.1 (2026-10-11)
 
 - The check name column has a fixed width. A name that does not fit is cut with an ellipsis and shows in full as a tooltip, instead of breaking mid-word and doubling the row.
 
