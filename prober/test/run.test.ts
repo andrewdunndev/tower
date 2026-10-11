@@ -257,10 +257,10 @@ describe("outbox", () => {
 		before(runEnv, () => {
 			clock += 25_000;
 		});
-		await drain(runEnv, makeConfig(three), () => clock);
+		await drain(runEnv, makeConfig(three), { now: () => clock });
 		expect(box.sends).toBe(2);
 		expect(await all('SELECT "check" FROM outbox')).toEqual([{ check: "c3" }]);
-		await drain(runEnv, makeConfig(three), () => T0 + MINUTE);
+		await drain(runEnv, makeConfig(three), { now: () => T0 + MINUTE });
 		expect(box.sends).toBe(3);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 	});
@@ -271,9 +271,9 @@ describe("outbox", () => {
 		await env.DB.prepare(`INSERT INTO meta (key, value) VALUES ('drain', ?1)`)
 			.bind(String(T0 + 30_000))
 			.run();
-		await drain(runEnv, makeConfig(one), () => T0);
+		await drain(runEnv, makeConfig(one), { now: () => T0 });
 		expect(box.sends).toBe(0);
-		await drain(runEnv, makeConfig(one), () => T0 + 30_000);
+		await drain(runEnv, makeConfig(one), { now: () => T0 + 30_000 });
 		expect(box.sends).toBe(1);
 	});
 
@@ -283,7 +283,7 @@ describe("outbox", () => {
 		before(runEnv, async () => {
 			await env.DB.prepare(`UPDATE meta SET value = '999' WHERE key = 'drain'`).run();
 		});
-		await drain(runEnv, makeConfig(one), () => T0);
+		await drain(runEnv, makeConfig(one), { now: () => T0 });
 		expect(await all("SELECT value FROM meta WHERE key = 'drain'")).toEqual([{ value: "999" }]);
 	});
 
@@ -313,7 +313,8 @@ describe("outbox", () => {
 
 describe("pruning", () => {
 	it("keeps outbox rows of relays and of tower itself, and drops relay keys of a removed relay", async () => {
-		const { runEnv } = mailbox();
+		const { runEnv, box } = mailbox();
+		box.failing = true;
 		const hash = "a".repeat(64);
 		const relays = [{ id: "alerts", name: "Alerts", token_sha256: hash }];
 		await tick(runEnv, makeConfig([web], { relays }), T0, respond(200));

@@ -1,7 +1,7 @@
 import { connect } from "cloudflare:sockets";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
-import { message, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
+import { compose, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
 import { DAYS, interval, inWindow } from "./status.ts";
 
@@ -198,10 +198,21 @@ export async function tick(
 			);
 		}
 	}
-	writes.push(...prune(env.DB, config, t));
+	writes.push(...expire(env.DB, config, t), ...prune(env.DB, config, t));
 	await env.DB.batch(writes);
 
 	await drain(env, config);
+}
+
+function expire(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
+	return config.relays.flatMap((r) => [
+		db
+			.prepare(
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT relay, "key", ?2, 'stale', since, json_object('title', title) FROM relay_keys WHERE relay = ?1 AND seen < ?3`,
+			)
+			.bind(r.id, t, t - r.grace),
+		db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND seen < ?2`).bind(r.id, t - r.grace),
+	]);
 }
 
 function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
@@ -222,7 +233,11 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 	];
 }
 
-export async function drain(env: RunEnv, config: Instance, now: () => number = Date.now) {
+export async function drain(
+	env: RunEnv,
+	config: Instance,
+	{ now = Date.now, relay = null }: { now?: () => number; relay?: string | null } = {},
+) {
 	const until = now() + LEASE_MS;
 	const lock = await env.DB.prepare(
 		`INSERT INTO meta (key, value) VALUES ('drain', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE CAST(meta.value AS INTEGER) <= ?2`,
@@ -231,39 +246,38 @@ export async function drain(env: RunEnv, config: Instance, now: () => number = D
 		.run();
 	if (lock.meta.changes === 0) return;
 	try {
-		await send(env, config, until, now);
+		await send(env, config, until, now, relay);
 	} finally {
 		await env.DB.prepare(`UPDATE meta SET value = '0' WHERE key = 'drain' AND value = ?1`).bind(String(until)).run();
 	}
 }
 
-async function send(env: RunEnv, config: Instance, until: number, now: () => number) {
+type Row = Pending & { rowid: number; check: string };
+
+async function send(env: RunEnv, config: Instance, until: number, now: () => number, only: string | null) {
 	const { results } = await env.DB.prepare(
-		`SELECT rowid, "check", "key", at, kind, since, reason FROM outbox WHERE dead = 0 ORDER BY at, rowid`,
-	).all<Pending & { rowid: number; check: string }>();
+		`SELECT rowid, "check", "key", at, kind, since, reason FROM outbox WHERE dead = 0 AND (?1 IS NULL OR "check" = ?1) ORDER BY at, rowid`,
+	)
+		.bind(only)
+		.all<Row>();
 	const relayIds = new Set(config.relays.map((r) => r.id));
 	const groups = Map.groupBy(results, (r) => JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key]));
 	for (const rows of groups.values()) {
-		const latest = rows[rows.length - 1];
-		const { check: id, key } = latest;
-		const scope = relayIds.has(id) ? null : key;
-		const check = config.checks.find((c) => c.id === id);
-		if (!check) continue;
+		const composed = compose(config, rows);
+		if (!composed) continue;
 		if (now() + SEND_TIMEOUT_MS + DB_MARGIN_MS > until) return;
-		await env.DB.prepare(
-			`UPDATE outbox SET attempts = attempts + 1 WHERE "check" = ?1 AND (?3 IS NULL OR "key" = ?3) AND dead = 0 AND at <= ?2`,
-		)
-			.bind(id, latest.at, scope)
+		const rowids = JSON.stringify(rows.map((r) => r.rowid));
+		await env.DB.prepare(`UPDATE outbox SET attempts = attempts + 1 WHERE rowid IN (SELECT value FROM json_each(?1))`)
+			.bind(rowids)
 			.run();
-		const [subject, text] = message(check, latest);
+		const [subject, text] = composed;
 		const sent = await sendMail(env.EMAIL, config.alert, subject, text);
 		const update = sent
-			? env.DB.prepare(
-					`DELETE FROM outbox WHERE "check" = ?1 AND (?3 IS NULL OR "key" = ?3) AND dead = 0 AND at <= ?2`,
-				).bind(id, latest.at, scope)
-			: env.DB.prepare(
-					`UPDATE outbox SET dead = attempts >= ?4 WHERE "check" = ?1 AND (?3 IS NULL OR "key" = ?3) AND dead = 0 AND at <= ?2`,
-				).bind(id, latest.at, scope, MAX_ATTEMPTS);
+			? env.DB.prepare(`DELETE FROM outbox WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(rowids)
+			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?2 WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(
+					rowids,
+					MAX_ATTEMPTS,
+				);
 		await update.run();
 	}
 }

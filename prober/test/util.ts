@@ -45,7 +45,7 @@ export function mailbox() {
 }
 
 export async function reset() {
-	const tables = ["state", "samples", "daily", "beats", "events", "outbox", "meta"];
+	const tables = ["state", "samples", "daily", "beats", "events", "outbox", "meta", "relay_keys"];
 	await env.DB.batch(tables.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
 	await env.DB.prepare(`DROP TRIGGER IF EXISTS boom`).run();
 }
