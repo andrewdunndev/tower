@@ -1,6 +1,6 @@
 import type { Instance } from "../../tools/schema.ts";
 import { MAX_KEYS } from "./relay.ts";
-import { SELF_NAMES } from "./status.ts";
+import { interval, STALE_INTERVALS, STUCK_PREFIX, selfName } from "./status.ts";
 
 const RESUME_AFTER_MS = 90_000;
 const HOUR_MS = 3_600_000;
@@ -8,12 +8,31 @@ const MINUTE_MS = 60_000;
 
 type Version = { id: string };
 
+const lastRun = `(SELECT MAX(last_run) FROM state)`;
+const newest = (t: string) => `${t} >= (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'tick')`;
+const stallCutoff = (config: Instance, t: number) => t - STALE_INTERVALS * Math.min(...config.checks.map(interval));
+
 const queue = (db: D1Database, key: string, kind: string, t: number, guard: string, ...binds: unknown[]) =>
 	db
 		.prepare(
 			`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', ?1, ?2, ?3, NULL, NULL WHERE ${guard}`,
 		)
 		.bind(key, t, kind, ...binds);
+
+export async function raiseStall(db: D1Database, config: Instance, t: number): Promise<boolean> {
+	const cutoff = stallCutoff(config, t);
+	const row = await db.prepare(`SELECT ${lastRun} < ?1 AS stalled`).bind(cutoff).first<{ stalled: number | null }>();
+	if (row?.stalled !== 1) return false;
+	await db.batch([
+		db
+			.prepare(
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', 'stall', ?1, 'self-failing', ${lastRun}, NULL WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`,
+			)
+			.bind(t),
+		db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('stall', ?1)`).bind(String(t)),
+	]);
+	return true;
+}
 
 export function resumedAfter(previous: string | undefined, t: number): boolean {
 	return previous !== undefined && t - Number(previous) > RESUME_AFTER_MS;
@@ -47,7 +66,13 @@ export function selfWrites(
 	const set = (key: string, value: string | number) =>
 		db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)`).bind(key, String(value));
 
-	if (resumed) writes.push(queue(db, "resumed", "resumed", t, "1"));
+	const stalled = `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`;
+	const recovered = stallCutoff(config, t);
+	if (resumed) writes.push(queue(db, "resumed", "resumed", t, `NOT ${stalled}`));
+	writes.push(
+		queue(db, "stall", "self-ok", t, `${stalled} AND ${lastRun} >= ?4 AND ${newest("?2")}`, recovered),
+		db.prepare(`DELETE FROM meta WHERE key = 'stall' AND ${lastRun} >= ?1 AND ${newest("?2")}`).bind(recovered, t),
+	);
 
 	writes.push(
 		queue(
@@ -98,7 +123,33 @@ export function selfWrites(
 				.bind(key, r.id),
 		);
 	}
-	return writes;
+	return [...writes, ...stuckWrites(db, config, t)];
+}
+
+function stuckWrites(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
+	const cutoffs = JSON.stringify(config.checks.map((c) => [c.id, t - STALE_INTERVALS * interval(c)]));
+	const verdicts = (op: "<=" | ">") =>
+		`SELECT s."check" AS id, COALESCE(s.last_conclusive, s.since) AS last, s.reason FROM state s JOIN json_each(?1) j ON s."check" = json_extract(j.value, '$[0]') WHERE COALESCE(s.last_conclusive, s.since) ${op} json_extract(j.value, '$[1]')`;
+	const flag = `'${STUCK_PREFIX}' || id`;
+	const outbox = `INSERT INTO outbox ("check", "key", at, kind, since, reason)`;
+	return [
+		db
+			.prepare(
+				`${outbox} SELECT id, 'stuck', ?2, 'self-failing', last, reason FROM (${verdicts("<=")}) WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = ${flag})`,
+			)
+			.bind(cutoffs, t),
+		db
+			.prepare(`INSERT OR IGNORE INTO meta (key, value) SELECT ${flag}, ?2 FROM (${verdicts("<=")})`)
+			.bind(cutoffs, String(t)),
+		db
+			.prepare(
+				`${outbox} SELECT id, 'stuck', ?2, 'self-ok', NULL, NULL FROM (${verdicts(">")}) WHERE EXISTS (SELECT 1 FROM meta WHERE key = ${flag}) AND ${newest("?2")}`,
+			)
+			.bind(cutoffs, t),
+		db
+			.prepare(`DELETE FROM meta WHERE key IN (SELECT ${flag} FROM (${verdicts(">")})) AND ${newest("?2")}`)
+			.bind(cutoffs, t),
+	];
 }
 
 export async function attention(db: D1Database, config: Instance): Promise<string[]> {
@@ -120,7 +171,7 @@ export async function attention(db: D1Database, config: Instance): Promise<strin
 		...flags.results.flatMap((r) => {
 			const key = String(r.key);
 			const relay = key.startsWith("full:") ? names.get(key.slice(5)) : undefined;
-			const what = relay ? `relay ${relay} is full` : SELF_NAMES[key];
+			const what = relay ? `relay ${relay} is full` : selfName(config, key, false);
 			return what ? [`SELF-CHECK: ${what}`] : [];
 		}),
 	];

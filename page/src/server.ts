@@ -1,13 +1,17 @@
+import { sendMail } from '../../prober/src/mail.ts';
 import type { StatusResponse } from './lib.ts';
 
 const CACHE_SECONDS = 30;
 const CACHED_ROUTES = ['/', '/api/status'];
 const MAX_BODY = 64 * 1024;
+const HOUR_MS = 3_600_000;
+const MINUTE_MS = 60_000;
 const BEAT_PATH = /^\/beat\/([^/]+)(\/fail)?$/;
 
 type Tower = {
   status(): Promise<StatusResponse>;
   beat(id: string, token: string, ok: boolean): Promise<Response>;
+  watch(now: number): Promise<void>;
   incident(token: string, body: string): Promise<Response>;
 };
 
@@ -88,5 +92,25 @@ export async function relay(request: Request, env: { TOWER: Pick<Tower, 'inciden
   } catch (e) {
     console.error('tower-page: relay unavailable:', e);
     return new Response(null, { status: 503 });
+  }
+}
+
+export async function watch(
+  env: { TOWER: Pick<Tower, 'watch'>; EMAIL: Pick<SendEmail, 'send'> },
+  alert: { from: string; to: string },
+  t: number,
+): Promise<void> {
+  try {
+    await env.TOWER.watch(t);
+  } catch (e) {
+    console.error('tower-page: prober did not answer:', e);
+    if (t % HOUR_MS < MINUTE_MS) {
+      await sendMail(
+        env.EMAIL,
+        alert,
+        'SELF-CHECK FAILING: probing stalled',
+        `The prober did not answer, ${new Date(t).toISOString()}. This repeats hourly until it answers.\n`,
+      );
+    }
   }
 }

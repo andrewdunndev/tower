@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { tick } from "../../prober/src/run.ts";
 import { status } from "../../prober/src/status.ts";
-import { mailbox, reset, T0 } from "../../prober/test/util.ts";
+import { all, MINUTE, mailbox, makeConfig, reset, T0 } from "../../prober/test/util.ts";
 import example from "../../test/fixture/tower.json";
 import { instanceSchema } from "../../tools/schema.ts";
 
@@ -75,6 +75,33 @@ describe("the built page", () => {
 
 			await answer(JSON.stringify({ ...base, last_run: iso(now), outbox_oldest_unsent_at: iso(now - 4 * 60_000) }));
 			expect(await (await get("/", "banner-fresh")).text()).not.toContain("Alert mail delayed");
+		});
+
+		it("banners a stuck public check and shows nothing of a private one, a target, a reason or the alert address", async () => {
+			await reset();
+			const tls = (id: string, name: string, pub: boolean) => ({
+				id,
+				type: "tls",
+				name,
+				host: `${id}.leak.test`,
+				zone: "leak.test",
+				every: "1m",
+				public: pub,
+			});
+			const config = makeConfig([tls("shown", "Shown", true), tls("hidden", "Hidden", false)]);
+			const { runEnv } = mailbox();
+			const unavailable = (async () => new Response("{}", { status: 503 })) as typeof fetch;
+			for (let k = 0; k <= 3; k++) await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0 + k * MINUTE, unavailable);
+			const data = await status(env.DB, config, T0 + 3 * MINUTE);
+			expect(data.self.map((s) => s.name)).toEqual(["results for Shown"]);
+			await answer(JSON.stringify(data));
+			const html = await (await get("/", "stuck")).text();
+			expect(html).toContain("Self-check failing: results for Shown");
+			const [{ reason }] = await all<{ reason: string }>(`SELECT reason FROM state LIMIT 1`);
+			for (const leak of [reason, "oncall@example.com", "leak.test", "Hidden"]) {
+				expect(JSON.stringify(data)).not.toContain(leak);
+				expect(html).not.toContain(leak);
+			}
 		});
 
 		it("serves /api/status with names only", async () => {

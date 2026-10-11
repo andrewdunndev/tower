@@ -5,11 +5,19 @@ const DAY_MS = 86_400_000;
 const BUCKET_MS = 300_000;
 const POINTS = 288;
 export const DAYS = 90;
+export const STALE_INTERVALS = 3;
+export const STUCK_PREFIX = "self:stuck:";
 export const SELF_NAMES: Record<string, string> = { "self:token": "Cloudflare API token" };
 
 const iso = (t: number) => new Date(t).toISOString();
 
 export const interval = (c: Check) => (c.type === "heartbeat" ? MINUTE_MS : c.every);
+
+export function selfName(config: Instance, key: string, publicOnly: boolean): string | undefined {
+	if (!key.startsWith(STUCK_PREFIX)) return SELF_NAMES[key];
+	const check = config.checks.find((c) => c.id === key.slice(STUCK_PREFIX.length));
+	return check && (check.public || !publicOnly) ? `results for ${check.name}` : undefined;
+}
 
 const windowEnd = (config: Instance, id: string, t: number): number | null => {
 	const ends = config.maintenance
@@ -75,7 +83,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 
 	const all = config.checks.map((check) => {
 		const state = stateOf.get(check.id);
-		const stale = state?.last_conclusive == null || now - state.last_conclusive > 3 * interval(check);
+		const stale = state?.last_conclusive == null || now - state.last_conclusive > STALE_INTERVALS * interval(check);
 		const level = inWindow(config, check.id, now)
 			? "maintenance"
 			: state?.config_error
@@ -166,7 +174,10 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		last_run: lastRun ? iso(lastRun) : null,
 		outbox_oldest_unsent_at: queue.oldest === null ? null : iso(queue.oldest),
 		dead_outbox: queue.dead,
-		self: selves.flatMap((r) => (SELF_NAMES[r.key] ? [{ name: SELF_NAMES[r.key], since: iso(Number(r.value)) }] : [])),
+		self: selves.flatMap((r) => {
+			const name = selfName(config, r.key, true);
+			return name ? [{ name, since: iso(Number(r.value)) }] : [];
+		}),
 		stuck: all.filter(({ check, stale }) => check.public && stale).length,
 	};
 }
