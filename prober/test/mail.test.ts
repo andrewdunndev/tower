@@ -20,7 +20,7 @@ describe("mime", () => {
 			{ id: "w", type: "tls", name: long, host: long },
 		];
 		for (const check of checks) {
-			const [subject, text] = message(check as never, { at: 0, kind: "down", since: 0, reason: long });
+			const [subject, text] = message(check as never, { at: 0, key: "", kind: "down", since: 0, reason: long });
 			const raw = mime("tower@example.com", "oncall@example.com", subject, text);
 			for (const l of raw.split("\r\n")) expect(l.length).toBeLessThanOrEqual(998);
 		}

@@ -4,14 +4,25 @@ import { hint } from "./http.ts";
 
 export interface Pending {
 	at: number;
-	kind: "down" | "up";
+	key: string;
+	kind:
+		| "down"
+		| "up"
+		| "firing"
+		| "resolved"
+		| "stale"
+		| "deployed"
+		| "digest"
+		| "resumed"
+		| "self-failing"
+		| "self-ok";
 	since: number | null;
 	reason: string | null;
 }
 
 export const SEND_TIMEOUT_MS = 10_000;
 
-const clip = (s: string) => (s.length > 200 ? `${s.slice(0, 200)}...` : s);
+const clip = (s: string, n = 200) => (s.length > n ? `${s.slice(0, n)}...` : s);
 const line = (s: string) => s.replace(/[\r\n]+/g, " ");
 const ascii = (s: string) => line(s).replace(/[^\x20-\x7e]/g, "?");
 

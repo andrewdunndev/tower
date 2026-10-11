@@ -73,9 +73,9 @@ describe("maintenance", () => {
 			`SELECT at, kind, since, reason FROM outbox`,
 		);
 		expect(row.since).toBeNull();
-		const [, down] = message(config.checks[0], { at: T0, ...row });
+		const [, down] = message(config.checks[0], { at: T0, key: "", ...row });
 		expect(down).not.toContain("since");
-		const [, up] = message(config.checks[0], { at: T0, kind: "up", since: null, reason: null });
+		const [, up] = message(config.checks[0], { at: T0, key: "", kind: "up", since: null, reason: null });
 		expect(up).not.toContain("since");
 	});
 

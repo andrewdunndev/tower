@@ -34,7 +34,7 @@ const MAX_ATTEMPTS = 10;
 const LEASE_MS = 50_000;
 const DB_MARGIN_MS = 5_000;
 const RECENT_SAMPLES = 5;
-const OWNED_TABLES = ["state", "samples", "daily", "beats", "events", "outbox"];
+const OWNED_TABLES = ["state", "samples", "daily", "beats", "events"];
 
 export function step(
 	s: Track,
@@ -206,6 +206,8 @@ export async function tick(
 
 function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
 	const ids = JSON.stringify(config.checks.map((c) => c.id));
+	const owners = JSON.stringify([...config.checks.map((c) => c.id), ...config.relays.map((r) => r.id), ""]);
+	const relays = JSON.stringify(config.relays.map((r) => r.id));
 	const cutoff = t - DAYS * DAY_MS;
 	return [
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
@@ -215,6 +217,8 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		...OWNED_TABLES.map((table) =>
 			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
 		),
+		db.prepare(`DELETE FROM outbox WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(owners),
+		db.prepare(`DELETE FROM relay_keys WHERE relay NOT IN (SELECT value FROM json_each(?1))`).bind(relays),
 	];
 }
 
@@ -235,26 +239,31 @@ export async function drain(env: RunEnv, config: Instance, now: () => number = D
 
 async function send(env: RunEnv, config: Instance, until: number, now: () => number) {
 	const { results } = await env.DB.prepare(
-		`SELECT rowid, "check", at, kind, since, reason FROM outbox WHERE dead = 0 ORDER BY at`,
+		`SELECT rowid, "check", "key", at, kind, since, reason FROM outbox WHERE dead = 0 ORDER BY at, rowid`,
 	).all<Pending & { rowid: number; check: string }>();
-	const byCheck = Map.groupBy(results, (r) => r.check);
-	for (const [id, rows] of byCheck) {
+	const relayIds = new Set(config.relays.map((r) => r.id));
+	const groups = Map.groupBy(results, (r) => JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key]));
+	for (const rows of groups.values()) {
+		const latest = rows[rows.length - 1];
+		const { check: id, key } = latest;
+		const scope = relayIds.has(id) ? null : key;
 		const check = config.checks.find((c) => c.id === id);
 		if (!check) continue;
 		if (now() + SEND_TIMEOUT_MS + DB_MARGIN_MS > until) return;
-		const latest = rows[rows.length - 1];
-		await env.DB.prepare(`UPDATE outbox SET attempts = attempts + 1 WHERE "check" = ?1 AND dead = 0 AND at <= ?2`)
-			.bind(id, latest.at)
+		await env.DB.prepare(
+			`UPDATE outbox SET attempts = attempts + 1 WHERE "check" = ?1 AND (?3 IS NULL OR "key" = ?3) AND dead = 0 AND at <= ?2`,
+		)
+			.bind(id, latest.at, scope)
 			.run();
 		const [subject, text] = message(check, latest);
 		const sent = await sendMail(env.EMAIL, config.alert, subject, text);
 		const update = sent
-			? env.DB.prepare(`DELETE FROM outbox WHERE "check" = ?1 AND dead = 0 AND at <= ?2`).bind(id, latest.at)
-			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?3 WHERE "check" = ?1 AND dead = 0 AND at <= ?2`).bind(
-					id,
-					latest.at,
-					MAX_ATTEMPTS,
-				);
+			? env.DB.prepare(
+					`DELETE FROM outbox WHERE "check" = ?1 AND (?3 IS NULL OR "key" = ?3) AND dead = 0 AND at <= ?2`,
+				).bind(id, latest.at, scope)
+			: env.DB.prepare(
+					`UPDATE outbox SET dead = attempts >= ?4 WHERE "check" = ?1 AND (?3 IS NULL OR "key" = ?3) AND dead = 0 AND at <= ?2`,
+				).bind(id, latest.at, scope, MAX_ATTEMPTS);
 		await update.run();
 	}
 }

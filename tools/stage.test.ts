@@ -39,6 +39,14 @@ describe("resource names", () => {
 		]);
 	});
 
+	it("carries the cron and the DB, EMAIL and VERSION bindings into the staged prober", () => {
+		const { prober } = stageNamed("tower");
+		expect(prober.triggers.crons).toEqual(["* * * * *"]);
+		expect(prober.d1_databases[0].binding).toBe("DB");
+		expect(prober.send_email).toEqual([{ name: "EMAIL" }]);
+		expect(prober.version_metadata).toEqual({ binding: "VERSION" });
+	});
+
 	it("resolve paths relative to the generated file", () => {
 		const { out, prober } = stageNamed("tower");
 		expect(existsSync(join(out, prober.main))).toBe(true);

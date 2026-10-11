@@ -22,7 +22,7 @@ describe("tunnel classifier", () => {
 	});
 
 	it("puts the hint in the alert body", () => {
-		const [subject, text] = message(check(), { at: 0, kind: "down", since: 0, reason: "HTTP 530" });
+		const [subject, text] = message(check(), { at: 0, key: "", kind: "down", since: 0, reason: "HTTP 530" });
 		expect(subject).toBe("DOWN: Web");
 		expect(text).toContain("tunnel connector down or origin DNS error");
 		expect(text).toContain(check().url);
