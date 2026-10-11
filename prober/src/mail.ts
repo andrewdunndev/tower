@@ -58,6 +58,18 @@ export function message(check: Check, p: Pending): [subject: string, text: strin
 	];
 }
 
+function stuckMessage(check: Check, p: Pending): [subject: string, text: string] {
+	const name = clip(check.name);
+	const at = new Date(p.at).toISOString();
+	if (p.kind === "self-ok") return [`SELF-CHECK OK: results for ${name}`, `${name} has fresh results again, ${at}.\n`];
+	const since = new Date(p.since ?? p.at).toISOString();
+	const last = p.reason ? `Last reason: ${clip(p.reason)}.\n` : "";
+	return [
+		`SELF-CHECK FAILING: results for ${name}`,
+		`${name}${target(check)} has had no fresh result since ${since}, three of its intervals; detected ${at}.\n${last}`,
+	];
+}
+
 type Relay = Instance["relays"][number];
 
 const LABEL = { firing: "FIRING", resolved: "RESOLVED", stale: "STOPPED REPORTING" } as const;
@@ -111,6 +123,15 @@ export function towerMessage(config: Instance, p: Pending, lines: string[] = [])
 		case "resumed":
 			return ["SELF-CHECK OK: probing resumed", `Probing resumed after a gap, ${at}.\n`];
 	}
+	if (p.key === "stall") {
+		const since = new Date(p.since ?? p.at).toISOString();
+		return p.kind === "self-ok"
+			? towerMessage(config, { ...p, kind: "resumed" })
+			: [
+					"SELF-CHECK FAILING: probing stalled",
+					`No probe run has written results since ${since}; detected ${at}. The prober's cron trigger or its runs are failing; its Worker log says which.\n`,
+				];
+	}
 	const ok = p.kind === "self-ok";
 	const relay = config.relays.find((r) => `full:${r.id}` === p.key);
 	if (relay) {
@@ -138,7 +159,7 @@ export function compose(
 ): [string, string] | null {
 	const latest = rows[rows.length - 1];
 	const check = config.checks.find((c) => c.id === latest.check);
-	if (check) return message(check, latest);
+	if (check) return latest.key === "stuck" ? stuckMessage(check, latest) : message(check, latest);
 	const relay = config.relays.find((r) => r.id === latest.check);
 	if (relay) return rows.length > 1 ? relaySummary(relay, rows) : relayMessage(relay, latest);
 	return latest.check === "" ? towerMessage(config, latest, lines) : null;

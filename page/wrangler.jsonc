@@ -1,7 +1,10 @@
 {
+  "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
   "workers_dev": false,
   "preview_urls": false,
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } },
+  "triggers": { "crons": ["* * * * *"] },
+  "send_email": [{ "name": "EMAIL" }],
   "services": [{ "binding": "TOWER", "entrypoint": "Tower" }]
 }

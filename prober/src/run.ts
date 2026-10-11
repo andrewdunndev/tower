@@ -3,8 +3,8 @@ import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { compose, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
-import { attention, reportWriteFailure, resumedAfter, selfWrites } from "./self.ts";
-import { DAYS, interval, inWindow } from "./status.ts";
+import { attention, raiseStall, reportWriteFailure, resumedAfter, selfWrites } from "./self.ts";
+import { DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & {
 	EMAIL: Pick<SendEmail, "send">;
@@ -232,6 +232,10 @@ export async function tick(
 	await drain(env, config);
 }
 
+export async function watch(env: RunEnv, config: Instance, now: number) {
+	if (await raiseStall(env.DB, config, now)) await drain(env, config);
+}
+
 function expire(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
 	return config.relays.flatMap((r) => [
 		db
@@ -257,6 +261,11 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
 		),
 		db.prepare(`DELETE FROM outbox WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(owners),
+		db
+			.prepare(
+				`DELETE FROM meta WHERE key LIKE '${STUCK_PREFIX}%' AND substr(key, ${STUCK_PREFIX.length + 1}) NOT IN (SELECT value FROM json_each(?1))`,
+			)
+			.bind(ids),
 		db.prepare(`DELETE FROM relay_keys WHERE relay NOT IN (SELECT value FROM json_each(?1))`).bind(relays),
 		db
 			.prepare(
