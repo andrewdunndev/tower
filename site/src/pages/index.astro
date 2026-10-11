@@ -1,7 +1,15 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import Check from '../figures/02-check.astro';
+import Ov1 from '../figures/07-ov1.astro';
 import mark from '../../public/favicon.svg?raw';
+
+const days = Array.from({ length: 24 }, (_, i) => i);
+const rows = [
+  { name: 52, dot: 'var(--success)', bad: [17] },
+  { name: 38, dot: 'var(--success)', bad: [] },
+  { name: 60, dot: 'var(--danger)', bad: [23] },
+];
 ---
 <Layout title="tower" description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
   <header class="hero">
@@ -16,6 +24,39 @@ import mark from '../../public/favicon.svg?raw';
       </div>
     </div>
   </header>
+
+  <a class="live-card" href="https://status.dunn.dev" rel="external">
+    <div>
+      <p class="tile-eyebrow">live</p>
+      <p class="live-title">See it running</p>
+      <p class="tile-prose">status.dunn.dev runs tower against dunn.dev's own services.</p>
+      <span class="cta-primary">Open status.dunn.dev &rarr;</span>
+    </div>
+    <svg class="live-mini" viewBox="0 0 232 112" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0.5" y="0.5" width="231" height="111" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+      <rect x="12" y="12" width="64" height="8" rx="2" fill="var(--text-2)"/>
+      <rect x="180" y="9" width="40" height="14" rx="7" fill="var(--success-subtle)"/>
+      <circle cx="192" cy="16" r="3" fill="var(--success)"/>
+      <rect x="199" y="14" width="15" height="4" rx="2" fill="var(--success)"/>
+      {rows.map((r, j) => (
+        <g transform={`translate(0 ${40 + j * 24})`}>
+          <circle cx="16" cy="6" r="4" fill={r.dot}/>
+          <rect x="26" y="3" width={r.name} height="6" rx="2" fill="var(--border-strong)"/>
+          {days.map((d) => (
+            <rect x={110 + d * 4.5} y="0" width="3" height="12" rx="1" fill={r.bad.includes(d) ? 'var(--danger)' : 'var(--success)'}/>
+          ))}
+        </g>
+      ))}
+    </svg>
+  </a>
+
+  <section class="section">
+    <h2 class="section-title" id="at-a-glance">At a glance</h2>
+    <div class="cat-explainer figure-pair">
+      <Ov1 />
+      <p>The operator deploys one config file to Cloudflare. The public sees names only; failure detail goes to the inbox.</p>
+    </div>
+  </section>
 
   <section class="section">
     <h2 class="section-title" id="what-it-is">What it is</h2>

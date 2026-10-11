@@ -30,3 +30,41 @@ html {
 .section-prose {
 	max-width: none;
 }
+
+.live-card {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: var(--space-5);
+	align-items: center;
+	padding: var(--space-5);
+	border: 2px solid var(--accent);
+	border-radius: var(--radius);
+	background: var(--accent-subtle);
+	color: var(--text);
+}
+.live-card:hover {
+	text-decoration: none;
+	border-color: var(--accent-hover);
+}
+.live-title {
+	font-family: var(--font-display);
+	font-size: var(--text-2xl);
+	font-weight: 700;
+	margin: 0 0 var(--space-2) 0;
+}
+.live-card .cta-primary {
+	margin-top: var(--space-4);
+}
+.live-mini {
+	display: block;
+	width: 280px;
+	height: auto;
+}
+@media (max-width: 640px) {
+	.live-card {
+		grid-template-columns: 1fr;
+	}
+	.live-mini {
+		width: 100%;
+	}
+}
