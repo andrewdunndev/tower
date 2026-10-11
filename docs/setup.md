@@ -46,7 +46,7 @@ npm run deploy -- path/to/instance
 
 Authenticate wrangler with `npx wrangler login` or `CLOUDFLARE_API_TOKEN`. An API token needs Account Workers Scripts Edit and D1 Edit, and Zone Workers Routes Edit on the zone.
 
-The command validates the instance, applies D1 migrations, deploys the prober, builds the page and deploys it on the instance `domain`. On the first deploy the prober creates the D1 database and the migrations follow, so a `SELF-CHECK FAILING: database writes` mail in that minute is spurious. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round.
+The command validates the instance, applies D1 migrations, deploys the prober, builds the page and deploys it on the instance `domain`. On the first deploy the prober creates the D1 database and the migrations follow, so a `SELF-CHECK FAILING: database writes` mail in that minute is spurious. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round. The page Worker also carries a minute cron and the `send_email` binding. Deploy the prober first, as the command does, so the page never calls a prober without `watch`.
 
 The `domain/*` route needs a proxied DNS record in the zone to receive traffic. If the hostname has no record, add a placeholder such as `AAAA` `100::` with the proxy on.
 
@@ -115,6 +115,8 @@ tower mails about itself to `alert.to`:
 - `DEPLOYED: tower <version>` after every deploy that reaches 100% of traffic, and after `wrangler secret put`, which also creates a version.
 - `DIGEST` once a day at `digest` (`HH:MM` UTC). A normal day is the subject `all up` with no body; otherwise the subject counts the items and the body lists down checks, open relay keys, unsent or dead mail and failing self-checks. A day missed to an outage is not backfilled.
 - `SELF-CHECK FAILING: Cloudflare API token` when a tls check gets a `401` or `403`, or the secret is unset; `SELF-CHECK OK` when a later tls check authenticates. A token that expires is not warned about ahead of time.
+- `SELF-CHECK FAILING: results for <check>` for any check, public or not, with no conclusive result for three of its intervals, then `SELF-CHECK OK: results for <check>` at the next one. A probe that stays inconclusive or misconfigured, such as a tls check with an unset token, counts as no result. A check added later gets three intervals from when it was added.
+- `SELF-CHECK FAILING: probing stalled` when no run has written results for three of the shortest `every`, then `SELF-CHECK OK: probing resumed` once. The page Worker's minute cron asks the prober, so the mail survives a dead prober cron. If the prober does not answer at all, the page mails `probing stalled … did not answer` at the top of each hour until it does.
 - `SELF-CHECK FAILING: database writes` once when D1 rejects the run's writes, then `SELF-CHECK OK: probing resumed` after any gap of more than 90 seconds in the cron.
 
 ## Backup
@@ -127,7 +129,7 @@ D1 time travel also restores the database to any minute inside your plan's reten
 
 ## External monitoring
 
-tower cannot report its own death. Poll `/api/status` from outside; its JSON carries:
+tower reports a stuck check and a stalled prober itself, so polling is optional. If both Workers are dead, an account or platform failure, nothing can mail: set `digest` and treat a missing digest as the alarm. Otherwise poll `/api/status` from outside; its JSON carries:
 
 - `v` is the response-shape version, `1` today. It changes only on a breaking change.
 - `generatedAt`, `checks`, `incidents` and `maintenance` are what the page renders, by check name.
@@ -135,7 +137,7 @@ tower cannot report its own death. Poll `/api/status` from outside; its JSON car
 - `outbox_oldest_unsent_at` is when the oldest unsent alert was queued, or null.
 - `dead_outbox` counts alerts that gave up in the last 24 h.
 - `stuck` counts public checks with no conclusive run inside three intervals.
-- `self` lists failing self-checks by name with their start time, today the Cloudflare API token.
+- `self` lists failing self-checks by name with their start time: the Cloudflare API token and `results for <check>` for a stuck public check.
 
 Alert when:
 
