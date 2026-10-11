@@ -154,7 +154,7 @@ function sparkPaths(c: CheckStatus): string[] {
                 );
                 return (
                   <li class="row" data-s={c.status}>
-                    <h3 class="name">{c.name}</h3>
+                    <h3 class="name" title={c.name}>{c.name}</h3>
                     <span class="state"><i class="g" data-s={c.status} aria-hidden="true"></i>{word(c.status)}<span class="for"> · {ago(c.since)}</span><span class="up90"> · {fmtPct(c.uptime90)}</span></span>
                     {problems.length ? (
                       <details class="hist">
