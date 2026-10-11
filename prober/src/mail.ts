@@ -26,7 +26,20 @@ export const SEND_TIMEOUT_MS = 10_000;
 
 const clip = (s: string, n = 200) => (s.length > n ? `${s.slice(0, n)}...` : s);
 const line = (s: string) => s.replace(/[\r\n]+/g, " ");
-const ascii = (s: string) => line(s).replace(/[^\x20-\x7e]/g, "?");
+const strip = (s: string, newlines: boolean) =>
+	s.normalize("NFKD").replace(newlines ? /[^\x20-\x7e\n]/g : /[^\x20-\x7e]/g, "");
+const ascii = (s: string) => strip(line(s), false);
+
+/** Printable ASCII only: accents keep their base letter, emoji and other non-ASCII drop. */
+export function plain(s: string, newlines = false): string {
+	const t = strip(newlines ? s.replace(/\r\n?/g, "\n").replace(/\t/g, " ") : s.replace(/\s+/g, " "), newlines);
+	return newlines
+		? t
+				.replace(/ +/g, " ")
+				.replace(/ ?\n ?/g, "\n")
+				.trim()
+		: t.replace(/ {2,}/g, " ").trim();
+}
 
 function target(c: Check): string {
 	switch (c.type) {
@@ -177,8 +190,7 @@ export function mime(from: string, to: string, subject: string, text: string): s
 		"Content-Type: text/plain; charset=us-ascii",
 		"Content-Transfer-Encoding: 7bit",
 		"",
-		text
-			.replace(/[^\x20-\x7e\n]/g, "?")
+		strip(text, true)
 			.replace(/[^\n]{900}(?=[^\n])/g, "$&\n")
 			.replace(/\n/g, "\r\n"),
 	].join("\r\n");

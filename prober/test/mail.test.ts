@@ -8,8 +8,21 @@ describe("mime", () => {
 		const [head, body] = raw.split("\r\n\r\n");
 		expect(head.split("\r\n")).toContain("Subject: DOWN: Web Bcc: x@example.com");
 		expect(head).not.toMatch(/\n(?!\S)/);
-		expect(body).toBe("one\r\ntwo ?\r\nthree");
+		expect(body).toBe("one\r\ntwo e\r\nthree");
 		expect(raw.replace(/\r\n/g, "")).not.toMatch(/[\r\n]/);
+	});
+
+	it("drops emoji and other non-ASCII instead of printing a question mark", () => {
+		const raw = mime(
+			"tower@example.com",
+			"oncall@example.com",
+			"DOWN: caf\u00e9 \u2705 \u{1f6a8}",
+			"caf\u00e9 \u2705\n\u{1f6a8} x",
+		);
+		const [head, body] = raw.split("\r\n\r\n");
+		expect(head).toContain("Subject: DOWN: cafe  ");
+		expect(raw).not.toContain("?");
+		expect(body).toBe("cafe \r\n x");
 	});
 
 	it("keeps every line of a down message under 998 characters, whatever the check type", () => {

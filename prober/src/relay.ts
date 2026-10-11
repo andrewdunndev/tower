@@ -1,5 +1,6 @@
 import type { Instance } from "../../tools/schema.ts";
 import { sameHex, sha256Hex } from "./heartbeat.ts";
+import { plain } from "./mail.ts";
 import { drain, type RunEnv } from "./run.ts";
 
 export const MAX_KEYS = 100;
@@ -40,9 +41,10 @@ function parse(text: string): Incident | null {
 	if (typeof key !== "string" || key.length < 1 || key.length > KEY_MAX) return null;
 	if (b.status !== "firing" && b.status !== "resolved") return null;
 	const optional = (v: unknown, n: number) => (typeof v === "string" && v !== "" ? v.slice(0, n) : undefined);
+	const description = optional(b.description, DESCRIPTION_MAX);
 	return {
-		title: b.title.slice(0, TITLE_MAX),
-		description: optional(b.description, DESCRIPTION_MAX),
+		title: plain(b.title.slice(0, TITLE_MAX)) || plain(key),
+		description: description && plain(description, true) !== "" ? plain(description, true) : undefined,
 		source_url: optional(b.source_url, SOURCE_URL_MAX),
 		key,
 		status: b.status,
