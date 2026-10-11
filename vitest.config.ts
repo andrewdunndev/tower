@@ -20,13 +20,19 @@ export default defineConfig({
 						wrangler: { configPath: "./.tower/prober.wrangler.json" },
 						miniflare: {
 							bindings: { MIGRATIONS: migrations },
-							serviceBindings: { PAGE: "page", STUB: "stub" },
+							serviceBindings: { PAGE: "page", PAGE_REAL: "page-real", STUB: "stub" },
 							workers: [
 								{
 									name: "page",
 									modules: pageModules,
 									compatibilityDate,
 									serviceBindings: { TOWER: { name: "stub", entrypoint: "Tower" } },
+								},
+								{
+									name: "page-real",
+									modules: pageModules,
+									compatibilityDate,
+									serviceBindings: { TOWER: { name: "vitest-plugin-runner-workers", entrypoint: "Tower" } },
 								},
 								{ name: "stub", modules: true, scriptPath: "page/test/tower-stub.mjs", compatibilityDate },
 							],

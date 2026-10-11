@@ -1,0 +1,82 @@
+import { env } from "cloudflare:workers";
+import { beforeEach, describe, expect, it } from "vitest";
+import { status } from "../../prober/src/status.ts";
+import { all, reset } from "../../prober/test/util.ts";
+import { hyperdx } from "../../test/fixture/hyperdx-incidentio.ts";
+import example from "../../test/fixture/tower.json";
+import { instanceSchema } from "../../tools/schema.ts";
+
+const page = (env as unknown as { PAGE_REAL: Fetcher }).PAGE_REAL;
+const TOKEN = "relay-secret";
+
+const post = (body: string, init: { path?: string; token?: string; type?: string } = {}) =>
+	page.fetch(`https://status.example.com${init.path ?? "/relay/incident"}`, {
+		method: "POST",
+		body,
+		redirect: "manual",
+		headers: {
+			"Content-Type": init.type ?? "application/json",
+			Authorization: `Bearer ${init.token ?? TOKEN}`,
+		},
+	});
+
+beforeEach(reset);
+
+describe("the relay through the page and the real prober", () => {
+	it("takes HyperDX's incident.io body end to end", async () => {
+		const res = await post(hyperdx("ALERT"), { type: "application/json; charset=utf-8" });
+		expect(res.status).toBe(202);
+		expect(await res.json()).toEqual({ result: "transition" });
+		expect(await all("SELECT relay, key FROM relay_keys")).toEqual([{ relay: "alerts", key: "evt-1" }]);
+		const resolved = await post(hyperdx("OK"));
+		expect(await resolved.json()).toEqual({ result: "transition" });
+		expect(await all("SELECT relay FROM relay_keys")).toEqual([]);
+	});
+
+	it("404s a bad token, a trailing slash and a query-string token without writing", async () => {
+		expect((await post(hyperdx("ALERT"), { token: "wrong" })).status).toBe(404);
+		expect((await post(hyperdx("ALERT"), { path: "/relay/incident/" })).status).toBe(404);
+		const query = await page.fetch(`https://status.example.com/relay/incident?token=${TOKEN}`, {
+			method: "POST",
+			body: hyperdx("ALERT"),
+			redirect: "manual",
+			headers: { "Content-Type": "application/json" },
+		});
+		expect(query.status).toBe(404);
+		expect(await all("SELECT relay FROM relay_keys")).toEqual([]);
+	});
+
+	it("rejects other media types and oversized bodies", async () => {
+		expect((await post(hyperdx("ALERT"), { type: "text/plain" })).status).toBe(415);
+		expect((await post("x".repeat(70_000))).status).toBe(413);
+	});
+
+	it("never caches a relay answer and refuses other methods", async () => {
+		const res = await post(hyperdx("ALERT"));
+		expect(res.headers.get("cache-control")).toBeNull();
+		const get = await page.fetch("https://status.example.com/relay/incident");
+		expect(get.status).toBe(405);
+		expect(get.headers.get("allow")).toBe("POST");
+	});
+
+	it("keeps a relay's title, description, source_url and key off status and the page", async () => {
+		const secrets = ["leak-title", "leak-description", "https://leak.example/source", "leak-key"];
+		const body = JSON.stringify({
+			title: secrets[0],
+			description: secrets[1],
+			source_url: secrets[2],
+			deduplication_key: secrets[3],
+			status: "firing",
+		});
+		expect((await post(body)).status).toBe(202);
+		const config = { ...instanceSchema.parse(example), maintenance: [] };
+		const data = await status(env.DB, config, Date.now());
+		const { STUB, PAGE } = env as unknown as { STUB: Fetcher; PAGE: Fetcher };
+		await STUB.fetch("https://stub.test/", { method: "POST", body: JSON.stringify(data) });
+		const html = await (await PAGE.fetch("https://leak.example.com/")).text();
+		for (const secret of secrets) {
+			expect(JSON.stringify(data)).not.toContain(secret);
+			expect(html).not.toContain(secret);
+		}
+	});
+});

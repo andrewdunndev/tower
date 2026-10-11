@@ -2,11 +2,13 @@ import type { StatusResponse } from './lib.ts';
 
 const CACHE_SECONDS = 30;
 const CACHED_ROUTES = ['/', '/api/status'];
+const MAX_BODY = 64 * 1024;
 const BEAT_PATH = /^\/beat\/([^/]+)(\/fail)?$/;
 
 type Tower = {
   status(): Promise<StatusResponse>;
   beat(id: string, token: string, ok: boolean): Promise<Response>;
+  incident(token: string, body: string): Promise<Response>;
 };
 
 export async function load(tower: Pick<Tower, 'status'>): Promise<StatusResponse | null> {
@@ -25,7 +27,7 @@ export async function statusResponse(tower: Pick<Tower, 'status'>): Promise<Resp
 
 export function refuse(request: Request): Response | null {
   const { pathname } = new URL(request.url);
-  const allowed = pathname.startsWith('/beat/') ? ['POST'] : ['GET', 'HEAD'];
+  const allowed = pathname.startsWith('/beat/') || pathname.startsWith('/relay/') ? ['POST'] : ['GET', 'HEAD'];
   if (allowed.includes(request.method)) return null;
   return new Response(null, { status: 405, headers: { Allow: allowed.join(', ') } });
 }
@@ -50,6 +52,41 @@ export async function cached(key: Request, render: () => Promise<Response>): Pro
 export async function beat(request: Request, env: { TOWER: Pick<Tower, 'beat'> }): Promise<Response> {
   const match = BEAT_PATH.exec(new URL(request.url).pathname);
   if (!match) return new Response(null, { status: 404 });
-  const token = /^Bearer (.+)$/.exec(request.headers.get('Authorization') ?? '')?.[1] ?? '';
-  return env.TOWER.beat(match[1], token, match[2] === undefined);
+  return env.TOWER.beat(match[1], bearer(request), match[2] === undefined);
+}
+
+const bearer = (request: Request) => /^Bearer (.+)$/.exec(request.headers.get('Authorization') ?? '')?.[1] ?? '';
+
+async function readCapped(request: Request): Promise<string | null> {
+  const declared = request.headers.get('Content-Length');
+  if (declared !== null && Number(declared) > MAX_BODY) return null;
+  const reader = request.body?.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let size = 0;
+  while (reader) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BODY) {
+      await reader.cancel();
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+export async function relay(request: Request, env: { TOWER: Pick<Tower, 'incident'> }): Promise<Response> {
+  if (new URL(request.url).pathname !== '/relay/incident') return new Response(null, { status: 404 });
+  const type = (request.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase();
+  if (type !== 'application/json') return new Response(null, { status: 415 });
+  const body = await readCapped(request);
+  if (body === null) return new Response(null, { status: 413 });
+  try {
+    return await env.TOWER.incident(bearer(request), body);
+  } catch (e) {
+    console.error('tower-page: relay unavailable:', e);
+    return new Response(null, { status: 503 });
+  }
 }
