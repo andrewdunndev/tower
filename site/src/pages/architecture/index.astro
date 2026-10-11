@@ -104,6 +104,7 @@ import Relay from '../../figures/05-relay.astro';
       </Fragment>
     </Split>
 
+    <div class="flow">
     <h2 id="limits">Limits</h2>
     <ul class="section-prose">
       <li>A tcp check against a Cloudflare-proxied address, or one Cloudflare blocks, reads as down.</li>
@@ -114,5 +115,6 @@ import Relay from '../../figures/05-relay.astro';
       <li>A relay holds at most 100 open keys. A firing past that is rejected, and one SELF-CHECK FAILING mail says so.</li>
       <li>If both Workers are dead, nothing mails, and only the missing digest says so.</li>
     </ul>
+    </div>
   </article>
 </Layout>
