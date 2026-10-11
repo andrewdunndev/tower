@@ -5,7 +5,6 @@ import { root, StageError, stage } from "./stage.ts";
 export type DbState = "present" | "absent" | "unknown";
 export type Step = "migrate" | "prober";
 
-/** Migrate first when the database exists, deploy first when deploying creates it; an unreadable state aborts. */
 export function plan(db: DbState, dryRun: boolean): Step[] | "abort" {
 	if (dryRun) return ["prober"];
 	if (db === "unknown") return "abort";
