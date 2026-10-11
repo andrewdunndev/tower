@@ -19,7 +19,7 @@ import Relay from '../../figures/05-relay.astro';
       <Workers />
       <p>The page Worker faces the internet and holds no secrets or storage. The prober owns the data and sends the alert mail; the page Worker mails only when the prober does not answer.</p>
     </div>
-    <p class="section-prose">The prober runs on a cron each minute. It runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. It is the only owner of D1. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober. It holds no secrets and no storage.</p>
+    <p class="section-prose">The prober runs on a cron each minute, runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober.</p>
   </section>
 
   <section class="section">
@@ -28,7 +28,7 @@ import Relay from '../../figures/05-relay.astro';
       <Check />
       <p>A probed check changes state after <code>down_after</code> or <code>up_after</code> runs in a row; a heartbeat goes down at its first missed deadline.</p>
     </div>
-    <p class="section-prose">A probed check is up until it fails <code>down_after</code> runs in a row. It is then down, and a DOWN mail is queued in the outbox. It stays down until it passes <code>up_after</code> runs in a row, and an UP mail is queued. The outbox holds unsent mail, and a failed send is tried again on the next run. A maintenance note suppresses alerts for its checks inside its window.</p>
+    <p class="section-prose">Each change queues a DOWN or UP mail in the outbox, and a failed send is tried again on the next run. A maintenance note suppresses alerts for its checks inside its window.</p>
   </section>
 
   <section class="section">
@@ -63,7 +63,7 @@ import Relay from '../../figures/05-relay.astro';
       <Names />
       <p>Names, status, uptime and response times cross to the public page; addresses and reasons stay behind.</p>
     </div>
-    <p class="section-prose">The page and <code>/api/status</code> carry public check names, status, uptime and response times. A URL, hostname, address, port or failure reason never crosses: reasons go to the alert mail and the Worker log. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
+    <p class="section-prose">Failure reasons go to the alert mail and the Worker log only. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
   </section>
 
   <section class="section">
@@ -82,11 +82,6 @@ import Relay from '../../figures/05-relay.astro';
       <p>A relay key mails when it opens, when it closes and when it goes quiet.</p>
     </div>
     <p class="section-prose">A relay accepts an incident.io-format webhook at <code>POST /relay/incident</code>, as HyperDX sends, and mails on transitions only. A firing opens a key and mails FIRING. A repeat firing renews it without mail. A resolved closes it and mails RESOLVED. A key not renewed within its grace closes with STOPPED REPORTING, which also covers a lost resolved. At most five transitions per relay per minute mail at once; the rest wait for the next run and, when more than one is waiting, arrive as one mail.</p>
-  </section>
-
-  <section class="section">
-    <h2 class="section-title" id="instances">Instances</h2>
-    <p class="section-prose">An instance is a directory: <code>tower.json</code>, optional <code>notes/*.md</code> for maintenance windows and incident write-ups, and optional <code>theme.css</code> and <code>favicon.svg</code>. Its <code>name</code> derives every Cloudflare resource, the two Workers and the D1 database. Keep it outside this repository.</p>
   </section>
 
   <section class="section">

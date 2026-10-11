@@ -5,7 +5,7 @@ import Quickstart from '../../figures/06-quickstart.astro';
 
 const DOCS = 'https://gitlab.com/dunn.dev/tower/-/blob/main/docs/';
 
-// docs/setup.md is written for the forge: its h1 is this page's title, and its relative links resolve against docs/ there.
+// docs/setup.md targets the forge: drop its h1, resolve relative links against docs/.
 const setup = await getEntry('docs', 'setup');
 if (!setup?.rendered) throw new Error('docs/setup.md did not render');
 const html = setup.rendered.html
@@ -20,7 +20,6 @@ const html = setup.rendered.html
     <Quickstart />
   </div>
   <article class="doc">
-    <p>One command deploys an instance directory and ends with a DEPLOYED mail. The hostname needs a proxied DNS record in its zone before the first deploy.</p>
     <Fragment set:html={html} />
   </article>
 </Layout>

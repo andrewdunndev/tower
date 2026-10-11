@@ -19,7 +19,7 @@ import mark from '../../public/favicon.svg?raw';
 
   <section class="section">
     <h2 class="section-title" id="what-it-is">What it is</h2>
-    <p class="section-prose">We want to know when a service fails without running a server whose only job is to watch. tower does that on Cloudflare, a company that runs small programs, called Workers, on its network for you.</p>
+    <p class="section-prose">tower runs on Cloudflare, which hosts small programs, called Workers, on its network, so nothing watches your services from a server you maintain.</p>
     <p class="section-prose">Two Workers do the work. The prober runs on a timer each minute, checks your services and keeps the history in a database. The page Worker shows the result to anyone who visits and holds no secrets of its own.</p>
   </section>
 
@@ -34,7 +34,7 @@ import mark from '../../public/favicon.svg?raw';
       <div class="tile">
         <p class="tile-eyebrow">2 · mail</p>
         <h3 class="tile-headline">One mail per change</h3>
-        <p class="tile-prose">An http, tcp, dns or tls check goes down only after it fails a set number of runs in a row. A heartbeat goes down at its first missed deadline. tower mails once, and once more on recovery. A mail that fails to send is tried again.</p>
+        <p class="tile-prose">An http, tcp, dns or tls check goes down only after it fails a set number of runs in a row. A heartbeat goes down at its first missed deadline. tower mails once, and once more on recovery.</p>
       </div>
       <div class="tile">
         <p class="tile-eyebrow">3 · watch</p>
@@ -51,17 +51,6 @@ import mark from '../../public/favicon.svg?raw';
   <section class="section">
     <h2 class="section-title" id="page">What the page shows</h2>
     <p class="section-prose">The public page shows names only: each public check with its status, how long it has held it, uptime and response times. Addresses, ports and failure reasons stay in the prober, and a reason reaches only the alert mail and the log. A check that has not run recently reads as unknown, so a stopped timer cannot leave a green page.</p>
-  </section>
-
-  <section class="section">
-    <h2 class="section-title" id="what-you-need">What you need</h2>
-    <ul class="section-prose">
-      <li>A Cloudflare account on the Workers Paid plan.</li>
-      <li>A zone on that account for the status hostname.</li>
-      <li>Cloudflare Email Service for alerts, with an address to send them to.</li>
-      <li>Node, to run the deploy command.</li>
-      <li>An instance directory: a folder holding your checks in <code>tower.json</code>.</li>
-    </ul>
   </section>
 
   <section class="section">
