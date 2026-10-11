@@ -68,3 +68,13 @@ html {
 		width: 100%;
 	}
 }
+
+@media (max-width: 1000px) {
+	.figure-ov1 .figure-wide {
+		display: none;
+	}
+	.figure-ov1 .figure-narrow {
+		display: block;
+		margin-inline: auto;
+	}
+}
