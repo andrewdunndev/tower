@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import pkg from "../../package.json";
 import { towerMessage } from "../src/mail.ts";
 import { incident, MAX_KEYS } from "../src/relay.ts";
 import { tick } from "../src/run.ts";
@@ -52,7 +53,7 @@ describe("deploy mail", () => {
 		const config = makeConfig();
 		await tick(runEnv, config, T0, respond(200));
 		await tick(runEnv, config, T0 + MINUTE, respond(200));
-		expect(box.subjects).toEqual(["DEPLOYED: tower 0.1.0"]);
+		expect(box.subjects).toEqual([`DEPLOYED: tower ${pkg.version}`]);
 		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 2 * MINUTE, respond(200));
 		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 3 * MINUTE, respond(200));
 		expect(box.subjects).toHaveLength(2);
