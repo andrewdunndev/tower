@@ -15,7 +15,7 @@ const headings = (await render(setup)).headings
   .filter(h => h.depth === 2)
   .map(h => ({ slug: h.slug, text: h.text }));
 ---
-<Layout title="Install" description="Deploy tower and set up alerts, heartbeats, relays and upgrades." headings={headings} progress>
+<Layout title="Install" description="Deploy tower and set up alerts, heartbeats, relays and upgrades." headings={headings}>
   <header class="page-header">
     <h1 class="page-title">Install</h1>
   </header>
