@@ -1,30 +1,30 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import Check from '../figures/02-check.astro';
-import mark from '../../public/favicon.svg?raw';
+import Hero from '@dunn.dev/reference/chrome/Hero.astro';
+import StatStrip from '@dunn.dev/reference/chrome/StatStrip.astro';
+import SectionLabel from '@dunn.dev/reference/chrome/SectionLabel.astro';
+import { stats } from '../lib/stats';
 ---
-<Layout title="tower" description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
-  <header class="hero">
-    <div class="hero-mark" aria-hidden="true" set:html={mark} />
-    <div>
-      <p class="hero-eyebrow">status page</p>
-      <h1 class="hero-title">tower</h1>
-      <p class="hero-lede">tower tells you when a service stops answering. It checks from outside, sends one mail when something goes down and one when it comes back, and runs on Cloudflare, so there is no server to keep.</p>
-      <div class="hero-cta">
-        <a class="cta-primary" href="/setup/">Install</a>
-        <a class="cta-secondary" href="/architecture/">Architecture</a>
-      </div>
-    </div>
-  </header>
+<Layout description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
+  <Hero title="tower" eyebrow="status page on cloudflare workers">
+    tower tells you when a service stops answering. It checks from outside, sends one mail when something goes down and one when it comes back, and runs on Cloudflare, so there is no server to keep.
+    <Fragment slot="actions">
+      <a class="cta-primary" href="/setup/">Install</a>
+      <a class="cta-secondary" href="/architecture/">Architecture</a>
+    </Fragment>
+  </Hero>
 
-  <section class="section">
-    <h2 class="section-title" id="what-it-is">What it is</h2>
+  <StatStrip items={stats} />
+
+  <section class="section" id="what-it-is">
+    <SectionLabel label="What it is" />
     <p class="section-prose">tower runs on Cloudflare, which hosts small programs, called Workers, on its network, so nothing watches your services from a server you maintain.</p>
     <p class="section-prose">Two Workers do the work. The prober runs on a timer each minute, checks your services and keeps the history in a database. The page Worker shows the result to anyone who visits and holds no secrets of its own.</p>
   </section>
 
-  <section class="section">
-    <h2 class="section-title" id="how-it-works">How it works</h2>
+  <section class="section" id="how-it-works">
+    <SectionLabel label="How it works" />
     <div class="tile-list">
       <div class="tile">
         <p class="tile-eyebrow">1 · check</p>
@@ -48,13 +48,13 @@ import mark from '../../public/favicon.svg?raw';
     </div>
   </section>
 
-  <section class="section">
-    <h2 class="section-title" id="page">What the page shows</h2>
+  <section class="section" id="page">
+    <SectionLabel label="What the page shows" />
     <p class="section-prose">The public page shows names only: each public check with its status, how long it has held it, uptime and response times. Addresses, ports and failure reasons stay in the prober, and a reason reaches only the alert mail and the log. A check that has not run recently reads as unknown, so a stopped timer cannot leave a green page.</p>
   </section>
 
-  <section class="section">
-    <h2 class="section-title" id="next">Where next</h2>
+  <section class="section" id="next">
+    <SectionLabel label="Where next" />
     <div class="tile-grid">
       <div class="tile">
         <h3 class="tile-headline"><a href="/architecture/">Architecture</a></h3>
