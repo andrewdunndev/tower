@@ -92,6 +92,7 @@ import Relay from '../../figures/05-relay.astro';
       <li>A tls check covers edge certificates. An origin certificate failure shows as http 526.</li>
       <li>Checks run from one Cloudflare location per cron run, so a failure near it can read as down.</li>
       <li>Relays have no silences or maintenance windows.</li>
+      <li>A relay holds at most 100 open keys. A firing past that is rejected, and one SELF-CHECK FAILING mail says so.</li>
       <li>If both Workers are dead, nothing mails, and only the missing digest says so.</li>
     </ul>
   </section>
