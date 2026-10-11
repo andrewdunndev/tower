@@ -1,8 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { recordBeat } from "../src/heartbeat.ts";
-import { tick } from "../src/run.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
+import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, steadyTick as tick, web } from "./util.ts";
 
 beforeEach(reset);
 

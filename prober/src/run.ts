@@ -3,9 +3,14 @@ import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { compose, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
+import { attention, reportWriteFailure, resumedAfter, selfWrites } from "./self.ts";
 import { DAYS, interval, inWindow } from "./status.ts";
 
-export type RunEnv = Pick<Env, "DB"> & { EMAIL: Pick<SendEmail, "send">; CF_API_TOKEN?: string };
+export type RunEnv = Pick<Env, "DB"> & {
+	EMAIL: Pick<SendEmail, "send">;
+	VERSION: Pick<WorkerVersionMetadata, "id">;
+	CF_API_TOKEN?: string;
+};
 
 interface Track {
 	avail: boolean;
@@ -77,6 +82,14 @@ async function claim(db: D1Database, config: Instance, t: number) {
 			)
 			.bind(c.id, t),
 	);
+	const ticks = [
+		db.prepare(`SELECT value FROM meta WHERE key = 'tick'`),
+		db
+			.prepare(
+				`INSERT INTO meta (key, value) VALUES ('tick', ?1) ON CONFLICT (key) DO UPDATE SET value = MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))`,
+			)
+			.bind(String(t)),
+	];
 	const claims = config.checks.map((c) =>
 		db
 			.prepare(
@@ -84,11 +97,14 @@ async function claim(db: D1Database, config: Instance, t: number) {
 			)
 			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c)) * interval(c)),
 	);
-	const results = await db.batch<StateRow>([...seeds, ...claims]);
-	return config.checks.flatMap((check, i) => {
-		const row = results[seeds.length + i].results[0];
+	const results = await db.batch<StateRow | { value: string }>([...ticks, ...seeds, ...claims]);
+	const offset = ticks.length + seeds.length;
+	const previous = (results[0].results[0] as { value: string } | undefined)?.value;
+	const claimed = config.checks.flatMap((check, i) => {
+		const row = results[offset + i].results[0] as StateRow | undefined;
 		return row ? [{ check, row }] : [];
 	});
+	return { claimed, previous };
 }
 
 export async function tick(
@@ -98,9 +114,15 @@ export async function tick(
 	doFetch: typeof fetch = fetch,
 	doConnect: typeof connect = connect,
 ) {
-	const claimed = await claim(env.DB, config, t);
+	let claimed: Awaited<ReturnType<typeof claim>>;
+	try {
+		claimed = await claim(env.DB, config, t);
+	} catch (e) {
+		await reportWriteFailure(env.DB, (subject, text) => sendMail(env.EMAIL, config.alert, subject, text), t);
+		throw e;
+	}
 
-	const ran = await pool(claimed, CONCURRENCY, async ({ check, row }) => {
+	const ran = await pool(claimed.claimed, CONCURRENCY, async ({ check, row }) => {
 		const started = Date.now();
 		const outcome: Outcome =
 			check.type === "heartbeat"
@@ -198,7 +220,13 @@ export async function tick(
 			);
 		}
 	}
-	writes.push(...expire(env.DB, config, t), ...prune(env.DB, config, t));
+	const tokens = ran.flatMap(({ outcome }) => (outcome.token ? [outcome.token] : []));
+	const token = tokens.includes("bad") ? "bad" : tokens.includes("ok") ? "ok" : null;
+	writes.push(
+		...expire(env.DB, config, t),
+		...prune(env.DB, config, t),
+		...selfWrites(env.DB, config, t, env.VERSION, resumedAfter(claimed.previous, t), token),
+	);
 	await env.DB.batch(writes);
 
 	await drain(env, config);
@@ -260,10 +288,11 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 	)
 		.bind(only)
 		.all<Row>();
+	const lines = results.some((r) => r.kind === "digest") ? await attention(env.DB, config) : [];
 	const relayIds = new Set(config.relays.map((r) => r.id));
 	const groups = Map.groupBy(results, (r) => JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key]));
 	for (const rows of groups.values()) {
-		const composed = compose(config, rows);
+		const composed = compose(config, rows, lines);
 		if (!composed) continue;
 		if (now() + SEND_TIMEOUT_MS + DB_MARGIN_MS > until) return;
 		const rowids = JSON.stringify(rows.map((r) => r.rowid));

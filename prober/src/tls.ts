@@ -26,6 +26,7 @@ class Stop extends Error {
 	constructor(
 		readonly verdict: "inconclusive" | "config-error",
 		reason: string,
+		readonly token?: "bad" | "ok",
 	) {
 		super(reason);
 	}
@@ -45,6 +46,7 @@ async function get<T>(path: string, d: Deps): Promise<T> {
 		throw new Stop(
 			"config-error",
 			`api HTTP ${res.status}: the token needs Zone Read and SSL and Certificates Read on the zone`,
+			"bad",
 		);
 	}
 	if (!res.ok) throw new Stop("inconclusive", `api HTTP ${res.status}`);
@@ -60,7 +62,8 @@ async function zoneId(zone: string, d: Deps): Promise<string> {
 	const cached = await d.db.prepare(`SELECT value FROM meta WHERE key = ?1`).bind(key).first<{ value: string }>();
 	if (cached) return cached.value;
 	const [found] = await get<{ id: string }[]>(`/zones?name=${encodeURIComponent(zone)}`, d);
-	if (!found) throw new Stop("config-error", `zone ${zone} not found: check the name and the token's zone access`);
+	if (!found)
+		throw new Stop("config-error", `zone ${zone} not found: check the name and the token's zone access`, "ok");
 	await d.db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)`).bind(key, found.id).run();
 	return found.id;
 }
@@ -72,7 +75,7 @@ function specificity(host: string, pack: Pack): number | null {
 }
 
 export async function probeTls(c: Extract<Check, { type: "tls" }>, d: Deps): Promise<Outcome> {
-	if (!d.token) return { verdict: "config-error", reason: "CF_API_TOKEN is not set" };
+	if (!d.token) return { verdict: "config-error", reason: "CF_API_TOKEN is not set", token: "bad" };
 	try {
 		const packs = await get<Pack[]>(`/zones/${await zoneId(c.zone, d)}/ssl/certificate_packs?per_page=50`, d);
 		const covering = packs
@@ -82,17 +85,21 @@ export async function probeTls(c: Extract<Check, { type: "tls" }>, d: Deps): Pro
 				return s === null ? [] : [{ pack: p, score: PACK_RANK[p.type] * 2 + s }];
 			})
 			.sort((a, b) => a.score - b.score);
-		if (covering.length === 0) return { verdict: "down", reason: "no active certificate covers the host" };
+		if (covering.length === 0) return { verdict: "down", reason: "no active certificate covers the host", token: "ok" };
 		const { pack } = covering[0];
 		const expires = Math.min(...pack.certificates.map((x) => Date.parse(x.expires_on)));
-		if (!Number.isFinite(expires)) return { verdict: "inconclusive", reason: "certificate has no expiry" };
+		if (!Number.isFinite(expires)) return { verdict: "inconclusive", reason: "certificate has no expiry", token: "ok" };
 		const left = expires - d.now;
 		if (left < DOWN_UNDER_MS)
-			return { verdict: "down", reason: left < 0 ? "certificate expired" : "certificate expires within 2 days" };
+			return {
+				verdict: "down",
+				reason: left < 0 ? "certificate expired" : "certificate expires within 2 days",
+				token: "ok",
+			};
 		const overdue = pack.validity_days !== undefined && left < (pack.validity_days * DAY_MS) / 6;
-		return { verdict: "ok", reason: null, degraded: overdue };
+		return { verdict: "ok", reason: null, degraded: overdue, token: "ok" };
 	} catch (e) {
-		if (e instanceof Stop) return { verdict: e.verdict, reason: e.message };
+		if (e instanceof Stop) return { verdict: e.verdict, reason: e.message, token: e.token };
 		return { verdict: "inconclusive", reason: "api returned an unexpected body" };
 	}
 }

@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { hyperdx } from "../../test/fixture/hyperdx-incidentio.ts";
 import { relayMessage } from "../src/mail.ts";
 import { incident } from "../src/relay.ts";
-import { drain, tick } from "../src/run.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
+import { drain } from "../src/run.ts";
+import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, steadyTick as tick, web } from "./util.ts";
 
 beforeEach(reset);
 

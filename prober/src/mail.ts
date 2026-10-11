@@ -1,6 +1,8 @@
 import { EmailMessage } from "cloudflare:email";
+import pkg from "../../package.json";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { hint } from "./http.ts";
+import { SELF_NAMES } from "./status.ts";
 
 export interface Pending {
 	at: number;
@@ -93,26 +95,54 @@ export function relaySummary(relay: Relay, rows: Pending[]): [subject: string, t
 	return [`ALERTS: ${clip(relay.name)}: ${latest.size} changed`, `${lines.join("\n")}\n`];
 }
 
-export function towerMessage(config: Instance, p: Pending): [subject: string, text: string] {
-	const relay = config.relays.find((r) => `full:${r.id}` === p.key);
+function digest(config: Instance, p: Pending, lines: string[]): [string, string] {
+	const day = new Date(p.at).toISOString().slice(0, 10);
+	const title = `DIGEST: ${clip(config.title)} ${day}`;
+	if (lines.length === 0) return [`${title}: all up`, ""];
+	return [`${title}: ${lines.length} need attention`, `${lines.map((l) => clip(line(l), 300)).join("\n")}\n`];
+}
+
+export function towerMessage(config: Instance, p: Pending, lines: string[] = []): [subject: string, text: string] {
 	const at = new Date(p.at).toISOString();
-	if (!relay) return [`SELF-CHECK ${p.kind === "self-ok" ? "OK" : "FAILING"}: ${clip(p.key)}`, `${at}\n`];
-	const name = clip(relay.name);
-	return p.kind === "self-ok"
-		? [`SELF-CHECK OK: relay ${name} has room`, `Relay ${name} is below its limit of open keys, ${at}.\n`]
+	switch (p.kind) {
+		case "deployed":
+			return [`DEPLOYED: tower ${pkg.version}`, `Version ${pkg.version} is running, ${at}.\n`];
+		case "digest":
+			return digest(config, p, lines);
+		case "resumed":
+			return ["SELF-CHECK OK: probing resumed", `Probing resumed after a gap, ${at}.\n`];
+	}
+	const ok = p.kind === "self-ok";
+	const relay = config.relays.find((r) => `full:${r.id}` === p.key);
+	if (relay) {
+		const name = clip(relay.name);
+		return ok
+			? [`SELF-CHECK OK: relay ${name} has room`, `Relay ${name} is below its limit of open keys, ${at}.\n`]
+			: [
+					`SELF-CHECK FAILING: relay ${name} is full`,
+					`Relay ${name} is at its limit of open keys and refused a new one, ${at}.\nIt closes keys that resolve or stop reporting.\n`,
+				];
+	}
+	const what = SELF_NAMES[p.key] ?? clip(p.key);
+	return ok
+		? [`SELF-CHECK OK: ${what}`, `${what} recovered, ${at}.\n`]
 		: [
-				`SELF-CHECK FAILING: relay ${name} is full`,
-				`Relay ${name} is at its limit of open keys and refused a new one, ${at}.\nIt closes keys that resolve or stop reporting.\n`,
+				`SELF-CHECK FAILING: ${what}`,
+				`${what} is failing, ${at}.\nThe token needs Zone Read and SSL and Certificates Read, and CF_API_TOKEN must be set.\n`,
 			];
 }
 
-export function compose(config: Instance, rows: (Pending & { check: string })[]): [string, string] | null {
+export function compose(
+	config: Instance,
+	rows: (Pending & { check: string })[],
+	lines: string[] = [],
+): [string, string] | null {
 	const latest = rows[rows.length - 1];
 	const check = config.checks.find((c) => c.id === latest.check);
 	if (check) return message(check, latest);
 	const relay = config.relays.find((r) => r.id === latest.check);
 	if (relay) return rows.length > 1 ? relaySummary(relay, rows) : relayMessage(relay, latest);
-	return latest.check === "" ? towerMessage(config, latest) : null;
+	return latest.check === "" ? towerMessage(config, latest, lines) : null;
 }
 
 export function mime(from: string, to: string, subject: string, text: string): string {

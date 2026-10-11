@@ -9,6 +9,7 @@ export interface Outcome {
 	verdict: "ok" | "down" | "inconclusive" | "config-error";
 	reason: string | null;
 	degraded?: boolean;
+	token?: "bad" | "ok";
 }
 
 export interface Deps {

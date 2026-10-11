@@ -2,9 +2,8 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Instance } from "../../tools/schema.ts";
 import { message } from "../src/mail.ts";
-import { tick } from "../src/run.ts";
 import { status } from "../src/status.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
+import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, steadyTick as tick, web } from "./util.ts";
 
 beforeEach(reset);
 
