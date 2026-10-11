@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 (2026-10-11)
+
+- The check name column has a fixed width. A name that does not fit is cut with an ellipsis and shows in full as a tooltip, instead of breaking mid-word and doubling the row.
+
 ## 0.3.0 (2026-10-11)
 
 - Self-checks mail `SELF-CHECK FAILING: results for <check>` when a check has no conclusive result for three of its intervals, and an OK when it recovers. `/api/status` `self` and the page banner list a stuck public check.

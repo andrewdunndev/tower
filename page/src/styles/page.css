@@ -70,7 +70,7 @@ section + section { margin-top: 44px; }
 .panel { border: 1px solid var(--line2); background: var(--panel); }
 
 .row {
-  --cols: minmax(140px, 1.1fr) 172px minmax(0, 4.6fr) 132px 66px 70px;
+  --cols: 14rem 172px minmax(0, 4.6fr) 132px 66px 70px;
   display: grid; grid-template-columns: var(--cols); align-items: start; gap: 22px;
   padding: 11px 16px; border-top: 1px solid var(--line);
 }
@@ -82,7 +82,7 @@ section + section { margin-top: 44px; }
 }
 .head .r { text-align: right; }
 
-.name { font: 500 14px/22px var(--body); overflow-wrap: anywhere; }
+.name { font: 500 14px/22px var(--body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state { display: flex; align-items: center; min-height: 22px; color: var(--dim); white-space: nowrap; }
 .state .for { color: var(--faint); margin-left: .6ch; }
 .state .up90 { display: none; color: var(--faint); margin-left: .6ch; }
@@ -143,7 +143,7 @@ section + section { margin-top: 44px; }
 main { padding-bottom: 72px; }
 
 @media (max-width: 1000px) {
-  .row { --cols: minmax(110px, 1fr) 160px minmax(0, 3fr) 90px 62px 62px; gap: 16px; }
+  .row { --cols: 10rem 160px minmax(0, 3fr) 90px 62px 62px; gap: 16px; }
 }
 
 @media (max-width: 760px) {
