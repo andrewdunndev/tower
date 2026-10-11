@@ -2,6 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import config from "../../.tower/tower.json";
 import type { Instance } from "../../tools/schema.ts";
 import { recordBeat } from "./heartbeat.ts";
+import { incident } from "./relay.ts";
 import { tick } from "./run.ts";
 import { status } from "./status.ts";
 
@@ -19,6 +20,10 @@ export class Tower extends WorkerEntrypoint<Env> {
 
 	async beat(id: string, token: string, ok: boolean) {
 		return recordBeat(this.env.DB, instance.checks, id, token, ok, Date.now());
+	}
+
+	async incident(token: string, body: string) {
+		return incident(this.env, instance, token, body, Date.now());
 	}
 }
 

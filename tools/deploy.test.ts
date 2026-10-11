@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { plan } from "./deploy.ts";
 
 describe("deploy", () => {
 	it("exits 1 with the validation messages and no stack trace", () => {
@@ -15,5 +16,14 @@ describe("deploy", () => {
 		expect(r.stderr).toContain("tower.json: alert: required.");
 		expect(r.stderr).not.toMatch(/^\s+at /m);
 		expect(r.stderr).not.toContain("title: title:");
+	});
+});
+
+describe("plan", () => {
+	it("migrates first when the database exists, deploys first when deploying creates it, aborts when unknown", () => {
+		expect(plan("present", false)).toEqual(["migrate", "prober"]);
+		expect(plan("absent", false)).toEqual(["prober", "migrate"]);
+		expect(plan("unknown", false)).toBe("abort");
+		expect(plan("unknown", true)).toEqual(["prober"]);
 	});
 });

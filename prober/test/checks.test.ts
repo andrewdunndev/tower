@@ -247,14 +247,14 @@ describe("tls", () => {
 		expect(box.sends).toBe(0);
 	});
 
-	it("treats a scope error as a config error and never alerts", async () => {
+	it("treats a scope error as a config error and mails only the token self-check", async () => {
 		for (const code of [401, 403]) {
 			const { runEnv, box } = mailbox();
 			await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, cloudflare(code).fetch);
 			expect(await all("SELECT avail, config_error, last_conclusive FROM state")).toEqual([
 				{ avail: 1, config_error: 1, last_conclusive: null },
 			]);
-			expect(box.sends).toBe(0);
+			expect(box.subjects).toEqual(["SELF-CHECK FAILING: Cloudflare API token"]);
 			await reset();
 		}
 	});

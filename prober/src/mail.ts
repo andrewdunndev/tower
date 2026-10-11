@@ -1,17 +1,30 @@
 import { EmailMessage } from "cloudflare:email";
-import type { Check } from "../../tools/schema.ts";
+import pkg from "../../package.json";
+import type { Check, Instance } from "../../tools/schema.ts";
 import { hint } from "./http.ts";
+import { SELF_NAMES } from "./status.ts";
 
 export interface Pending {
 	at: number;
-	kind: "down" | "up";
+	key: string;
+	kind:
+		| "down"
+		| "up"
+		| "firing"
+		| "resolved"
+		| "stale"
+		| "deployed"
+		| "digest"
+		| "resumed"
+		| "self-failing"
+		| "self-ok";
 	since: number | null;
 	reason: string | null;
 }
 
 export const SEND_TIMEOUT_MS = 10_000;
 
-const clip = (s: string) => (s.length > 200 ? `${s.slice(0, 200)}...` : s);
+const clip = (s: string, n = 200) => (s.length > n ? `${s.slice(0, n)}...` : s);
 const line = (s: string) => s.replace(/[\r\n]+/g, " ");
 const ascii = (s: string) => line(s).replace(/[^\x20-\x7e]/g, "?");
 
@@ -45,6 +58,92 @@ export function message(check: Check, p: Pending): [subject: string, text: strin
 	];
 }
 
+type Relay = Instance["relays"][number];
+
+const LABEL = { firing: "FIRING", resolved: "RESOLVED", stale: "STOPPED REPORTING" } as const;
+const SUMMARY_LINES = 50;
+
+function detail(reason: string | null): { title: string; description?: string; source_url?: string } {
+	try {
+		return { title: "", ...JSON.parse(reason ?? "") };
+	} catch {
+		return { title: "" };
+	}
+}
+
+export function relayMessage(relay: Relay, p: Pending): [subject: string, text: string] {
+	const { title, description, source_url } = detail(p.reason);
+	const at = new Date(p.at).toISOString();
+	const since = p.since === null ? null : new Date(p.since).toISOString();
+	const label = LABEL[p.kind as keyof typeof LABEL];
+	let when: string;
+	if (p.kind === "resolved") when = since ? `Firing since ${since}, resolved ${at}.` : `Resolved ${at}.`;
+	else if (p.kind === "stale")
+		when = `No report within ${Math.round(relay.grace / 60_000)} minutes, closed ${at}.${since ? `\nFiring since ${since}.` : ""}`;
+	else when = `Firing, received ${at}.`;
+	const body = [title, when, description, source_url && `Source: ${source_url}`];
+	return [`${label}: ${clip(relay.name)}: ${clip(line(title))}`, `${body.filter(Boolean).join("\n")}\nKey: ${p.key}\n`];
+}
+
+function relaySummary(relay: Relay, rows: Pending[]): [subject: string, text: string] {
+	const latest = new Map(rows.map((r) => [r.key, r]));
+	const lines = [...latest.values()]
+		.slice(0, SUMMARY_LINES)
+		.map((r) => `${LABEL[r.kind as keyof typeof LABEL]}: ${clip(line(detail(r.reason).title))}`);
+	if (latest.size > SUMMARY_LINES) lines.push(`and ${latest.size - SUMMARY_LINES} more`);
+	return [`ALERTS: ${clip(relay.name)}: ${latest.size} changed`, `${lines.join("\n")}\n`];
+}
+
+function digest(config: Instance, p: Pending, lines: string[]): [string, string] {
+	const day = new Date(p.at).toISOString().slice(0, 10);
+	const title = `DIGEST: ${clip(config.title)} ${day}`;
+	if (lines.length === 0) return [`${title}: all up`, ""];
+	return [`${title}: ${lines.length} need attention`, `${lines.map((l) => clip(line(l), 300)).join("\n")}\n`];
+}
+
+export function towerMessage(config: Instance, p: Pending, lines: string[] = []): [subject: string, text: string] {
+	const at = new Date(p.at).toISOString();
+	switch (p.kind) {
+		case "deployed":
+			return [`DEPLOYED: tower ${pkg.version}`, `Version ${pkg.version} is running, ${at}.\n`];
+		case "digest":
+			return digest(config, p, lines);
+		case "resumed":
+			return ["SELF-CHECK OK: probing resumed", `Probing resumed after a gap, ${at}.\n`];
+	}
+	const ok = p.kind === "self-ok";
+	const relay = config.relays.find((r) => `full:${r.id}` === p.key);
+	if (relay) {
+		const name = clip(relay.name);
+		return ok
+			? [`SELF-CHECK OK: relay ${name} has room`, `Relay ${name} is below its limit of open keys, ${at}.\n`]
+			: [
+					`SELF-CHECK FAILING: relay ${name} is full`,
+					`Relay ${name} is at its limit of open keys and refused a new one, ${at}.\nIt closes keys that resolve or stop reporting.\n`,
+				];
+	}
+	const what = SELF_NAMES[p.key] ?? clip(p.key);
+	return ok
+		? [`SELF-CHECK OK: ${what}`, `${what} recovered, ${at}.\n`]
+		: [
+				`SELF-CHECK FAILING: ${what}`,
+				`${what} is failing, ${at}.\nThe token needs Zone Read and SSL and Certificates Read, and CF_API_TOKEN must be set.\n`,
+			];
+}
+
+export function compose(
+	config: Instance,
+	rows: (Pending & { check: string })[],
+	lines: string[] = [],
+): [string, string] | null {
+	const latest = rows[rows.length - 1];
+	const check = config.checks.find((c) => c.id === latest.check);
+	if (check) return message(check, latest);
+	const relay = config.relays.find((r) => r.id === latest.check);
+	if (relay) return rows.length > 1 ? relaySummary(relay, rows) : relayMessage(relay, latest);
+	return latest.check === "" ? towerMessage(config, latest, lines) : null;
+}
+
 export function mime(from: string, to: string, subject: string, text: string): string {
 	const domain = line(from).split("@").pop();
 	return [
@@ -57,7 +156,10 @@ export function mime(from: string, to: string, subject: string, text: string): s
 		"Content-Type: text/plain; charset=us-ascii",
 		"Content-Transfer-Encoding: 7bit",
 		"",
-		text.replace(/[^\x20-\x7e\n]/g, "?").replace(/\n/g, "\r\n"),
+		text
+			.replace(/[^\x20-\x7e\n]/g, "?")
+			.replace(/[^\n]{900}(?=[^\n])/g, "$&\n")
+			.replace(/\n/g, "\r\n"),
 	].join("\r\n");
 }
 
@@ -78,7 +180,7 @@ export async function sendMail(
 		]);
 		return true;
 	} catch (e) {
-		console.error(`tower: mail failed, will retry: ${subject}:`, (e as Error).message);
+		console.error("tower: mail failed, will retry:", (e as Error).message);
 		return false;
 	} finally {
 		clearTimeout(timer);

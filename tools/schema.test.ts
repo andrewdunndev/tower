@@ -94,6 +94,44 @@ describe("instance", () => {
 			"token_sha256: use the lowercase hex sha256 of the token (64 characters).",
 		);
 	});
+
+	describe("relays and digest", () => {
+		const relay: Json = { id: "alerts", name: "Alerts", token_sha256: "a".repeat(64) };
+		const withRelays = (...relays: Json[]) => ({ ...example, relays });
+
+		it("accepts a relay and defaults grace to 15 minutes", () => {
+			expect(messages(withRelays(relay))).toEqual([]);
+			expect(instanceSchema.parse(withRelays(relay)).relays[0].grace).toBe(900_000);
+			expect(instanceSchema.parse({ ...example, relays: undefined }).relays).toEqual([]);
+		});
+
+		it("rejects an unknown relay key", () => {
+			expect(messages(withRelays({ ...relay, stale_after: "1h" }))).toContain("unknown key stale_after.");
+		});
+
+		it("shares one id space between checks and relays", () => {
+			const clash = { ...relay, id: (example.checks[0] as Json).id };
+			expect(messages(withRelays(clash)).join()).toContain("share one space");
+		});
+
+		it("rejects two relays with one token", () => {
+			expect(messages(withRelays(relay, { ...relay, id: "other" }))).toContain(
+				"Two relays share a token: mint a token for each.",
+			);
+		});
+
+		it("limits grace to 7 days", () => {
+			expect(messages(withRelays({ ...relay, grace: "7d" }))).toEqual([]);
+			expect(messages(withRelays({ ...relay, grace: "8d" }))).toContain("use at most 7 days.");
+		});
+
+		it("takes digest as a UTC time of day", () => {
+			expect(messages({ ...example, digest: "07:30" })).toEqual([]);
+			for (const digest of ["7:30", "24:00", "07:60", "0730", "07:30:00"]) {
+				expect(messages({ ...example, digest })).toContain('use a UTC time of day such as "07:30".');
+			}
+		});
+	});
 });
 
 describe("note", () => {

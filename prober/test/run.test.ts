@@ -204,6 +204,33 @@ describe("outbox", () => {
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 	});
 
+	it("mails each key of one check separately", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, downAfterOne, T0, respond(200));
+		await env.DB.batch(
+			["a", "b"].map((k) =>
+				env.DB.prepare(
+					`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('web', ?1, 1, 'down', 0, 'x')`,
+				).bind(k),
+			),
+		);
+		await tick(runEnv, downAfterOne, T0 + MINUTE, respond(200));
+		expect(box.sends).toBe(2);
+		expect(await all("SELECT * FROM outbox")).toEqual([]);
+	});
+
+	it("drains a row inserted without a key, as v0.1.0 wrote it", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, downAfterOne, T0, respond(200));
+		await env.DB.prepare(
+			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', 1, 'down', 0, 'HTTP 500')`,
+		).run();
+		expect(await all(`SELECT "key" FROM outbox`)).toEqual([{ key: "" }]);
+		await tick(runEnv, downAfterOne, T0 + MINUTE, respond(200));
+		expect(box.sends).toBe(1);
+		expect(await all("SELECT * FROM outbox")).toEqual([]);
+	});
+
 	it("sends once when two ticks drain at the same time", async () => {
 		const { runEnv, box } = mailbox();
 		await env.DB.prepare(
@@ -230,10 +257,10 @@ describe("outbox", () => {
 		before(runEnv, () => {
 			clock += 25_000;
 		});
-		await drain(runEnv, makeConfig(three), () => clock);
+		await drain(runEnv, makeConfig(three), { now: () => clock });
 		expect(box.sends).toBe(2);
 		expect(await all('SELECT "check" FROM outbox')).toEqual([{ check: "c3" }]);
-		await drain(runEnv, makeConfig(three), () => T0 + MINUTE);
+		await drain(runEnv, makeConfig(three), { now: () => T0 + MINUTE });
 		expect(box.sends).toBe(3);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 	});
@@ -244,9 +271,9 @@ describe("outbox", () => {
 		await env.DB.prepare(`INSERT INTO meta (key, value) VALUES ('drain', ?1)`)
 			.bind(String(T0 + 30_000))
 			.run();
-		await drain(runEnv, makeConfig(one), () => T0);
+		await drain(runEnv, makeConfig(one), { now: () => T0 });
 		expect(box.sends).toBe(0);
-		await drain(runEnv, makeConfig(one), () => T0 + 30_000);
+		await drain(runEnv, makeConfig(one), { now: () => T0 + 30_000 });
 		expect(box.sends).toBe(1);
 	});
 
@@ -256,7 +283,7 @@ describe("outbox", () => {
 		before(runEnv, async () => {
 			await env.DB.prepare(`UPDATE meta SET value = '999' WHERE key = 'drain'`).run();
 		});
-		await drain(runEnv, makeConfig(one), () => T0);
+		await drain(runEnv, makeConfig(one), { now: () => T0 });
 		expect(await all("SELECT value FROM meta WHERE key = 'drain'")).toEqual([{ value: "999" }]);
 	});
 
@@ -285,6 +312,34 @@ describe("outbox", () => {
 });
 
 describe("pruning", () => {
+	it("keeps outbox rows of relays and of tower itself, and drops relay keys of a removed relay", async () => {
+		const { runEnv, box } = mailbox();
+		box.failing = true;
+		const hash = "a".repeat(64);
+		const relays = [{ id: "alerts", name: "Alerts", token_sha256: hash }];
+		await tick(runEnv, makeConfig([web], { relays }), T0, respond(200));
+		await env.DB.batch([
+			env.DB.prepare(
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('alerts', 'k', ?1, 'firing', 0, 'x')`,
+			).bind(T0 + 1),
+			env.DB.prepare(
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('', 'deployed', ?1, 'deployed', NULL, NULL)`,
+			).bind(T0 + 1),
+			env.DB.prepare(
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('ghost', 'k', ?1, 'firing', 0, 'x')`,
+			).bind(T0 + 1),
+			env.DB.prepare(
+				`INSERT INTO relay_keys (relay, "key", title, since, seen) VALUES ('alerts', 'k', 't', ?1, ?1)`,
+			).bind(T0),
+			env.DB.prepare(
+				`INSERT INTO relay_keys (relay, "key", title, since, seen) VALUES ('ghost', 'k', 't', ?1, ?1)`,
+			).bind(T0),
+		]);
+		await tick(runEnv, makeConfig([web], { relays }), T0 + MINUTE, respond(200));
+		expect(await all(`SELECT "check" FROM outbox ORDER BY "check"`)).toEqual([{ check: "" }, { check: "alerts" }]);
+		expect(await all(`SELECT relay FROM relay_keys`)).toEqual([{ relay: "alerts" }]);
+	});
+
 	it("drops every row of a check removed from the config", async () => {
 		const { runEnv } = mailbox();
 		const gone = { ...web, id: "gone", name: "Gone", down_after: 1 };

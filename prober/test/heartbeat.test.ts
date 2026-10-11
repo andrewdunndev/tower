@@ -1,18 +1,12 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { recordBeat } from "../src/heartbeat.ts";
-import { tick } from "../src/run.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
+import { all, MINUTE, mailbox, makeConfig, reset, respond, sha256, T0, steadyTick as tick, web } from "./util.ts";
 
 beforeEach(reset);
 
 const TOKEN = "correct-horse-battery-staple";
 const SAME_LENGTH = "wrongg-horse-battery-staple";
-
-async function sha256(text: string) {
-	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 const backup = {
 	id: "backup",

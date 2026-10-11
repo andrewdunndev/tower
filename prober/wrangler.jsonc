@@ -6,5 +6,6 @@
 	"observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } },
 	"triggers": { "crons": ["* * * * *"] },
 	"d1_databases": [{ "binding": "DB" }],
-	"send_email": [{ "name": "EMAIL" }]
+	"send_email": [{ "name": "EMAIL" }],
+	"version_metadata": { "binding": "VERSION" }
 }

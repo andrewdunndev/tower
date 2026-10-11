@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
-import { beat, cached, cacheKey, refuse } from "../src/server.ts";
+import { beat, cached, cacheKey, refuse, relay } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
 	new Request(`https://status.example.com${path}`, { method, headers });
@@ -73,6 +73,81 @@ describe("beat", () => {
 	});
 });
 
+describe("relay", () => {
+	const setup = () => {
+		const calls: unknown[][] = [];
+		return {
+			calls,
+			env: {
+				TOWER: {
+					incident: async (...args: [string, string]) => {
+						calls.push(args);
+						return new Response('{"result":"transition"}', { status: 202 });
+					},
+				},
+			},
+		};
+	};
+	const post = (path: string, body: BodyInit | null, headers: Record<string, string> = {}) =>
+		new Request(`https://status.example.com${path}`, {
+			method: "POST",
+			body,
+			headers: { "Content-Type": "application/json", ...headers },
+		});
+
+	it("forwards the bearer token and body and returns the prober's response", async () => {
+		const { calls, env } = setup();
+		const res = await relay(post("/relay/incident?token=nope", '{"a":1}', { Authorization: "Bearer s3cret" }), env);
+		expect(res.status).toBe(202);
+		expect(calls).toEqual([["s3cret", '{"a":1}']]);
+	});
+
+	it("accepts a charset parameter and any case in the media type", async () => {
+		const { calls, env } = setup();
+		for (const type of ["application/json; charset=utf-8", "Application/JSON"]) {
+			expect((await relay(post("/relay/incident", "{}", { "Content-Type": type }), env)).status).toBe(202);
+		}
+		expect(calls).toHaveLength(2);
+	});
+
+	it("refuses before any RPC: other paths 404, other media types 415, big bodies 413", async () => {
+		const { calls, env } = setup();
+		for (const path of ["/relay/incident/", "/relay", "/relay/other"]) {
+			expect((await relay(post(path, "{}"), env)).status).toBe(404);
+		}
+		expect((await relay(post("/relay/incident", "{}", { "Content-Type": "text/plain" }), env)).status).toBe(415);
+		expect((await relay(post("/relay/incident", "{}", { "Content-Type": "" }), env)).status).toBe(415);
+		expect((await relay(post("/relay/incident", "x", { "Content-Length": "65537" }), env)).status).toBe(413);
+		const stream = new ReadableStream({
+			start(controller) {
+				controller.enqueue(new Uint8Array(40_000));
+				controller.enqueue(new Uint8Array(40_000));
+				controller.close();
+			},
+		});
+		const streamed = new Request("https://status.example.com/relay/incident", {
+			method: "POST",
+			body: stream,
+			headers: { "Content-Type": "application/json" },
+			duplex: "half",
+		} as RequestInit);
+		expect((await relay(streamed, env)).status).toBe(413);
+		expect(calls).toEqual([]);
+	});
+
+	it("answers 503 with an empty body when the prober throws", async () => {
+		const res = await relay(post("/relay/incident", "{}"), {
+			TOWER: {
+				incident: async () => {
+					throw new Error("down");
+				},
+			},
+		});
+		expect(res.status).toBe(503);
+		expect(await res.text()).toBe("");
+	});
+});
+
 describe("methods", () => {
 	it("allows only POST on /beat and GET or HEAD elsewhere", () => {
 		for (const [method, path] of [
@@ -81,6 +156,7 @@ describe("methods", () => {
 			["HEAD", "/api/status"],
 			["GET", "/api/status"],
 			["POST", "/beat/db"],
+			["POST", "/relay/incident"],
 		]) {
 			expect(refuse(request(method, path))).toBeNull();
 		}
@@ -90,6 +166,8 @@ describe("methods", () => {
 			["DELETE", "/"],
 			["GET", "/beat/db"],
 			["PUT", "/beat/db/fail"],
+			["GET", "/relay/incident"],
+			["PUT", "/relay/incident"],
 		]) {
 			expect(refuse(request(method, path))?.status).toBe(405);
 		}

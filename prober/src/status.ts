@@ -5,6 +5,7 @@ const DAY_MS = 86_400_000;
 const BUCKET_MS = 300_000;
 const POINTS = 288;
 export const DAYS = 90;
+export const SELF_NAMES: Record<string, string> = { "self:token": "Cloudflare API token" };
 
 const iso = (t: number) => new Date(t).toISOString();
 
@@ -45,8 +46,9 @@ export async function status(db: D1Database, config: Instance, now: number) {
 			.bind(now - DAY_MS),
 		db.prepare(`SELECT "check", at, "to" FROM events ORDER BY at`),
 		db.prepare(`SELECT MIN(CASE WHEN dead = 0 THEN at END) AS oldest, COALESCE(SUM(dead), 0) AS dead FROM outbox`),
+		db.prepare(`SELECT key, value FROM meta WHERE key LIKE 'self:%'`),
 	]);
-	const [states, daily, buckets, quantiles, events, [queue]] = sets.map((s) => s.results) as [
+	const [states, daily, buckets, quantiles, events, [queue], selves] = sets.map((s) => s.results) as [
 		{
 			check: string;
 			avail: number;
@@ -61,6 +63,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		{ check: string; p50: number | null; p95: number | null }[],
 		{ check: string; at: number; to: "up" | "down" }[],
 		{ oldest: number | null; dead: number }[],
+		{ key: string; value: string }[],
 	];
 
 	const stateOf = new Map(states.map((s) => [s.check, s]));
@@ -163,6 +166,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		last_run: lastRun ? iso(lastRun) : null,
 		outbox_oldest_unsent_at: queue.oldest === null ? null : iso(queue.oldest),
 		dead_outbox: queue.dead,
+		self: selves.flatMap((r) => (SELF_NAMES[r.key] ? [{ name: SELF_NAMES[r.key], since: iso(Number(r.value)) }] : [])),
 		stuck: all.filter(({ check, stale }) => check.public && stale).length,
 	};
 }

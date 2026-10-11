@@ -1,11 +1,16 @@
 import { connect } from "cloudflare:sockets";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
-import { message, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
+import { compose, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
+import { attention, reportWriteFailure, resumedAfter, selfWrites } from "./self.ts";
 import { DAYS, interval, inWindow } from "./status.ts";
 
-export type RunEnv = Pick<Env, "DB"> & { EMAIL: Pick<SendEmail, "send">; CF_API_TOKEN?: string };
+export type RunEnv = Pick<Env, "DB"> & {
+	EMAIL: Pick<SendEmail, "send">;
+	VERSION: Pick<WorkerVersionMetadata, "id">;
+	CF_API_TOKEN?: string;
+};
 
 interface Track {
 	avail: boolean;
@@ -34,7 +39,7 @@ const MAX_ATTEMPTS = 10;
 const LEASE_MS = 50_000;
 const DB_MARGIN_MS = 5_000;
 const RECENT_SAMPLES = 5;
-const OWNED_TABLES = ["state", "samples", "daily", "beats", "events", "outbox"];
+const OWNED_TABLES = ["state", "samples", "daily", "beats", "events"];
 
 export function step(
 	s: Track,
@@ -77,6 +82,14 @@ async function claim(db: D1Database, config: Instance, t: number) {
 			)
 			.bind(c.id, t),
 	);
+	const ticks = [
+		db.prepare(`SELECT value FROM meta WHERE key = 'tick'`),
+		db
+			.prepare(
+				`INSERT INTO meta (key, value) VALUES ('tick', ?1) ON CONFLICT (key) DO UPDATE SET value = MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))`,
+			)
+			.bind(String(t)),
+	];
 	const claims = config.checks.map((c) =>
 		db
 			.prepare(
@@ -84,11 +97,14 @@ async function claim(db: D1Database, config: Instance, t: number) {
 			)
 			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c)) * interval(c)),
 	);
-	const results = await db.batch<StateRow>([...seeds, ...claims]);
-	return config.checks.flatMap((check, i) => {
-		const row = results[seeds.length + i].results[0];
+	const results = await db.batch<StateRow | { value: string }>([...ticks, ...seeds, ...claims]);
+	const offset = ticks.length + seeds.length;
+	const previous = (results[0].results[0] as { value: string } | undefined)?.value;
+	const claimed = config.checks.flatMap((check, i) => {
+		const row = results[offset + i].results[0] as StateRow | undefined;
 		return row ? [{ check, row }] : [];
 	});
+	return { claimed, previous };
 }
 
 export async function tick(
@@ -98,9 +114,15 @@ export async function tick(
 	doFetch: typeof fetch = fetch,
 	doConnect: typeof connect = connect,
 ) {
-	const claimed = await claim(env.DB, config, t);
+	let claimed: Awaited<ReturnType<typeof claim>>;
+	try {
+		claimed = await claim(env.DB, config, t);
+	} catch (e) {
+		await reportWriteFailure(env.DB, (subject, text) => sendMail(env.EMAIL, config.alert, subject, text), t);
+		throw e;
+	}
 
-	const ran = await pool(claimed, CONCURRENCY, async ({ check, row }) => {
+	const ran = await pool(claimed.claimed, CONCURRENCY, async ({ check, row }) => {
 		const started = Date.now();
 		const outcome: Outcome =
 			check.type === "heartbeat"
@@ -198,14 +220,33 @@ export async function tick(
 			);
 		}
 	}
-	writes.push(...prune(env.DB, config, t));
+	const tokens = ran.flatMap(({ outcome }) => (outcome.token ? [outcome.token] : []));
+	const token = tokens.includes("bad") ? "bad" : tokens.includes("ok") ? "ok" : null;
+	writes.push(
+		...expire(env.DB, config, t),
+		...prune(env.DB, config, t),
+		...selfWrites(env.DB, config, t, env.VERSION, resumedAfter(claimed.previous, t), token),
+	);
 	await env.DB.batch(writes);
 
 	await drain(env, config);
 }
 
+function expire(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
+	return config.relays.flatMap((r) => [
+		db
+			.prepare(
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT relay, "key", ?2, 'stale', since, json_object('title', title) FROM relay_keys WHERE relay = ?1 AND seen < ?3`,
+			)
+			.bind(r.id, t, t - r.grace),
+		db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND seen < ?2`).bind(r.id, t - r.grace),
+	]);
+}
+
 function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
 	const ids = JSON.stringify(config.checks.map((c) => c.id));
+	const owners = JSON.stringify([...config.checks.map((c) => c.id), ...config.relays.map((r) => r.id), ""]);
+	const relays = JSON.stringify(config.relays.map((r) => r.id));
 	const cutoff = t - DAYS * DAY_MS;
 	return [
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
@@ -215,10 +256,21 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		...OWNED_TABLES.map((table) =>
 			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
 		),
+		db.prepare(`DELETE FROM outbox WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(owners),
+		db.prepare(`DELETE FROM relay_keys WHERE relay NOT IN (SELECT value FROM json_each(?1))`).bind(relays),
+		db
+			.prepare(
+				`DELETE FROM meta WHERE (key LIKE 'burst:%' OR key LIKE 'full:%') AND substr(key, instr(key, ':') + 1) NOT IN (SELECT value FROM json_each(?1))`,
+			)
+			.bind(relays),
 	];
 }
 
-export async function drain(env: RunEnv, config: Instance, now: () => number = Date.now) {
+export async function drain(
+	env: RunEnv,
+	config: Instance,
+	{ now = Date.now, relay = null }: { now?: () => number; relay?: string | null } = {},
+) {
 	const until = now() + LEASE_MS;
 	const lock = await env.DB.prepare(
 		`INSERT INTO meta (key, value) VALUES ('drain', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE CAST(meta.value AS INTEGER) <= ?2`,
@@ -227,32 +279,37 @@ export async function drain(env: RunEnv, config: Instance, now: () => number = D
 		.run();
 	if (lock.meta.changes === 0) return;
 	try {
-		await send(env, config, until, now);
+		await send(env, config, until, now, relay);
 	} finally {
 		await env.DB.prepare(`UPDATE meta SET value = '0' WHERE key = 'drain' AND value = ?1`).bind(String(until)).run();
 	}
 }
 
-async function send(env: RunEnv, config: Instance, until: number, now: () => number) {
+type Row = Pending & { rowid: number; check: string };
+
+async function send(env: RunEnv, config: Instance, until: number, now: () => number, only: string | null) {
 	const { results } = await env.DB.prepare(
-		`SELECT rowid, "check", at, kind, since, reason FROM outbox WHERE dead = 0 ORDER BY at`,
-	).all<Pending & { rowid: number; check: string }>();
-	const byCheck = Map.groupBy(results, (r) => r.check);
-	for (const [id, rows] of byCheck) {
-		const check = config.checks.find((c) => c.id === id);
-		if (!check) continue;
+		`SELECT rowid, "check", "key", at, kind, since, reason FROM outbox WHERE dead = 0 AND (?1 IS NULL OR "check" = ?1) ORDER BY at, rowid`,
+	)
+		.bind(only)
+		.all<Row>();
+	const lines = results.some((r) => r.kind === "digest") ? await attention(env.DB, config) : [];
+	const relayIds = new Set(config.relays.map((r) => r.id));
+	const groups = Map.groupBy(results, (r) => JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key]));
+	for (const rows of groups.values()) {
+		const composed = compose(config, rows, lines);
+		if (!composed) continue;
 		if (now() + SEND_TIMEOUT_MS + DB_MARGIN_MS > until) return;
-		const latest = rows[rows.length - 1];
-		await env.DB.prepare(`UPDATE outbox SET attempts = attempts + 1 WHERE "check" = ?1 AND dead = 0 AND at <= ?2`)
-			.bind(id, latest.at)
+		const rowids = JSON.stringify(rows.map((r) => r.rowid));
+		await env.DB.prepare(`UPDATE outbox SET attempts = attempts + 1 WHERE rowid IN (SELECT value FROM json_each(?1))`)
+			.bind(rowids)
 			.run();
-		const [subject, text] = message(check, latest);
+		const [subject, text] = composed;
 		const sent = await sendMail(env.EMAIL, config.alert, subject, text);
 		const update = sent
-			? env.DB.prepare(`DELETE FROM outbox WHERE "check" = ?1 AND dead = 0 AND at <= ?2`).bind(id, latest.at)
-			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?3 WHERE "check" = ?1 AND dead = 0 AND at <= ?2`).bind(
-					id,
-					latest.at,
+			? env.DB.prepare(`DELETE FROM outbox WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(rowids)
+			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?2 WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(
+					rowids,
 					MAX_ATTEMPTS,
 				);
 		await update.run();
