@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0
+## 0.3.0 (2026-10-11)
 
 - Self-checks mail `SELF-CHECK FAILING: results for <check>` when a check has no conclusive result for three of its intervals, and an OK when it recovers. `/api/status` `self` and the page banner list a stuck public check.
 - The page Worker has its own minute cron and `send_email` binding. It asks the prober to `watch` its last run and mails `SELF-CHECK FAILING: probing stalled` once, so the alert survives a dead prober cron.
