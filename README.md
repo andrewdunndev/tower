@@ -8,6 +8,8 @@
 
 tower is a status page that runs on Cloudflare Workers. A prober Worker checks each service from outside on a cron, keeps the history in D1 and mails one alert per change. A page Worker renders the status page and `/api/status` through Workers RPC. It needs no server, only a Cloudflare account.
 
+A relay turns an incident.io-format webhook, such as HyperDX's, into one mail per transition.
+
 Shared as-is: no roadmap, no support promise. Design after [herdr.dev](https://herdr.dev).
 
 ## Cloudflare, product by job
