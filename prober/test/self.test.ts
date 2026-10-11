@@ -248,6 +248,17 @@ describe("stuck checks", () => {
 		expect(await all("SELECT avail FROM state WHERE \"check\" = 'web'")).toEqual([{ avail: 1 }]);
 	});
 
+	it("keeps the flag when a superseded run sees a conclusive result", async () => {
+		const { box, env: runEnv } = live();
+		await minutes(runEnv, config, 0, 5, serve(503));
+		await env.DB.prepare(`UPDATE meta SET value = ?1 WHERE key = 'tick'`)
+			.bind(String(T0 + 9 * MINUTE))
+			.run();
+		await tick(runEnv, config, T0 + 6 * MINUTE, serve([]));
+		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
+		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toEqual([{ key: "self:stuck:cert" }]);
+	});
+
 	it("mails once, then one OK on a conclusive result, and no OK for a check that was never flagged", async () => {
 		const { box, env: runEnv } = live();
 		await minutes(runEnv, config, 0, 5, serve(503));
@@ -382,6 +393,18 @@ describe("stalled prober", () => {
 		await tick(runEnv, config, T0 + 7 * MINUTE, respond(200));
 		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled", "SELF-CHECK OK: probing resumed"]);
 		expect(await all("SELECT * FROM meta WHERE key = 'stall'")).toEqual([]);
+	});
+
+	it("stays raised when a superseded run commits fresh results", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, T0, respond(200));
+		await watch(runEnv, config, T0 + 5 * MINUTE);
+		await env.DB.prepare(`UPDATE meta SET value = ?1 WHERE key = 'tick'`)
+			.bind(String(T0 + 9 * MINUTE))
+			.run();
+		await tick(runEnv, config, T0 + 6 * MINUTE, respond(200));
+		expect(box.subjects.filter((s) => s.includes("probing"))).toEqual(["SELF-CHECK FAILING: probing stalled"]);
+		expect(await all("SELECT key FROM meta WHERE key = 'stall'")).toEqual([{ key: "stall" }]);
 	});
 
 	it("stays raised while a committed run still writes no result", async () => {

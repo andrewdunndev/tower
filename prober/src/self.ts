@@ -9,6 +9,7 @@ const MINUTE_MS = 60_000;
 type Version = { id: string };
 
 const lastRun = `(SELECT MAX(last_run) FROM state)`;
+const newest = (t: string) => `${t} >= (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'tick')`;
 const stallCutoff = (config: Instance, t: number) => t - STALE_INTERVALS * Math.min(...config.checks.map(interval));
 
 const queue = (db: D1Database, key: string, kind: string, t: number, guard: string, ...binds: unknown[]) =>
@@ -69,8 +70,8 @@ export function selfWrites(
 	const recovered = stallCutoff(config, t);
 	if (resumed) writes.push(queue(db, "resumed", "resumed", t, `NOT ${stalled}`));
 	writes.push(
-		queue(db, "stall", "self-ok", t, `${stalled} AND ${lastRun} >= ?4`, recovered),
-		db.prepare(`DELETE FROM meta WHERE key = 'stall' AND ${lastRun} >= ?1`).bind(recovered),
+		queue(db, "stall", "self-ok", t, `${stalled} AND ${lastRun} >= ?4 AND ${newest("?2")}`, recovered),
+		db.prepare(`DELETE FROM meta WHERE key = 'stall' AND ${lastRun} >= ?1 AND ${newest("?2")}`).bind(recovered, t),
 	);
 
 	writes.push(
@@ -142,10 +143,12 @@ function stuckWrites(db: D1Database, config: Instance, t: number): D1PreparedSta
 			.bind(cutoffs, String(t)),
 		db
 			.prepare(
-				`${outbox} SELECT id, 'stuck', ?2, 'self-ok', NULL, NULL FROM (${verdicts(">")}) WHERE EXISTS (SELECT 1 FROM meta WHERE key = ${flag})`,
+				`${outbox} SELECT id, 'stuck', ?2, 'self-ok', NULL, NULL FROM (${verdicts(">")}) WHERE EXISTS (SELECT 1 FROM meta WHERE key = ${flag}) AND ${newest("?2")}`,
 			)
 			.bind(cutoffs, t),
-		db.prepare(`DELETE FROM meta WHERE key IN (SELECT ${flag} FROM (${verdicts(">")}))`).bind(cutoffs),
+		db
+			.prepare(`DELETE FROM meta WHERE key IN (SELECT ${flag} FROM (${verdicts(">")})) AND ${newest("?2")}`)
+			.bind(cutoffs, t),
 	];
 }
 
