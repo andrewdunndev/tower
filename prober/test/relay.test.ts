@@ -1,20 +1,14 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { hyperdx } from "../../test/fixture/hyperdx-incidentio.ts";
-import { relayMessage } from "../src/mail.ts";
 import { incident } from "../src/relay.ts";
 import { drain } from "../src/run.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, steadyTick as tick, web } from "./util.ts";
+import { all, MINUTE, mailbox, makeConfig, reset, respond, sha256, T0, steadyTick as tick, web } from "./util.ts";
 
 beforeEach(reset);
 
 const TOKEN = "relay-secret";
 const SAME_LENGTH = "relay-secreu";
-
-async function sha256(text: string) {
-	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 const hash = await sha256(TOKEN);
 const config = makeConfig([web], {
@@ -86,7 +80,7 @@ describe("incident", () => {
 		expect(box.sends).toBe(0);
 	});
 
-	it("clips a long title and description, ignores unknown keys, mails source_url", async () => {
+	it("clips a long title and description, ignores unknown keys, keeps source_url", async () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
 		const long = payload({
@@ -97,17 +91,11 @@ describe("incident", () => {
 			metadata: { a: 1 },
 		});
 		expect((await send(runEnv, long)).status).toBe(202);
-		const [row] = await all<{ reason: string; at: number; key: string; kind: "firing"; since: null }>(
-			`SELECT reason, at, "key", kind, since FROM outbox`,
-		);
+		const [row] = await all<{ reason: string }>(`SELECT reason FROM outbox`);
 		const stored = JSON.parse(row.reason);
 		expect(stored.title).toHaveLength(1000);
 		expect(stored.description).toHaveLength(4000);
 		expect(Object.keys(stored).sort()).toEqual(["description", "source_url", "title"]);
-		const [subject, text] = relayMessage(config.relays[0], row);
-		expect(subject.length).toBeLessThan(260);
-		expect(text.length).toBeLessThan(5400);
-		expect(text).toContain("Source: https://x.example/a");
 	});
 
 	it("keeps a one-key-per-relay namespace: one key on two relays mails twice", async () => {

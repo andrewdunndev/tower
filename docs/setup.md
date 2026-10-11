@@ -46,7 +46,7 @@ npm run deploy -- path/to/instance
 
 Authenticate wrangler with `npx wrangler login` or `CLOUDFLARE_API_TOKEN`. An API token needs Account Workers Scripts Edit and D1 Edit, and Zone Workers Routes Edit on the zone.
 
-The command validates the instance, deploys the prober, applies D1 migrations, builds the page and deploys it on the instance `domain`. The first deploy creates the D1 database. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round. On a first install the prober runs for a moment before the schema exists, so a `SELF-CHECK FAILING: database writes` mail in that minute is spurious.
+The command validates the instance, applies D1 migrations, deploys the prober, builds the page and deploys it on the instance `domain`. On the first deploy the prober creates the D1 database and the migrations follow, so a `SELF-CHECK FAILING: database writes` mail in that minute is spurious. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round.
 
 The `domain/*` route needs a proxied DNS record in the zone to receive traffic. If the hostname has no record, add a placeholder such as `AAAA` `100::` with the proxy on.
 
@@ -110,7 +110,7 @@ In HyperDX add a webhook with service `incident.io`, URL `https://<domain>/relay
 
 ## Self-checks
 
-tower mails about itself through the same alert address, with no second watcher:
+tower mails about itself to `alert.to`:
 
 - `DEPLOYED: tower <version>` after every deploy that reaches 100% of traffic, and after `wrangler secret put`, which also creates a version.
 - `DIGEST` once a day at `digest` (`HH:MM` UTC). A normal day is the subject `all up` with no body; otherwise the subject counts the items and the body lists down checks, open relay keys, unsent or dead mail and failing self-checks. A day missed to an outage is not backfilled.
@@ -147,4 +147,4 @@ Alert when:
 
 ## Upgrade
 
-Check out the release tag you want, then run the deploy command again. Deploying migrates the database before the new code runs; never roll back below 0.2.0. [CHANGELOG.md](../CHANGELOG.md) lists what changed.
+Check out the release tag you want, then run the deploy command again. Never roll back below 0.2.0. [CHANGELOG.md](../CHANGELOG.md) lists what changed.

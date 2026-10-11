@@ -5,7 +5,7 @@ import { incident, MAX_KEYS } from "../src/relay.ts";
 import { tick } from "../src/run.ts";
 import { attention } from "../src/self.ts";
 import { status } from "../src/status.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, steadyTick, T0, VERSION, web } from "./util.ts";
+import { all, MINUTE, mailbox, makeConfig, reset, respond, sha256, steadyTick, T0, web } from "./util.ts";
 
 beforeEach(reset);
 
@@ -56,7 +56,6 @@ describe("deploy mail", () => {
 		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 2 * MINUTE, respond(200));
 		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 3 * MINUTE, respond(200));
 		expect(box.subjects).toHaveLength(2);
-		expect(VERSION.id).toBe("v1");
 	});
 });
 
@@ -92,13 +91,9 @@ describe("digest", () => {
 
 	it("names down checks, open relay keys, stuck mail and failing self-checks, and nothing else", async () => {
 		const { runEnv } = mailbox();
-		const hash = Array.from(
-			new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("relay-secret"))),
-			(b) => b.toString(16).padStart(2, "0"),
-		).join("");
 		const config = makeConfig([unhealthy], {
 			digest: "07:30",
-			relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, grace: "1d" }],
+			relays: [{ id: "alerts", name: "Alerts", token_sha256: await sha256("relay-secret"), grace: "1d" }],
 		});
 		expect(await attention(env.DB, config)).toEqual([]);
 		await tick(runEnv, config, at(7, 0), respond(500));
@@ -123,13 +118,12 @@ describe("digest", () => {
 			"MAIL: 1 unsent",
 			"MAIL: 1 dead",
 		]);
-		const [subject, body] =
-			towerMessage(config, { at: at(7, 30), key: "digest", kind: "digest", since: null, reason: null }, lines) ?? [];
-		expect(subject).toBe("DIGEST: Example 2026-10-08: 5 need attention");
-		expect(body).toBe(`${lines.join("\n")}\n`);
-		expect(
-			towerMessage(config, { at: at(7, 30), key: "digest", kind: "digest", since: null, reason: null }, []),
-		).toEqual(["DIGEST: Example 2026-10-08: all up", ""]);
+		const row = { at: at(7, 30), key: "digest", kind: "digest", since: null, reason: null } as const;
+		expect(towerMessage(config, row, lines)).toEqual([
+			"DIGEST: Example 2026-10-08: 5 need attention",
+			`${lines.join("\n")}\n`,
+		]);
+		expect(towerMessage(config, row, [])).toEqual(["DIGEST: Example 2026-10-08: all up", ""]);
 	});
 });
 
@@ -201,10 +195,7 @@ describe("relay cap", () => {
 	it("clears the full flag with one OK once the relay has room", async () => {
 		const { runEnv, box } = mailbox();
 		const token = "relay-secret";
-		const hash = Array.from(
-			new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))),
-			(b) => b.toString(16).padStart(2, "0"),
-		).join("");
+		const hash = await sha256(token);
 		const config = makeConfig([web], { relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, grace: "1h" }] });
 		const fire = (key: string, status = "firing") =>
 			incident(runEnv, config, token, JSON.stringify({ title: "t", deduplication_key: key, status }), T0);

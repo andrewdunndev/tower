@@ -71,3 +71,8 @@ export async function steadyTick(runEnv: RunEnv, config: Instance, t: number, do
 		.run();
 	await tick(runEnv, config, t, doFetch);
 }
+
+export async function sha256(text: string) {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}

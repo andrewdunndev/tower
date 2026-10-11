@@ -20,19 +20,10 @@ describe("deploy", () => {
 });
 
 describe("plan", () => {
-	it("migrates before deploying when the database exists", () => {
+	it("migrates first when the database exists, deploys first when deploying creates it, aborts when unknown", () => {
 		expect(plan("present", false)).toEqual(["migrate", "prober"]);
-	});
-
-	it("deploys before migrating when deploying creates the database", () => {
 		expect(plan("absent", false)).toEqual(["prober", "migrate"]);
-	});
-
-	it("aborts when the database list cannot be read", () => {
 		expect(plan("unknown", false)).toBe("abort");
-	});
-
-	it("deploys without touching the database on a dry run", () => {
 		expect(plan("unknown", true)).toEqual(["prober"]);
 	});
 });
