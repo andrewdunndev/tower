@@ -12,7 +12,7 @@ const html = setup.rendered.html
   .replace(/<h1[^>]*>.*?<\/h1>/s, '')
   .replace(/href="(?![a-z]+:|#|\/)([^"]*)"/gi, (_, url) => `href="${new URL(url, DOCS).href}"`);
 ---
-<Layout title="Install" description="Deploy tower, add checks, and set up alerts, heartbeats, relays and upgrades.">
+<Layout title="Install" description="Deploy tower and set up alerts, heartbeats, relays and upgrades.">
   <header class="page-header">
     <h1 class="page-title">Install</h1>
   </header>
@@ -20,7 +20,7 @@ const html = setup.rendered.html
     <Quickstart />
   </div>
   <article class="doc">
-    <p>One command deploys an instance directory. It validates the config, applies the D1 migrations, deploys the prober, then builds and deploys the page. The hostname needs a proxied DNS record in its zone. The first round of checks follows, and tower mails DEPLOYED. The sections below give the commands, then alerts, heartbeats, relays, self-checks and upgrades.</p>
+    <p>One command deploys an instance directory and ends with a DEPLOYED mail. The hostname needs a proxied DNS record in its zone before the first deploy.</p>
     <Fragment set:html={html} />
   </article>
 </Layout>

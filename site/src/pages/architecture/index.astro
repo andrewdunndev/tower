@@ -10,14 +10,14 @@ import Relay from '../../figures/05-relay.astro';
   <header class="page-header">
     <p class="page-eyebrow">architecture</p>
     <h1 class="page-title">How tower works</h1>
-    <p class="page-lede">Two Cloudflare Workers, one database, one mail path. Each section draws one mechanism.</p>
+    <p class="page-lede">A prober Worker checks and mails; a page Worker serves the page and hands requests to it.</p>
   </header>
 
   <section class="section">
     <h2 class="section-title" id="workers">Two Workers</h2>
     <div class="cat-explainer figure-pair">
       <Workers />
-      <p>The page Worker faces the internet and holds nothing; the prober owns the data and sends the mail.</p>
+      <p>The page Worker faces the internet and holds no secrets or storage. The prober owns the data and sends the alert mail; the page Worker mails only when the prober does not answer.</p>
     </div>
     <p class="section-prose">The prober runs on a cron each minute. It runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. It is the only owner of D1. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober. It holds no secrets and no storage.</p>
   </section>
@@ -26,9 +26,9 @@ import Relay from '../../figures/05-relay.astro';
     <h2 class="section-title" id="check">A check's life</h2>
     <div class="cat-explainer figure-pair">
       <Check />
-      <p>Runs must agree <code>down_after</code> or <code>up_after</code> times in a row before the state changes.</p>
+      <p>A probed check changes state after <code>down_after</code> or <code>up_after</code> runs in a row; a heartbeat goes down at its first missed deadline.</p>
     </div>
-    <p class="section-prose">A check is up until it fails <code>down_after</code> runs in a row. It is then down, and a DOWN mail is queued in the outbox. It stays down until it passes <code>up_after</code> runs in a row, and an UP mail is queued. One bad run changes nothing. The outbox holds unsent mail, and a failed send is tried again on the next run. A maintenance note suppresses alerts for its checks inside its window.</p>
+    <p class="section-prose">A probed check is up until it fails <code>down_after</code> runs in a row. It is then down, and a DOWN mail is queued in the outbox. It stays down until it passes <code>up_after</code> runs in a row, and an UP mail is queued. The outbox holds unsent mail, and a failed send is tried again on the next run. A maintenance note suppresses alerts for its checks inside its window.</p>
   </section>
 
   <section class="section">
@@ -61,16 +61,16 @@ import Relay from '../../figures/05-relay.astro';
     <h2 class="section-title" id="names">Names only</h2>
     <div class="cat-explainer figure-pair">
       <Names />
-      <p>Names, status, uptime and times cross to the public page; addresses and reasons stay behind.</p>
+      <p>Names, status, uptime and response times cross to the public page; addresses and reasons stay behind.</p>
     </div>
-    <p class="section-prose">The page and <code>/api/status</code> carry check names, status, uptime and times. A URL, hostname, address, port or failure reason never crosses: reasons go to the alert mail and the Worker log. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
+    <p class="section-prose">The page and <code>/api/status</code> carry public check names, status, uptime and response times. A URL, hostname, address, port or failure reason never crosses: reasons go to the alert mail and the Worker log. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
   </section>
 
   <section class="section">
     <h2 class="section-title" id="watching">Watching itself</h2>
     <div class="cat-explainer figure-pair">
       <Watch />
-      <p>Each watcher has a watcher, and the digest is the last one.</p>
+      <p>The prober flags stuck checks, the page Worker flags a stalled prober, and a missing digest covers both being down.</p>
     </div>
     <p class="section-prose">The prober flags any check with no conclusive result for three of its intervals and mails a self-check failure naming it, then an OK when results return. The page Worker's minute cron asks the prober to watch its last run. If no run has written results for three of the shortest intervals, the mail says probing stalled, so it survives a dead prober cron. If the prober does not answer at all, the page mails that at the top of each hour. When both Workers are dead nothing can mail, so a daily digest at a time you choose is the alarm: a missing digest means something is wrong. An outside poller can also read <code>/api/status</code>, which reports the last run, the oldest unsent mail and stuck checks.</p>
   </section>
@@ -81,7 +81,7 @@ import Relay from '../../figures/05-relay.astro';
       <Relay />
       <p>A relay key mails when it opens, when it closes and when it goes quiet.</p>
     </div>
-    <p class="section-prose">A relay accepts an incident.io-format webhook at <code>POST /relay/incident</code>, as HyperDX sends, and mails on transitions only. A firing opens a key and mails FIRING. A repeat firing renews it without mail. A resolved closes it and mails RESOLVED. A key not renewed within its grace closes with STOPPED REPORTING, which also covers a lost resolved. At most five transitions per relay per minute mail at once; the rest wait for the next run and arrive as one mail.</p>
+    <p class="section-prose">A relay accepts an incident.io-format webhook at <code>POST /relay/incident</code>, as HyperDX sends, and mails on transitions only. A firing opens a key and mails FIRING. A repeat firing renews it without mail. A resolved closes it and mails RESOLVED. A key not renewed within its grace closes with STOPPED REPORTING, which also covers a lost resolved. At most five transitions per relay per minute mail at once; the rest wait for the next run and, when more than one is waiting, arrive as one mail.</p>
   </section>
 
   <section class="section">
