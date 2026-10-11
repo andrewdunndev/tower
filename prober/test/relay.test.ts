@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { hyperdx } from "../../test/fixture/hyperdx-incidentio.ts";
 import { incident } from "../src/relay.ts";
 import { drain } from "../src/run.ts";
+import { attention } from "../src/self.ts";
 import { all, MINUTE, mailbox, makeConfig, reset, respond, sha256, T0, steadyTick as tick, web } from "./util.ts";
 
 beforeEach(reset);
@@ -154,6 +155,52 @@ describe("incident", () => {
 		const before = box.sends;
 		await Promise.all([drain(runEnv, config), tick(runEnv, config, T0 + MINUTE, respond(200))]);
 		expect(box.sends).toBe(before + 1);
+	});
+});
+
+describe("plain text", () => {
+	const named = makeConfig([web], {
+		relays: [{ id: "tel", name: "Telemetry", token_sha256: hash, grace: "15m" }],
+	});
+	const post = (runEnv: ReturnType<typeof mailbox>["runEnv"], o: object, at = T0) =>
+		incident(runEnv, named, TOKEN, payload(o), at);
+
+	it("mails an emoji title with no question mark, space or placeholder", async () => {
+		const { runEnv, box } = mailbox();
+		await post(runEnv, { title: "\u{1f6a8} failed systemd units" });
+		await post(runEnv, { title: "\u{1f6a8} failed systemd units", status: "resolved" }, T0 + MINUTE);
+		expect(box.subjects).toEqual([
+			"FIRING: Telemetry: failed systemd units",
+			"RESOLVED: Telemetry: failed systemd units",
+		]);
+		expect(box.bodies[0].split("\r\n")[0]).toBe("failed systemd units");
+		expect(box.bodies.join("")).not.toContain("?");
+		expect(await keys()).toEqual([]);
+	});
+
+	it("keeps the cleaned title in the digest and the STOPPED REPORTING mail", async () => {
+		const { runEnv, box } = mailbox();
+		await post(runEnv, { title: "\u{1f6a8} failed systemd units" });
+		expect(await keys()).toEqual([{ relay: "tel", key: "k1", title: "failed systemd units" }]);
+		expect(await attention(env.DB, named)).toEqual(["OPEN: Telemetry: failed systemd units"]);
+		await tick(runEnv, named, T0 + 16 * MINUTE, respond(200));
+		expect(box.subjects[1]).toBe("STOPPED REPORTING: Telemetry: failed systemd units");
+		expect(box.subjects.join("")).not.toContain("?");
+	});
+
+	it("keeps base letters and drops other non-ASCII", async () => {
+		const { runEnv, box } = mailbox();
+		await post(runEnv, { title: "caf\u00e9 \u2705 down" });
+		expect(box.subjects).toEqual(["FIRING: Telemetry: cafe down"]);
+	});
+
+	it("falls back to the deduplication key for an all-emoji title and cleans the description", async () => {
+		const { runEnv, box } = mailbox();
+		const res = await post(runEnv, { title: "\u{1f6a8}\u{1f525}", description: "\u{1f6a8} line one\nna\u00efve  two" });
+		expect(res.status).toBe(202);
+		expect(box.subjects).toEqual(["FIRING: Telemetry: k1"]);
+		expect(box.bodies[0]).toContain("line one\r\nnaive two");
+		expect(box.bodies[0]).not.toContain("?");
 	});
 });
 

@@ -31,7 +31,7 @@ export function respond(status: number, body = "", headers: Record<string, strin
 }
 
 export function mailbox() {
-	const box = { sends: 0, failing: false, subjects: [] as string[] };
+	const box = { sends: 0, failing: false, subjects: [] as string[], bodies: [] as string[] };
 	const runEnv: RunEnv = {
 		DB: env.DB,
 		VERSION,
@@ -41,6 +41,9 @@ export function mailbox() {
 				box.subjects.push(
 					/^Subject: (.*)$/m.exec(String((message as unknown as Record<string, unknown>)["EmailMessage::raw"]))?.[1] ??
 						"",
+				);
+				box.bodies.push(
+					String((message as unknown as Record<string, unknown>)["EmailMessage::raw"]).split("\r\n\r\n")[1] ?? "",
 				);
 				if (box.failing) throw new Error("send failed");
 				return { messageId: "test" };
