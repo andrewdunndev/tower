@@ -80,3 +80,19 @@ describe("the relay through the page and the real prober", () => {
 		}
 	});
 });
+
+describe("the page's cron through the real prober", () => {
+	it("raises the stall flag and drains its mail when the prober's last run is stale", async () => {
+		const now = Date.now();
+		await env.DB.prepare(
+			`INSERT INTO state ("check", avail, degraded, fails, passes, since, slot, last_run) VALUES ('any', 1, 0, 0, 0, 0, -1, ?1)`,
+		)
+			.bind(now - 10 * 60_000)
+			.run();
+		await (page as Fetcher & { scheduled(options: { scheduledTime: number }): Promise<unknown> }).scheduled({
+			scheduledTime: now,
+		});
+		expect(await all("SELECT key FROM meta WHERE key = 'stall'")).toEqual([{ key: "stall" }]);
+		expect(await all("SELECT * FROM outbox")).toEqual([]);
+	});
+});

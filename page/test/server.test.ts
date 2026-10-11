@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
-import { beat, cached, cacheKey, refuse, relay } from "../src/server.ts";
+import { beat, cached, cacheKey, refuse, relay, watch } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
 	new Request(`https://status.example.com${path}`, { method, headers });
@@ -172,4 +172,42 @@ describe("methods", () => {
 			expect(refuse(request(method, path))?.status).toBe(405);
 		}
 	});
+});
+
+describe('watch', () => {
+  const alert = { from: 'tower@example.com', to: 'oncall@example.com' };
+  const HOUR = 3_600_000;
+  const setup = (answers: boolean) => {
+    const calls = { watched: [] as number[], subjects: [] as string[] };
+    const env = {
+      TOWER: {
+        watch: async (now: number) => {
+          calls.watched.push(now);
+          if (!answers) throw new Error('prober unavailable');
+        },
+      },
+      EMAIL: {
+        send: async (message: unknown) => {
+          calls.subjects.push(/^Subject: (.*)$/m.exec(String((message as Record<string, unknown>)['EmailMessage::raw']))?.[1] ?? '');
+          return { messageId: 'test' };
+        },
+      },
+    };
+    return { calls, env };
+  };
+
+  it('asks the prober with the scheduled time and sends no mail when it answers', async () => {
+    const { calls, env } = setup(true);
+    await watch(env, alert, HOUR);
+    expect(calls.watched).toEqual([HOUR]);
+    expect(calls.subjects).toEqual([]);
+  });
+
+  it('mails in the first minute of an hour when the prober does not answer, and not after', async () => {
+    const { calls, env } = setup(false);
+    await watch(env, alert, 5 * HOUR);
+    await watch(env, alert, 5 * HOUR + 60_000);
+    await watch(env, alert, 5 * HOUR + 1800_000);
+    expect(calls.subjects).toEqual(['SELF-CHECK FAILING: probing stalled']);
+  });
 });

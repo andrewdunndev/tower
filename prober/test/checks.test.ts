@@ -112,7 +112,7 @@ describe("dns", () => {
 		]);
 		expect(await all("SELECT * FROM samples")).toHaveLength(1);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
-		expect(box.sends).toBe(0);
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for DNS"]);
 	});
 
 	it("checks the expected answer", async () => {
