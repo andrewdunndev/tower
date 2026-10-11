@@ -113,14 +113,25 @@ const tls = z.strictObject({
 	zone: z.string().min(1, "name the Cloudflare zone holding the certificate, such as example.com."),
 });
 
+const tokenHash = z
+	.string()
+	.regex(/^[0-9a-f]{64}$/, "token_sha256: use the lowercase hex sha256 of the token (64 characters).");
+
 const heartbeat = z.strictObject({
 	...common,
 	type: z.literal("heartbeat"),
 	every: duration,
 	grace: duration,
-	token_sha256: z
-		.string()
-		.regex(/^[0-9a-f]{64}$/, "token_sha256: use the lowercase hex sha256 of the token (64 characters)."),
+	token_sha256: tokenHash,
+});
+
+const WEEK_MS = 7 * 86400_000;
+
+const relay = z.strictObject({
+	id,
+	name: z.string().min(1, "required."),
+	token_sha256: tokenHash,
+	grace: duration.refine((ms) => ms <= WEEK_MS, "use at most 7 days.").default(900_000),
 });
 
 const check = z.discriminatedUnion("type", [http, tcp, dns, tls, heartbeat], {
@@ -128,7 +139,6 @@ const check = z.discriminatedUnion("type", [http, tcp, dns, tls, heartbeat], {
 });
 
 const ISO_WITH_OFFSET = /T\d\d:\d\d(:\d\d)?(\.\d+)?(Z|[+-]\d\d:\d\d)$/;
-const WEEK_MS = 7 * 86400_000;
 
 const when = z.string().regex(ISO_WITH_OFFSET, "Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.");
 
@@ -151,6 +161,11 @@ export const instanceSchema = z
 		}),
 		timeout_ms: z.number().int().min(1000).max(30000).default(10000),
 		checks: z.array(check).min(1, "list at least one check."),
+		relays: z.array(relay).default([]),
+		digest: z
+			.string()
+			.regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use a UTC time of day such as "07:30".')
+			.optional(),
 	})
 	.superRefine((inst, ctx) => {
 		const seen = new Set<string>();
@@ -163,6 +178,25 @@ export const instanceSchema = z
 				});
 			}
 			seen.add(c.id);
+		}
+		const hashes = new Set<string>();
+		for (const [i, r] of inst.relays.entries()) {
+			if (seen.has(r.id)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["relays", i, "id"],
+					message: `Duplicate id "${r.id}": check and relay ids share one space, rename one.`,
+				});
+			}
+			seen.add(r.id);
+			if (hashes.has(r.token_sha256)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["relays", i, "token_sha256"],
+					message: "Two relays share a token: mint a token for each.",
+				});
+			}
+			hashes.add(r.token_sha256);
 		}
 	});
 
