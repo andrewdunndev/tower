@@ -56,3 +56,9 @@ worker-dry-run:
   needs: []
   script:
     - WRANGLER_SEND_METRICS=false npm run deploy -- example --dry-run
+
+lab:
+  extends: .node
+  stage: test
+  script:
+    - bash scripts/lab.sh
