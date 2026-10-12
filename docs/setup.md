@@ -4,7 +4,7 @@
 
 - A Cloudflare account on the Workers Paid plan, and a zone on it for the status hostname. tower is not tested against the Free plan's per-invocation CPU and subrequest limits.
 - Node (the version in `mise.toml`) and `npm ci` in this repository.
-- For alerts: the `alert.from` domain onboarded to Cloudflare Email Service, and `alert.to` verified as a destination address in the account.
+- For alerts: the `alert.from` domain onboarded to Cloudflare Email Service, and `alert.to` and every `to` on a check or relay verified as destination addresses in the account.
 
 ## Instance
 
@@ -64,6 +64,14 @@ Without it, tls checks report a configuration error and never alert.
 
 tower mails once when a check goes down and once when it recovers. A failed send is retried on the next run.
 
+Mail goes to `alert.to` unless a check or relay names its own `to`: one address, or a list of up to 5. `to` replaces `alert.to`, so list `alert.to` as well to keep a copy. For a larger team, use a group address.
+
+```json
+{ "id": "api", "type": "http", "name": "API", "url": "https://api.example.com/health", "to": ["api@example.com", "oncall@example.com"] }
+```
+
+`to` routes `DOWN`, `UP`, `FIRING`, `RESOLVED`, `STOPPED REPORTING` and `ALERTS`. Each address gets its own mail, retried on its own, so one failing address never repeats a mail to the others. An address that is not a verified destination fails 10 times, then shows as dead in the digest and in `dead_outbox`.
+
 ## Heartbeats
 
 A heartbeat check expects a request within `every` plus `grace`. Make a token and put its hash in `token_sha256`:
@@ -95,7 +103,7 @@ Add a WAF rate limiting rule on `/beat/*` for the zone: a request that reaches t
 A relay accepts an incident.io alert-event body at `POST /relay/incident` and mails on transitions only: `FIRING` when a key opens, `RESOLVED` when it closes. [HyperDX](https://www.hyperdx.io) is the intended sender. Name the relay in `tower.json` and give it a token hash as for a heartbeat:
 
 ```json
-"relays": [{ "id": "alerts", "name": "Alerts", "token_sha256": "<hash>", "grace": "15m" }],
+"relays": [{ "id": "alerts", "name": "Alerts", "token_sha256": "<hash>", "grace": "15m", "to": "oncall@example.com" }],
 "digest": "07:30"
 ```
 
@@ -103,14 +111,14 @@ In HyperDX add a webhook with service `incident.io`, URL `https://<domain>/relay
 
 - A request answers `202` with `{"result": "transition"}` (mailed), `"duplicate"` (the key was already in that state; a firing renews its lease) or `"rejected"` (the relay holds 100 open keys). A bad or missing token answers `404`, a body without a title, key or valid status `400`, another media type than `application/json` `415`, and a body over 64 KiB `413`.
 - A key left open for `grace` without another firing closes with one `STOPPED REPORTING` mail, which also covers a lost resolved. A later firing of the key mails again. Set `grace` above the sender's re-notify gap, at most 7 days.
-- At most 5 transitions per relay per minute mail at once; the rest wait for the next cron run and, when more than one is waiting, arrive as one `ALERTS: <relay>: <n> changed` mail with a line per key. 100 open keys can therefore send up to 100 changes in a burst. A rejected key sends one `SELF-CHECK FAILING` mail, and one `SELF-CHECK OK` follows once the relay has room.
+- At most 5 transitions per relay per minute mail at once; the rest wait for the next cron run and, when more than one is waiting, arrive as one `ALERTS: <relay>: <n> changed` mail per address with a line per key. 100 open keys can therefore send up to 100 changes in a burst. A rejected key sends one `SELF-CHECK FAILING` mail, and one `SELF-CHECK OK` follows once the relay has room.
 - There are no silences or maintenance windows on relays.
 - `/relay/*` needs no rate limiting rule, because a bad token is refused before any write. Keep it out of any rule shared with `/beat/*`: a sender's burst would answer `429` to the beats, and senders do not retry `4xx`.
 - Titles, descriptions, URLs and keys reach the alert mail only, never the page or `/api/status`.
 
 ## Self-checks
 
-tower mails about itself to `alert.to`:
+tower mails about itself to `alert.to`, even for a check or relay with its own `to`:
 
 - `DEPLOYED: tower <version>` after every deploy that reaches 100% of traffic, and after `wrangler secret put`, which also creates a version.
 - `DIGEST` once a day at `digest` (`HH:MM` UTC). A normal day is the subject `all up` with no body; otherwise the subject counts the items and the body lists down checks, open relay keys, unsent or dead mail and failing self-checks. A day missed to an outage is not backfilled.
@@ -134,8 +142,8 @@ tower reports a stuck check and a stalled prober itself, so polling is optional.
 - `v` is the response-shape version, `1` today. It changes only on a breaking change.
 - `generatedAt`, `checks`, `incidents` and `maintenance` are what the page renders, by check name.
 - `last_run` is when the last probe ran.
-- `outbox_oldest_unsent_at` is when the oldest unsent alert was queued, or null.
-- `dead_outbox` counts alerts that gave up in the last 24 h.
+- `outbox_oldest_unsent_at` is when the oldest unsent mail was queued, or null.
+- `dead_outbox` counts mails that gave up in the last 24 h, one per address.
 - `stuck` counts public checks with no conclusive run inside three intervals plus a minute.
 - `self` lists failing self-checks by name with their start time: the Cloudflare API token and `results for <check>` for a stuck public check.
 

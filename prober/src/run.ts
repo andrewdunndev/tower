@@ -72,6 +72,8 @@ async function pool<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>)
 	return out;
 }
 
+export const route = (o: { to?: string[] }) => JSON.stringify(o.to ?? [""]);
+
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)];
 
 async function claim(db: D1Database, config: Instance, t: number) {
@@ -215,8 +217,16 @@ export async function tick(
 		if (mail) {
 			writes.push(
 				env.DB.prepare(
-					`INSERT INTO outbox ("check", at, kind, since, reason) SELECT ?1, ?3, ?4, ?5, ?6 WHERE ${current}`,
-				).bind(check.id, row.slot, t, next.avail ? "up" : "down", transition ? before.since : null, outcome.reason),
+					`INSERT INTO outbox ("check", at, kind, since, reason, "to") SELECT ?1, ?3, ?4, ?5, ?6, value FROM json_each(?7) WHERE ${current}`,
+				).bind(
+					check.id,
+					row.slot,
+					t,
+					next.avail ? "up" : "down",
+					transition ? before.since : null,
+					outcome.reason,
+					route(check),
+				),
 			);
 		}
 	}
@@ -240,9 +250,9 @@ function expire(db: D1Database, config: Instance, t: number): D1PreparedStatemen
 	return config.relays.flatMap((r) => [
 		db
 			.prepare(
-				`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT relay, "key", ?2, 'stale', since, json_object('title', title) FROM relay_keys WHERE relay = ?1 AND seen < ?3`,
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT r.relay, r."key", ?2, 'stale', r.since, json_object('title', r.title), j.value FROM relay_keys r, json_each(?4) j WHERE r.relay = ?1 AND r.seen < ?3`,
 			)
-			.bind(r.id, t, t - r.grace),
+			.bind(r.id, t, t - r.grace, route(r)),
 		db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND seen < ?2`).bind(r.id, t - r.grace),
 	]);
 }
@@ -251,6 +261,9 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 	const ids = JSON.stringify(config.checks.map((c) => c.id));
 	const owners = JSON.stringify([...config.checks.map((c) => c.id), ...config.relays.map((r) => r.id), ""]);
 	const relays = JSON.stringify(config.relays.map((r) => r.id));
+	const routes = JSON.stringify(
+		[...config.checks, ...config.relays].flatMap((o) => (o.to ?? []).map((a) => [o.id, a])),
+	);
 	const cutoff = t - DAYS * DAY_MS;
 	return [
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
@@ -261,6 +274,11 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
 		),
 		db.prepare(`DELETE FROM outbox WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(owners),
+		db
+			.prepare(
+				`DELETE FROM outbox WHERE "to" <> '' AND ("check", "to") NOT IN (SELECT value ->> 0, value ->> 1 FROM json_each(?1))`,
+			)
+			.bind(routes),
 		db
 			.prepare(
 				`DELETE FROM meta WHERE key LIKE '${STUCK_PREFIX}%' AND substr(key, ${STUCK_PREFIX.length + 1}) NOT IN (SELECT value FROM json_each(?1))`,
@@ -294,17 +312,17 @@ export async function drain(
 	}
 }
 
-type Row = Pending & { rowid: number; check: string };
+type Row = Pending & { rowid: number; check: string; to: string };
 
 async function send(env: RunEnv, config: Instance, until: number, now: () => number, only: string | null) {
 	const { results } = await env.DB.prepare(
-		`SELECT rowid, "check", "key", at, kind, since, reason FROM outbox WHERE dead = 0 AND (?1 IS NULL OR "check" = ?1) ORDER BY at, rowid`,
+		`SELECT rowid, "check", "key", at, kind, since, reason, "to" FROM outbox WHERE dead = 0 AND (?1 IS NULL OR "check" = ?1) ORDER BY at, rowid`,
 	)
 		.bind(only)
 		.all<Row>();
 	const lines = results.some((r) => r.kind === "digest") ? await attention(env.DB, config) : [];
 	const relayIds = new Set(config.relays.map((r) => r.id));
-	const groups = Map.groupBy(results, (r) => JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key]));
+	const groups = Map.groupBy(results, (r) => JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, r.to]));
 	for (const rows of groups.values()) {
 		const composed = compose(config, rows, lines);
 		if (!composed) continue;
@@ -314,7 +332,12 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 			.bind(rowids)
 			.run();
 		const [subject, text] = composed;
-		const sent = await sendMail(env.EMAIL, config.alert, subject, text);
+		const sent = await sendMail(
+			env.EMAIL,
+			{ from: config.alert.from, to: rows[0].to || config.alert.to },
+			subject,
+			text,
+		);
 		const update = sent
 			? env.DB.prepare(`DELETE FROM outbox WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(rowids)
 			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?2 WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(

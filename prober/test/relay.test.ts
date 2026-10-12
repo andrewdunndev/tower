@@ -318,3 +318,56 @@ describe("lease", () => {
 		expect(await outbox()).toEqual([]);
 	});
 });
+
+describe("routing", () => {
+	const team = ["a@example.com", "b@example.com"];
+	const routed = makeConfig([web], {
+		relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, grace: "15m", to: team }],
+	});
+	const post = (runEnv: ReturnType<typeof mailbox>["runEnv"], o: object, at: number) =>
+		incident(runEnv, routed, TOKEN, payload(o), at);
+	const mails = (box: { subjects: string[]; to: string[] }) => box.subjects.map((s, i) => `${s} -> ${box.to[i]}`);
+
+	it("mails FIRING, RESOLVED and STOPPED REPORTING to each of the relay's addresses", async () => {
+		const { runEnv, box } = mailbox();
+		await post(runEnv, {}, T0);
+		await post(runEnv, { status: "resolved" }, T0 + 1);
+		await post(runEnv, { deduplication_key: "k2", title: "Disk slow" }, T0 + 2);
+		await tick(runEnv, routed, T0 + 16 * MINUTE, respond(200));
+		expect(mails(box)).toEqual([
+			"FIRING: Alerts: Disk full -> a@example.com",
+			"FIRING: Alerts: Disk full -> b@example.com",
+			"RESOLVED: Alerts: Disk full -> a@example.com",
+			"RESOLVED: Alerts: Disk full -> b@example.com",
+			"FIRING: Alerts: Disk slow -> a@example.com",
+			"FIRING: Alerts: Disk slow -> b@example.com",
+			"STOPPED REPORTING: Alerts: Disk slow -> a@example.com",
+			"STOPPED REPORTING: Alerts: Disk slow -> b@example.com",
+		]);
+		expect(await outbox()).toEqual([]);
+	});
+
+	it("sends one ALERTS summary to each address", async () => {
+		const { runEnv, box } = mailbox();
+		for (let i = 0; i < 7; i++) await post(runEnv, { deduplication_key: `k${i}` }, T0 + i);
+		expect(box.sends).toBe(10);
+		await tick(runEnv, routed, T0 + MINUTE, respond(200));
+		expect(mails(box).slice(10)).toEqual([
+			"ALERTS: Alerts: 2 changed -> a@example.com",
+			"ALERTS: Alerts: 2 changed -> b@example.com",
+		]);
+	});
+
+	it("counts the backlog in events, not in mails", async () => {
+		const { runEnv, box } = mailbox();
+		box.failing = true;
+		const results: string[] = [];
+		for (let i = 0; i < 120; i++) {
+			results.push(await result(await post(runEnv, { deduplication_key: `k${i}` }, T0)));
+			await post(runEnv, { deduplication_key: `k${i}`, status: "resolved" }, T0);
+		}
+		expect(results.filter((r) => r === "transition")).toHaveLength(100);
+		expect(results.at(-1)).toBe("rejected");
+		expect(await all("SELECT count(*) AS n FROM outbox")).toEqual([{ n: 400 }]);
+	});
+});

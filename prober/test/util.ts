@@ -31,21 +31,26 @@ export function respond(status: number, body = "", headers: Record<string, strin
 }
 
 export function mailbox() {
-	const box = { sends: 0, failing: false, subjects: [] as string[], bodies: [] as string[] };
+	const box = {
+		sends: 0,
+		failing: false,
+		failFor: new Set<string>(),
+		subjects: [] as string[],
+		bodies: [] as string[],
+		to: [] as string[],
+	};
 	const runEnv: RunEnv = {
 		DB: env.DB,
 		VERSION,
 		EMAIL: {
 			send: async (message) => {
+				const raw = String((message as unknown as Record<string, unknown>)["EmailMessage::raw"]);
+				const to = (message as unknown as { to: string }).to;
 				box.sends++;
-				box.subjects.push(
-					/^Subject: (.*)$/m.exec(String((message as unknown as Record<string, unknown>)["EmailMessage::raw"]))?.[1] ??
-						"",
-				);
-				box.bodies.push(
-					String((message as unknown as Record<string, unknown>)["EmailMessage::raw"]).split("\r\n\r\n")[1] ?? "",
-				);
-				if (box.failing) throw new Error("send failed");
+				box.subjects.push(/^Subject: (.*)$/m.exec(raw)?.[1] ?? "");
+				box.bodies.push(raw.split("\r\n\r\n")[1] ?? "");
+				box.to.push(/^To: (.*)$/m.exec(raw)?.[1] === to ? to : `mismatch: ${to}`);
+				if (box.failing || box.failFor.has(to)) throw new Error("send failed");
 				return { messageId: "test" };
 			},
 		},

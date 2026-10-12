@@ -1,7 +1,7 @@
 import type { Instance } from "../../tools/schema.ts";
 import { sameHex, sha256Hex } from "./heartbeat.ts";
 import { plain } from "./mail.ts";
-import { drain, type RunEnv } from "./run.ts";
+import { drain, type RunEnv, route } from "./run.ts";
 
 export const MAX_KEYS = 100;
 const MAX_PENDING = 200;
@@ -73,7 +73,7 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 	const absent = `NOT EXISTS (SELECT 1 FROM relay_keys WHERE relay = ?1 AND "key" = ?2)`;
 	const room = `(SELECT count(*) FROM relay_keys WHERE relay = ?1) < ${MAX_KEYS}`;
 	const full = `${absent} AND NOT ${room}`;
-	const backlog = `(SELECT count(*) FROM outbox WHERE "check" = ?1 AND dead = 0) < ${MAX_PENDING}`;
+	const backlog = `(SELECT count(*) FROM (SELECT DISTINCT "key", at, kind FROM outbox WHERE "check" = ?1 AND dead = 0)) < ${MAX_PENDING}`;
 	const db = env.DB;
 
 	let result: "transition" | "duplicate" | "rejected";
@@ -82,9 +82,9 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 		const [, counted, kept] = await db.batch<{ n: number } & { kept: number }>([
 			db
 				.prepare(
-					`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT ?1, ?2, ?3, 'firing', NULL, ?4 WHERE ${absent} AND ${room} AND ${backlog}`,
+					`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT ?1, ?2, ?3, 'firing', NULL, ?4, value FROM json_each(?5) WHERE ${absent} AND ${room} AND ${backlog}`,
 				)
-				.bind(id, key, now, detail),
+				.bind(id, key, now, detail, route(relay)),
 			db.prepare(BURST).bind(id, key, now),
 			db
 				.prepare(
@@ -107,9 +107,9 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 		const [, counted] = await db.batch<{ n: number }>([
 			db
 				.prepare(
-					`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT ?1, ?2, ?3, 'resolved', since, ?4 FROM relay_keys WHERE relay = ?1 AND "key" = ?2`,
+					`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT ?1, ?2, ?3, 'resolved', r.since, ?4, j.value FROM relay_keys r, json_each(?5) j WHERE r.relay = ?1 AND r."key" = ?2`,
 				)
-				.bind(id, key, now, detail),
+				.bind(id, key, now, detail, route(relay)),
 			db.prepare(BURST).bind(id, key, now),
 			db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND "key" = ?2`).bind(id, key),
 		]);
