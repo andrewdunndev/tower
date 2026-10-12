@@ -41,7 +41,12 @@ export async function raiseStall(db: D1Database, config: Instance, t: number, ve
 }
 
 export function resumedAfter(config: Instance, previous: string | undefined, t: number, version: Version): boolean {
-	return previous !== undefined && t - Number(previous) > staleWindow(config) && !inDeployGrace(version, t);
+	if (previous === undefined) return false;
+	const last = Number(previous);
+	const window = staleWindow(config);
+	if (t - last <= window) return false;
+	const deployed = Date.parse(version.timestamp ?? "");
+	return !(inDeployGrace(version, t) && last >= deployed - (window - MINUTE_MS));
 }
 
 export async function reportWriteFailure(

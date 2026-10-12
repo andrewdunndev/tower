@@ -439,11 +439,26 @@ describe("deploy grace", () => {
 	it("sends no resumed mail for a gap that ends inside the grace", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, config, T0, T0, respond(200));
-		const graced = { ...runEnv, VERSION: deployedAt(T0 + 4 * MINUTE) };
+		const graced = { ...runEnv, VERSION: deployedAt(T0 - MINUTE) };
 		await watch(graced, config, T0 + 10 * MINUTE);
 		await tick(graced, config, T0 + 13 * MINUTE, T0 + 13 * MINUTE, respond(200));
 		await tick(graced, config, T0 + 14 * MINUTE, T0 + 14 * MINUTE, respond(200));
 		expect(box.subjects.filter((s) => s.includes("probing"))).toEqual([]);
+	});
+	it("still sends resumed when the gap began early enough for a database-writes FAILING", async () => {
+		const window = 3 * MINUTE + MINUTE;
+		for (const [last, resumed] of [
+			[T0 - window, true],
+			[T0 - (window - MINUTE) - 1, true],
+			[T0 - (window - MINUTE), false],
+		] as const) {
+			await reset();
+			const { runEnv, box } = mailbox();
+			await tick(runEnv, config, last, last, respond(200));
+			const graced = { ...runEnv, VERSION: deployedAt(T0) };
+			await tick(graced, config, T0 + 5 * MINUTE, T0 + 5 * MINUTE, respond(200));
+			expect(box.subjects.includes("SELF-CHECK OK: probing resumed")).toBe(resumed);
+		}
 	});
 });
 
