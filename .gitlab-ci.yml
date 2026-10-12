@@ -11,8 +11,10 @@ workflow:
 stages:
   - lint
   - test
+  - verdict
   - build
   - deploy
+  - automerge-gate
 
 include:
   - component: gitlab.com/dunn.dev/pipeline/reference-check@4.10.0
@@ -27,10 +29,65 @@ include:
       needs_npm_install: true
       npm_dir: site
       production_url: https://tower.dunn.dev
+  - component: gitlab.com/dunn.dev/pipeline/osv-verdict@4.10.0
+  - component: gitlab.com/dunn.dev/pipeline/secret-verdict@4.10.0
+  - component: gitlab.com/dunn.dev/pipeline/pin-audit@4.10.0
+  - component: gitlab.com/dunn.dev/pipeline/automerge-gate@4.10.0
+    inputs:
+      stage: automerge-gate
+      required-checks: "osv,secret"
+
+.node:
+  image: node:24.21.0@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+    policy: pull
+  before_script:
+    - npm ci --ignore-scripts --prefer-offline
 
 test:
+  extends: .node
   stage: test
-  image: node:24.21.0@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+  cache:
+    policy: pull-push
   script:
-    - npm ci --ignore-scripts
     - npm run check
+
+worker-dry-run:
+  extends: .node
+  stage: build
+  needs: []
+  script:
+    - WRANGLER_SEND_METRICS=false npm run deploy -- example --dry-run
+
+lab:
+  extends: .node
+  stage: test
+  script:
+    - bash scripts/lab.sh
+
+page-visual:
+  extends: .node
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - page/**/*
+        - test/visual/**/*
+        - test/fixture/**/*
+        - tools/stage.ts
+        - .gitlab-ci.yml
+        - package.json
+        - package-lock.json
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - node tools/stage.ts test/fixture
+    - npm run build -w page
+    - node_modules/.bin/playwright test -c test/visual

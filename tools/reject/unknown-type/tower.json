@@ -1,0 +1,7 @@
+{
+	"name": "tower",
+	"title": "T",
+	"domain": "status.example.com",
+	"alert": { "from": "tower@example.com", "to": "oncall@example.com" },
+	"checks": [{ "id": "web", "type": "ping", "name": "Website", "host": "www.example.com" }]
+}
