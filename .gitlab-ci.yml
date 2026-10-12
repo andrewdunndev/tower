@@ -14,6 +14,7 @@ stages:
   - verdict
   - build
   - deploy
+  - automerge-gate
 
 include:
   - component: gitlab.com/dunn.dev/pipeline/reference-check@4.10.0
@@ -31,6 +32,10 @@ include:
   - component: gitlab.com/dunn.dev/pipeline/osv-verdict@4.10.0
   - component: gitlab.com/dunn.dev/pipeline/secret-verdict@4.10.0
   - component: gitlab.com/dunn.dev/pipeline/pin-audit@4.10.0
+  - component: gitlab.com/dunn.dev/pipeline/automerge-gate@4.10.0
+    inputs:
+      stage: automerge-gate
+      required-checks: "osv,secret"
 
 .node:
   image: node:24.21.0@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
@@ -76,7 +81,10 @@ page-visual:
       changes:
         - page/**/*
         - test/visual/**/*
+        - test/fixture/**/*
+        - tools/stage.ts
         - .gitlab-ci.yml
+        - package.json
         - package-lock.json
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:

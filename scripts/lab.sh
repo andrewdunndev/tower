@@ -52,14 +52,17 @@ dev() {
 }
 dev prober $P -c ../.tower/prober.wrangler.json --persist-to "$work/state"
 dev page $G --persist-to "$work/page-state"
+logs() {
+	tail -20 "$work/prober.log" "$work/page.log"
+	exit 1
+}
 up() {
 	for _ in $(seq 60); do
 		curl -s -o /dev/null "$1" && return
 		sleep 1
 	done
 	echo "$1 did not answer"
-	tail -20 "$work/prober.log" "$work/page.log"
-	exit 1
+	logs
 }
 up "http://127.0.0.1:$P/"
 up "http://127.0.0.1:$G/favicon.svg"
@@ -73,14 +76,14 @@ ok() {
 		fails=$((fails + 1))
 	fi
 }
-tick() { curl -sf -o /dev/null "http://127.0.0.1:$P/cdn-cgi/local/scheduled?time=$1"; }
+tick() { curl -sSf -o /dev/null "http://127.0.0.1:$P/cdn-cgi/local/scheduled?time=$1" || logs; }
 
 m=$((($(date +%s) - 213) / 60 * 60))
 echo "== tick at :58 jitter, then 3m05s later; the slow target holds each run to its 20 s budget"
 tick $(((m - 2) * 1000))
 tick $(((m + 183) * 1000))
 
-status=$(curl -sf "http://127.0.0.1:$G/api/status")
+status=$(curl -sSf "http://127.0.0.1:$G/api/status") || logs
 level() { node -e 'console.log(JSON.parse(process.argv[1]).checks.find((c) => c.name === process.argv[2])?.status)' "$status" "$1"; }
 ok "fast check reads up" up "$(level Website)"
 ok "slow check reads unknown, not down" unknown "$(level Slow)"
