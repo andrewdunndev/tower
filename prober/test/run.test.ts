@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import pkg from "../../package.json";
 import { drain, type RunEnv, step, tick, watch } from "../src/run.ts";
 import { status } from "../src/status.ts";
@@ -43,7 +43,7 @@ describe("slot claims", () => {
 	it("runs a check once for overlapping ticks", async () => {
 		const { runEnv } = mailbox();
 		const { calls, fetch } = counting();
-		await Promise.all([tick(runEnv, makeConfig(), T0, fetch), tick(runEnv, makeConfig(), T0, fetch)]);
+		await Promise.all([tick(runEnv, makeConfig(), T0, T0, fetch), tick(runEnv, makeConfig(), T0, T0, fetch)]);
 		expect(calls.n).toBe(1);
 	});
 
@@ -52,7 +52,7 @@ describe("slot claims", () => {
 		const { calls, fetch } = counting();
 		const config = makeConfig();
 		for (const t of [T0 - 2000, T0 + 1900, T0 + MINUTE - 1999, T0 + MINUTE + 1999, T0 + 2 * MINUTE]) {
-			await tick(runEnv, config, t, fetch);
+			await tick(runEnv, config, t, t, fetch);
 		}
 		expect(calls.n).toBe(3);
 	});
@@ -60,12 +60,12 @@ describe("slot claims", () => {
 	it("runs at the next boundary after every is lengthened", async () => {
 		const { runEnv } = mailbox();
 		const { calls, fetch } = counting();
-		await tick(runEnv, makeConfig(), T0, fetch);
-		await tick(runEnv, makeConfig(), T0 + MINUTE, fetch);
+		await tick(runEnv, makeConfig(), T0, T0, fetch);
+		await tick(runEnv, makeConfig(), T0 + MINUTE, T0 + MINUTE, fetch);
 		const longer = makeConfig([{ ...web, every: "5m" }]);
-		for (const m of [2, 3, 4]) await tick(runEnv, longer, T0 + m * MINUTE, fetch);
+		for (const m of [2, 3, 4]) await tick(runEnv, longer, T0 + m * MINUTE, T0 + m * MINUTE, fetch);
 		expect(calls.n).toBe(2);
-		await tick(runEnv, longer, T0 + 5 * MINUTE, fetch);
+		await tick(runEnv, longer, T0 + 5 * MINUTE, T0 + 5 * MINUTE, fetch);
 		expect(calls.n).toBe(3);
 	});
 
@@ -84,9 +84,9 @@ describe("slot claims", () => {
 			});
 			return new Response("", { status: 200 });
 		}) as typeof fetch;
-		const late = tick(runEnv, config, T0, slow);
+		const late = tick(runEnv, config, T0, T0, slow);
 		await hasStarted;
-		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
 		release();
 		await late;
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 0 }]);
@@ -107,9 +107,9 @@ describe("slot claims", () => {
 			});
 			return new Response("", { status: 500 });
 		}) as typeof fetch;
-		const late = tick(runEnv, config, T0, slowFailure);
+		const late = tick(runEnv, config, T0, T0, slowFailure);
 		await hasStarted;
-		await tick(runEnv, config, T0 + MINUTE, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(200));
 		release();
 		await late;
 		expect(box.sends).toBe(0);
@@ -119,7 +119,7 @@ describe("slot claims", () => {
 			);
 		expect(await rows()).toEqual([{ n: 1 }]);
 
-		await tick(runEnv, config, T0 + 2 * MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(500));
 		expect(await all('SELECT "to" FROM events')).toEqual([{ to: "down" }]);
 	});
 
@@ -128,8 +128,125 @@ describe("slot claims", () => {
 		const { calls, fetch } = counting();
 		const config = makeConfig([{ ...web, every: "5m" }]);
 		const start = Math.ceil(T0 / (5 * MINUTE)) * 5 * MINUTE;
-		for (let i = 0; i < 10; i++) await tick(runEnv, config, start + i * MINUTE, fetch);
+		for (let i = 0; i < 10; i++) await tick(runEnv, config, start + i * MINUTE, start + i * MINUTE, fetch);
 		expect(calls.n).toBe(2);
+	});
+});
+
+describe("run deadline", () => {
+	const LEFT = 250;
+	const wall = Date.now;
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+	// tick reads the clock first; every later read lands LEFT ms before an on-time run's deadline.
+	const tight = (t: number) => {
+		let reads = 0;
+		vi.spyOn(Date, "now").mockImplementation(() => wall() + (reads++ ? MINUTE - 7000 - LEFT : 0));
+		return t;
+	};
+	const slow = { ...web, id: "slow", name: "Slow", url: "https://slow.example.com/", down_after: 1 };
+	const config = makeConfig([{ ...web, down_after: 1 }, slow]);
+	const serve = (status: number, hang: boolean) =>
+		(async (input: RequestInfo | URL) =>
+			hang && String(input).includes("slow")
+				? new Promise<Response>(() => {})
+				: new Response("", { status })) as typeof fetch;
+	const dump = async () => ({
+		state: await all('SELECT * FROM state ORDER BY "check"'),
+		samples: await all('SELECT "check", at, ok FROM samples ORDER BY "check"'),
+		daily: await all('SELECT * FROM daily ORDER BY "check"'),
+		events: await all('SELECT * FROM events ORDER BY "check"'),
+		outbox: await all("SELECT * FROM outbox"),
+	});
+
+	it("commits the probes that finished and counts a probe still running as no result", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, T0, tight(T0), serve(500, true));
+		expect(await all('SELECT "check", avail, last_conclusive, last_run, reason FROM state ORDER BY "check"')).toEqual([
+			{ check: "slow", avail: 1, last_conclusive: null, last_run: T0, reason: "probe outlived the run" },
+			{ check: "web", avail: 0, last_conclusive: T0, last_run: T0, reason: "HTTP 500" },
+		]);
+		expect(await all('SELECT "check", at FROM samples')).toEqual([{ check: "web", at: T0 }]);
+		expect(await all('SELECT "check", "to" FROM events')).toEqual([{ check: "web", to: "down" }]);
+		expect(await all('SELECT "check" FROM daily')).toEqual([{ check: "web" }]);
+		expect(box.subjects).toEqual(["DOWN: Web"]);
+	});
+
+	it("writes the same rows as before when every probe finishes in time", async () => {
+		const run = async (squeezed: boolean) => {
+			await reset();
+			const { runEnv, box } = mailbox();
+			await tick(runEnv, config, T0, squeezed ? tight(T0) : T0, serve(500, false));
+			vi.restoreAllMocks();
+			return { ...(await dump()), subjects: box.subjects };
+		};
+		const unbounded = await run(false);
+		expect(await run(true)).toEqual(unbounded);
+		expect(unbounded.events).toHaveLength(2);
+	});
+
+	it("flags only the check whose probe keeps outliving the run", async () => {
+		const { runEnv, box } = mailbox();
+		const hung = (t: number) => tick(runEnv, config, t, tight(t), serve(200, true));
+		for (let k = 0; k <= 3; k++) await hung(T0 + k * MINUTE);
+		expect(box.subjects).toEqual([]);
+		await hung(T0 + 4 * MINUTE);
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Slow"]);
+		expect(await all("SELECT avail, last_conclusive FROM state WHERE \"check\" = 'web'")).toEqual([
+			{ avail: 1, last_conclusive: T0 + 4 * MINUTE },
+		]);
+	});
+
+	it("starts no queued probe once the deadline has passed", async () => {
+		const { runEnv } = mailbox();
+		const late = Array.from({ length: 6 }, (_, i) => ({ ...slow, id: `s${i}`, name: `S${i}` }));
+		const queued = { ...web, id: "queued", name: "Queued", url: "https://queued.example.com/" };
+		let release = () => {};
+		const gate = new Promise<void>((r) => (release = r));
+		const calls = { queued: 0 };
+		const fetch = (async (input: RequestInfo | URL) => {
+			if (String(input).includes("queued")) calls.queued++;
+			else await gate;
+			return new Response("", { status: 200 });
+		}) as typeof globalThis.fetch;
+		await tick(runEnv, makeConfig([...late, queued]), T0, tight(T0), fetch);
+		release();
+		await new Promise((r) => setTimeout(r, 50));
+		expect(calls.queued).toBe(0);
+		expect(await all("SELECT reason FROM state WHERE \"check\" = 'queued'")).toEqual([
+			{ reason: "probe outlived the run" },
+		]);
+	});
+
+	it("gives a run that starts past its nominal deadline a minimum budget", async () => {
+		const { runEnv } = mailbox();
+		await tick(runEnv, makeConfig([{ ...web, down_after: 1 }]), T0, T0 + 55_000, respond(500));
+		expect(await all("SELECT avail, last_conclusive, reason FROM state")).toEqual([
+			{ avail: 0, last_conclusive: T0, reason: "HTTP 500" },
+		]);
+	});
+
+	it("cuts a longer-interval probe at the shortest interval's deadline", async () => {
+		const { runEnv } = mailbox();
+		const fetch = (async (input: RequestInfo | URL) => {
+			if (String(input).includes("slow")) await new Promise((r) => setTimeout(r, 1000));
+			return new Response("", { status: 500 });
+		}) as typeof globalThis.fetch;
+		await tick(
+			runEnv,
+			makeConfig([
+				{ ...web, down_after: 1 },
+				{ ...slow, every: "5m" },
+			]),
+			T0,
+			tight(T0),
+			fetch,
+		);
+		expect(await all('SELECT "check", avail, reason FROM state ORDER BY "check"')).toEqual([
+			{ check: "slow", avail: 1, reason: "probe outlived the run" },
+			{ check: "web", avail: 0, reason: "HTTP 500" },
+		]);
 	});
 });
 
@@ -164,10 +281,10 @@ describe("hysteresis", () => {
 	it("records the transition, event and mail in one tick", async () => {
 		const { runEnv, box } = mailbox();
 		const config = makeConfig();
-		for (const i of [0, 1]) await tick(runEnv, config, T0 + i * MINUTE, respond(500));
+		for (const i of [0, 1]) await tick(runEnv, config, T0 + i * MINUTE, T0 + i * MINUTE, respond(500));
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
 		expect(box.sends).toBe(0);
-		await tick(runEnv, config, T0 + 2 * MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(500));
 		expect(await all("SELECT avail, reason FROM state")).toEqual([{ avail: 0, reason: "HTTP 500" }]);
 		expect(await all(`SELECT "from", "to" FROM events`)).toEqual([{ from: "up", to: "down" }]);
 		expect(box.sends).toBe(1);
@@ -182,32 +299,32 @@ describe("outbox", () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
 		await env.DB.prepare(`CREATE TRIGGER boom BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
-		await expect(tick(runEnv, downAfterOne, T0, respond(500))).rejects.toThrow();
+		await expect(tick(runEnv, downAfterOne, T0, T0, respond(500))).rejects.toThrow();
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
 		expect(await all("SELECT * FROM samples")).toEqual([]);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 
 		await env.DB.prepare(`DROP TRIGGER boom`).run();
-		await tick(runEnv, downAfterOne, T0 + MINUTE, respond(500));
+		await tick(runEnv, downAfterOne, T0 + MINUTE, T0 + MINUTE, respond(500));
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 0 }]);
 		expect(await all("SELECT kind FROM outbox")).toEqual([{ kind: "down" }]);
 	});
 
 	it("coalesces a backlog into one mail", async () => {
 		const { runEnv, box } = mailbox();
-		await tick(runEnv, downAfterOne, T0, respond(200));
+		await tick(runEnv, downAfterOne, T0, T0, respond(200));
 		await env.DB.batch([
 			env.DB.prepare(`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', 1, 'down', 0, 'HTTP 500')`),
 			env.DB.prepare(`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', 2, 'up', 1, NULL)`),
 		]);
-		await tick(runEnv, downAfterOne, T0 + MINUTE, respond(200));
+		await tick(runEnv, downAfterOne, T0 + MINUTE, T0 + MINUTE, respond(200));
 		expect(box.sends).toBe(1);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 	});
 
 	it("mails each key of one check separately", async () => {
 		const { runEnv, box } = mailbox();
-		await tick(runEnv, downAfterOne, T0, respond(200));
+		await tick(runEnv, downAfterOne, T0, T0, respond(200));
 		await env.DB.batch(
 			["a", "b"].map((k) =>
 				env.DB.prepare(
@@ -215,19 +332,19 @@ describe("outbox", () => {
 				).bind(k),
 			),
 		);
-		await tick(runEnv, downAfterOne, T0 + MINUTE, respond(200));
+		await tick(runEnv, downAfterOne, T0 + MINUTE, T0 + MINUTE, respond(200));
 		expect(box.sends).toBe(2);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 	});
 
 	it("drains a row inserted without a key, as v0.1.0 wrote it", async () => {
 		const { runEnv, box } = mailbox();
-		await tick(runEnv, downAfterOne, T0, respond(200));
+		await tick(runEnv, downAfterOne, T0, T0, respond(200));
 		await env.DB.prepare(
 			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', 1, 'down', 0, 'HTTP 500')`,
 		).run();
 		expect(await all(`SELECT "key" FROM outbox`)).toEqual([{ key: "" }]);
-		await tick(runEnv, downAfterOne, T0 + MINUTE, respond(200));
+		await tick(runEnv, downAfterOne, T0 + MINUTE, T0 + MINUTE, respond(200));
 		expect(box.sends).toBe(1);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 	});
@@ -237,7 +354,10 @@ describe("outbox", () => {
 		await env.DB.prepare(
 			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', 1, 'down', 0, 'HTTP 500')`,
 		).run();
-		await Promise.all([tick(runEnv, makeConfig(), T0, respond(200)), tick(runEnv, makeConfig(), T0, respond(200))]);
+		await Promise.all([
+			tick(runEnv, makeConfig(), T0, T0, respond(200)),
+			tick(runEnv, makeConfig(), T0, T0, respond(200)),
+		]);
 		expect(box.sends).toBe(1);
 	});
 
@@ -292,22 +412,22 @@ describe("outbox", () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
 		const config = makeConfig();
-		await tick(runEnv, config, T0, respond(200));
+		await tick(runEnv, config, T0, T0, respond(200));
 		await env.DB.prepare(
 			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', ${T0}, 'down', 0, 'x')`,
 		).run();
-		for (let i = 1; i <= 9; i++) await tick(runEnv, config, T0 + i * MINUTE, respond(200));
+		for (let i = 1; i <= 9; i++) await tick(runEnv, config, T0 + i * MINUTE, T0 + i * MINUTE, respond(200));
 		expect(await all("SELECT attempts, dead FROM outbox")).toEqual([{ attempts: 9, dead: 0 }]);
 		const alive = await status(env.DB, config, T0 + 9 * MINUTE);
 		expect(alive).toMatchObject({ outbox_oldest_unsent_at: new Date(T0).toISOString(), dead_outbox: 0 });
-		await tick(runEnv, config, T0 + 10 * MINUTE, respond(200));
+		await tick(runEnv, config, T0 + 10 * MINUTE, T0 + 10 * MINUTE, respond(200));
 		expect(await all("SELECT attempts, dead FROM outbox")).toEqual([{ attempts: 10, dead: 1 }]);
 		const dead = await status(env.DB, config, T0 + 10 * MINUTE);
 		expect(dead).toMatchObject({ outbox_oldest_unsent_at: null, dead_outbox: 1 });
-		await tick(runEnv, config, T0 + 11 * MINUTE, respond(200));
+		await tick(runEnv, config, T0 + 11 * MINUTE, T0 + 11 * MINUTE, respond(200));
 		expect(box.sends).toBe(10);
 		expect(await status(env.DB, config, T0 + 11 * MINUTE)).toMatchObject({ dead_outbox: 1 });
-		await tick(runEnv, config, T0 + 24 * 60 * MINUTE + MINUTE, respond(200));
+		await tick(runEnv, config, T0 + 24 * 60 * MINUTE + MINUTE, T0 + 24 * 60 * MINUTE + MINUTE, respond(200));
 		expect(await status(env.DB, config, T0 + 24 * 60 * MINUTE + MINUTE)).toMatchObject({ dead_outbox: 0 });
 	});
 });
@@ -321,13 +441,13 @@ describe("routing", () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
 		const config = makeConfig([routed]);
-		await tick(runEnv, config, T0, respond(500));
+		await tick(runEnv, config, T0, T0, respond(500));
 		expect(await rows()).toEqual(team.map((to) => ({ to, kind: "down" })));
 		box.failing = false;
 		box.to.length = 0;
 		box.subjects.length = 0;
-		await tick(runEnv, config, T0 + MINUTE, respond(500));
-		await tick(runEnv, config, T0 + 2 * MINUTE, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(200));
 		expect(box.to).toEqual([...team, ...team]);
 		expect(box.subjects).toEqual(["DOWN: Web", "DOWN: Web", "UP: Web", "UP: Web"]);
 		expect(await rows()).toEqual([]);
@@ -335,7 +455,7 @@ describe("routing", () => {
 
 	it("takes one address as a string", async () => {
 		const { runEnv, box } = mailbox();
-		await tick(runEnv, makeConfig([{ ...routed, to: "ops@example.com" }]), T0, respond(500));
+		await tick(runEnv, makeConfig([{ ...routed, to: "ops@example.com" }]), T0, T0, respond(500));
 		expect(box.to).toEqual(["ops@example.com"]);
 	});
 
@@ -343,10 +463,10 @@ describe("routing", () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
 		const config = makeConfig([{ ...web, down_after: 1 }]);
-		await tick(runEnv, config, T0, respond(500));
+		await tick(runEnv, config, T0, T0, respond(500));
 		expect(await rows()).toEqual([{ to: "", kind: "down" }]);
 		box.failing = false;
-		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
 		expect(box.to).toEqual(["oncall@example.com", "oncall@example.com"]);
 		expect(await rows()).toEqual([]);
 	});
@@ -357,6 +477,7 @@ describe("routing", () => {
 		await tick(
 			runEnv,
 			makeConfig([routed, other, { ...web, id: "www", name: "WWW", down_after: 1 }]),
+			T0,
 			T0,
 			respond(500),
 		);
@@ -372,14 +493,14 @@ describe("routing", () => {
 		const { runEnv, box } = mailbox();
 		box.failFor.add("b@example.com");
 		const config = makeConfig([routed]);
-		await tick(runEnv, config, T0, respond(500));
+		await tick(runEnv, config, T0, T0, respond(500));
 		expect(box.to).toEqual(team);
 		expect(await all(`SELECT "to", attempts, dead FROM outbox`)).toEqual([
 			{ to: "b@example.com", attempts: 1, dead: 0 },
 		]);
-		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
 		box.failFor.clear();
-		await tick(runEnv, config, T0 + 2 * MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(500));
 		expect(box.to).toEqual([...team, "b@example.com", "b@example.com"]);
 		expect(await rows()).toEqual([]);
 	});
@@ -392,7 +513,7 @@ describe("routing", () => {
 			{ ...routed, down_after: 3 },
 			{ ...cert, every: "1m", to: team },
 		]);
-		for (let k = 0; k <= 4; k++) await tick(runEnv, config, T0 + k * MINUTE, respond(200));
+		for (let k = 0; k <= 4; k++) await tick(runEnv, config, T0 + k * MINUTE, T0 + k * MINUTE, respond(200));
 		await watch(runEnv, config, T0 + 10 * MINUTE);
 		expect(box.subjects).toEqual([
 			`DEPLOYED: tower ${pkg.version}`,
@@ -406,9 +527,9 @@ describe("routing", () => {
 	it("moves pending mail from a corrected address to the new one", async () => {
 		const { runEnv, box } = mailbox();
 		box.failFor.add("opz@example.com");
-		await tick(runEnv, makeConfig([{ ...routed, to: ["opz@example.com"] }]), T0, respond(500));
+		await tick(runEnv, makeConfig([{ ...routed, to: ["opz@example.com"] }]), T0, T0, respond(500));
 		expect(await rows()).toEqual([{ to: "opz@example.com", kind: "down" }]);
-		await tick(runEnv, makeConfig([{ ...routed, to: ["ops@example.com"] }]), T0 + MINUTE, respond(500));
+		await tick(runEnv, makeConfig([{ ...routed, to: ["ops@example.com"] }]), T0 + MINUTE, T0 + MINUTE, respond(500));
 		expect(box.subjects.map((s, i) => `${s} -> ${box.to[i]}`)).toEqual([
 			"DOWN: Web -> opz@example.com",
 			"DOWN: Web -> ops@example.com",
@@ -419,17 +540,23 @@ describe("routing", () => {
 	it("moves pending mail from a removed address to the addresses that lack it, then to alert.to", async () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
-		await tick(runEnv, makeConfig([routed]), T0, respond(500));
-		await tick(runEnv, makeConfig([{ ...routed, to: ["a@example.com", "c@example.com"] }]), T0 + MINUTE, respond(500));
+		await tick(runEnv, makeConfig([routed]), T0, T0, respond(500));
+		await tick(
+			runEnv,
+			makeConfig([{ ...routed, to: ["a@example.com", "c@example.com"] }]),
+			T0 + MINUTE,
+			T0 + MINUTE,
+			respond(500),
+		);
 		expect(await rows()).toEqual([
 			{ to: "a@example.com", kind: "down" },
 			{ to: "c@example.com", kind: "down" },
 		]);
-		await tick(runEnv, makeConfig([{ ...web, down_after: 1 }]), T0 + 2 * MINUTE, respond(500));
+		await tick(runEnv, makeConfig([{ ...web, down_after: 1 }]), T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(500));
 		expect(await rows()).toEqual([{ to: "", kind: "down" }]);
 		box.failing = false;
 		box.to.length = 0;
-		await tick(runEnv, makeConfig([{ ...web, down_after: 1 }]), T0 + 3 * MINUTE, respond(500));
+		await tick(runEnv, makeConfig([{ ...web, down_after: 1 }]), T0 + 3 * MINUTE, T0 + 3 * MINUTE, respond(500));
 		expect(box.to).toEqual(["oncall@example.com"]);
 	});
 
@@ -437,8 +564,14 @@ describe("routing", () => {
 		const { runEnv, box } = mailbox();
 		box.failFor.add("opz@example.com");
 		const typo = makeConfig([{ ...routed, to: ["opz@example.com"] }]);
-		for (let k = 0; k < 10; k++) await tick(runEnv, typo, T0 + k * MINUTE, respond(500));
-		await tick(runEnv, makeConfig([{ ...routed, to: ["ops@example.com"] }]), T0 + 10 * MINUTE, respond(500));
+		for (let k = 0; k < 10; k++) await tick(runEnv, typo, T0 + k * MINUTE, T0 + k * MINUTE, respond(500));
+		await tick(
+			runEnv,
+			makeConfig([{ ...routed, to: ["ops@example.com"] }]),
+			T0 + 10 * MINUTE,
+			T0 + 10 * MINUTE,
+			respond(500),
+		);
 		expect(box.to).not.toContain("ops@example.com");
 		expect(await all(`SELECT "to", dead FROM outbox`)).toEqual([{ to: "opz@example.com", dead: 1 }]);
 	});
@@ -450,7 +583,7 @@ describe("pruning", () => {
 		box.failing = true;
 		const hash = "a".repeat(64);
 		const relays = [{ id: "alerts", name: "Alerts", token_sha256: hash }];
-		await tick(runEnv, makeConfig([web], { relays }), T0, respond(200));
+		await tick(runEnv, makeConfig([web], { relays }), T0, T0, respond(200));
 		await env.DB.batch([
 			env.DB.prepare(
 				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('alerts', 'k', ?1, 'firing', 0, 'x')`,
@@ -468,7 +601,7 @@ describe("pruning", () => {
 				`INSERT INTO relay_keys (relay, "key", title, since, seen) VALUES ('ghost', 'k', 't', ?1, ?1)`,
 			).bind(T0),
 		]);
-		await tick(runEnv, makeConfig([web], { relays }), T0 + MINUTE, respond(200));
+		await tick(runEnv, makeConfig([web], { relays }), T0 + MINUTE, T0 + MINUTE, respond(200));
 		expect(await all(`SELECT "check" FROM outbox ORDER BY "check"`)).toEqual([{ check: "" }, { check: "alerts" }]);
 		expect(await all(`SELECT relay FROM relay_keys`)).toEqual([{ relay: "alerts" }]);
 	});
@@ -476,14 +609,14 @@ describe("pruning", () => {
 	it("drops every row of a check removed from the config", async () => {
 		const { runEnv } = mailbox();
 		const gone = { ...web, id: "gone", name: "Gone", down_after: 1 };
-		await tick(runEnv, makeConfig([web, gone]), T0, respond(500));
+		await tick(runEnv, makeConfig([web, gone]), T0, T0, respond(500));
 		for (const table of ["state", "samples", "daily"]) {
 			expect(await all(`SELECT * FROM ${table} WHERE "check" = 'gone'`)).toHaveLength(1);
 		}
 		await env.DB.prepare(
 			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('gone', 1, 'down', 0, 'x')`,
 		).run();
-		await tick(runEnv, makeConfig([web]), T0 + MINUTE, respond(200));
+		await tick(runEnv, makeConfig([web]), T0 + MINUTE, T0 + MINUTE, respond(200));
 		for (const table of ["state", "samples", "daily", "events", "outbox"]) {
 			expect(await all(`SELECT * FROM ${table} WHERE "check" = 'gone'`)).toEqual([]);
 		}
@@ -493,13 +626,13 @@ describe("pruning", () => {
 	it("keeps samples for 24 hours and daily rows and events for 90 days", async () => {
 		const { runEnv } = mailbox();
 		const config = makeConfig([web]);
-		await tick(runEnv, config, T0, respond(200));
+		await tick(runEnv, config, T0, T0, respond(200));
 		await env.DB.prepare(`INSERT INTO events ("check", at, "from", "to") VALUES ('web', ?1, 'up', 'down')`)
 			.bind(T0)
 			.run();
-		await tick(runEnv, config, T0 + 25 * 3_600_000, respond(200));
+		await tick(runEnv, config, T0 + 25 * 3_600_000, T0 + 25 * 3_600_000, respond(200));
 		expect(await all("SELECT at FROM samples")).toEqual([{ at: T0 + 25 * 3_600_000 }]);
-		await tick(runEnv, config, T0 + 91 * 86_400_000, respond(200));
+		await tick(runEnv, config, T0 + 91 * 86_400_000, T0 + 91 * 86_400_000, respond(200));
 		expect(await all("SELECT day FROM daily")).toEqual([{ day: "2026-10-09" }, { day: "2027-01-07" }]);
 		expect(await all("SELECT * FROM events")).toEqual([]);
 	});

@@ -40,13 +40,13 @@ describe("tcp", () => {
 	it("goes down on a refused connection and recovers", async () => {
 		const { runEnv, box } = mailbox();
 		const config = makeConfig([tcp]);
-		await tick(runEnv, config, T0, noFetch, reachable);
+		await tick(runEnv, config, T0, T0, noFetch, reachable);
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
-		await tick(runEnv, config, T0 + MINUTE, noFetch, refused);
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, noFetch, refused);
 		expect(await all("SELECT avail, reason FROM state")).toEqual([
 			{ avail: 0, reason: "connect failed: connection refused" },
 		]);
-		await tick(runEnv, config, T0 + 2 * MINUTE, noFetch, reachable);
+		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, noFetch, reachable);
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
 		expect(box.sends).toBe(2);
 		expect(closed).toBe(3);
@@ -54,13 +54,13 @@ describe("tcp", () => {
 
 	it("fails a connection that never opens at the timeout", async () => {
 		const { runEnv } = mailbox();
-		await tick(runEnv, makeConfig([tcp], { timeout_ms: 1000 }), T0, noFetch, silent);
+		await tick(runEnv, makeConfig([tcp], { timeout_ms: 1000 }), T0, T0, noFetch, silent);
 		expect(await all("SELECT avail, reason FROM state")).toEqual([{ avail: 0, reason: "timeout" }]);
 	});
 
 	it("reads a platform-blocked address as down with its reason", async () => {
 		const { runEnv } = mailbox();
-		await tick(runEnv, makeConfig([tcp]), T0, noFetch, blocked);
+		await tick(runEnv, makeConfig([tcp]), T0, T0, noFetch, blocked);
 		expect(await all("SELECT avail, config_error, reason FROM state")).toEqual([
 			{ avail: 0, config_error: 0, reason: "connect failed: Connections to port 25 are prohibited" },
 		]);
@@ -85,7 +85,7 @@ describe("dns", () => {
 		let t = T0;
 		const run = async (f: typeof fetch) => {
 			t += MINUTE;
-			await tick(runEnv, config, t, f);
+			await tick(runEnv, config, t, t, f);
 		};
 		await run(resolver(answer));
 		for (const [body, reason] of [
@@ -104,14 +104,14 @@ describe("dns", () => {
 	it("is inconclusive when the resolver cannot be reached", async () => {
 		const { runEnv, box } = mailbox();
 		const config = makeConfig([record]);
-		await tick(runEnv, config, T0, resolver(answer));
+		await tick(runEnv, config, T0, T0, resolver(answer));
 		const failing = [
 			noFetch,
 			resolver(503),
 			(async () => new Response("<html>", { status: 200 })) as typeof fetch,
 			noFetch,
 		];
-		for (const [i, f] of failing.entries()) await tick(runEnv, config, T0 + (i + 1) * MINUTE, f);
+		for (const [i, f] of failing.entries()) await tick(runEnv, config, T0 + (i + 1) * MINUTE, T0 + (i + 1) * MINUTE, f);
 		expect(await all("SELECT avail, fails, last_conclusive, last_run FROM state")).toEqual([
 			{ avail: 1, fails: 0, last_conclusive: T0, last_run: T0 + 4 * MINUTE },
 		]);
@@ -123,10 +123,10 @@ describe("dns", () => {
 	it("checks the expected answer", async () => {
 		const { runEnv } = mailbox();
 		const config = makeConfig([{ ...record, expect: "192.0.2.9" }]);
-		await tick(runEnv, config, T0, resolver(answer));
+		await tick(runEnv, config, T0, T0, resolver(answer));
 		expect(await all("SELECT avail, reason FROM state")).toEqual([{ avail: 0, reason: "answer mismatch" }]);
 		const match = makeConfig([{ ...record, expect: "192.0.2.1" }]);
-		await tick(runEnv, match, T0 + MINUTE, resolver(answer));
+		await tick(runEnv, match, T0 + MINUTE, T0 + MINUTE, resolver(answer));
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
 	});
 });
@@ -166,7 +166,7 @@ function cloudflare(result: object[] | number, zones: object[] = [{ id: "zone1" 
 async function tls(packs: object[] | number, t = T0, extra: object = {}) {
 	const { runEnv } = mailbox();
 	const api = cloudflare(packs);
-	await tick({ ...runEnv, CF_API_TOKEN: "tok", ...extra }, makeConfig([cert]), t, api.fetch);
+	await tick({ ...runEnv, CF_API_TOKEN: "tok", ...extra }, makeConfig([cert]), t, t, api.fetch);
 	return { api, state: (await all("SELECT avail, degraded, config_error, reason FROM state"))[0] };
 }
 
@@ -181,8 +181,8 @@ describe("tls", () => {
 		const { runEnv } = mailbox();
 		const api = cloudflare([pack("universal", ["*.example.com"], 60)]);
 		const env = { ...runEnv, CF_API_TOKEN: "tok" };
-		await tick(env, makeConfig([{ ...cert, every: "1m" }]), T0, api.fetch);
-		await tick(env, makeConfig([{ ...cert, every: "1m" }]), T0 + MINUTE, api.fetch);
+		await tick(env, makeConfig([{ ...cert, every: "1m" }]), T0, T0, api.fetch);
+		await tick(env, makeConfig([{ ...cert, every: "1m" }]), T0 + MINUTE, T0 + MINUTE, api.fetch);
 		expect(api.calls.filter((c) => c.url.includes("/zones?name="))).toHaveLength(1);
 		expect(await all("SELECT value FROM meta WHERE key = 'zone:example.com'")).toEqual([{ value: "zone1" }]);
 	});
@@ -245,7 +245,13 @@ describe("tls", () => {
 		const days = [20, 14, 5, 80];
 		const degraded = [0, 1, 1, 0];
 		for (const [i, left] of days.entries()) {
-			await tick(env, config, T0 + i * MINUTE, cloudflare([pack("universal", ["www.example.com"], left)]).fetch);
+			await tick(
+				env,
+				config,
+				T0 + i * MINUTE,
+				T0 + i * MINUTE,
+				cloudflare([pack("universal", ["www.example.com"], left)]).fetch,
+			);
 			expect(await all("SELECT avail, degraded FROM state")).toEqual([{ avail: 1, degraded: degraded[i] }]);
 			if (i === 2) expect((await status(runEnv.DB, config, T0 + i * MINUTE)).checks[0].status).toBe("degraded");
 		}
@@ -255,7 +261,7 @@ describe("tls", () => {
 	it("treats a scope error as a config error and mails only the token self-check", async () => {
 		for (const code of [401, 403]) {
 			const { runEnv, box } = mailbox();
-			await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, cloudflare(code).fetch);
+			await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, T0, cloudflare(code).fetch);
 			expect(await all("SELECT avail, config_error, last_conclusive FROM state")).toEqual([
 				{ avail: 1, config_error: 1, last_conclusive: null },
 			]);
@@ -268,7 +274,7 @@ describe("tls", () => {
 		expect((await tls([], T0, { CF_API_TOKEN: undefined })).state).toMatchObject({ config_error: 1 });
 		await reset();
 		const { runEnv } = mailbox();
-		await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, cloudflare([], []).fetch);
+		await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, T0, cloudflare([], []).fetch);
 		expect(await all("SELECT config_error FROM state")).toEqual([{ config_error: 1 }]);
 	});
 
@@ -279,7 +285,7 @@ describe("tls", () => {
 			String(input).includes("api.cloudflare.com")
 				? Response.json({ success: true, result: null })
 				: new Response("ok")) as typeof fetch;
-		await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0, fetcher);
+		await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0, T0, fetcher);
 		expect(await all(`SELECT "check", last_run FROM state ORDER BY "check"`)).toEqual([
 			{ check: "cert", last_run: T0 },
 			{ check: "web", last_run: T0 },
@@ -289,7 +295,7 @@ describe("tls", () => {
 	it("is inconclusive on an API outage and leaves the state alone", async () => {
 		for (const f of [noFetch, cloudflare(502).fetch]) {
 			const { runEnv, box } = mailbox();
-			await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, f);
+			await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, T0, f);
 			expect(await all("SELECT avail, config_error, last_conclusive FROM state")).toEqual([
 				{ avail: 1, config_error: 0, last_conclusive: null },
 			]);
@@ -302,10 +308,16 @@ describe("tls", () => {
 		const { runEnv, box } = mailbox();
 		const env = { ...runEnv, CF_API_TOKEN: "tok" };
 		const config = makeConfig([{ ...cert, every: "1m" }]);
-		await tick(env, config, T0, cloudflare([pack("universal", ["www.example.com"], 60)]).fetch);
-		await tick(env, config, T0 + MINUTE, cloudflare([pack("universal", ["www.example.com"], -1)]).fetch);
+		await tick(env, config, T0, T0, cloudflare([pack("universal", ["www.example.com"], 60)]).fetch);
+		await tick(env, config, T0 + MINUTE, T0 + MINUTE, cloudflare([pack("universal", ["www.example.com"], -1)]).fetch);
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 0 }]);
-		await tick(env, config, T0 + 2 * MINUTE, cloudflare([pack("universal", ["www.example.com"], 60)]).fetch);
+		await tick(
+			env,
+			config,
+			T0 + 2 * MINUTE,
+			T0 + 2 * MINUTE,
+			cloudflare([pack("universal", ["www.example.com"], 60)]).fetch,
+		);
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
 		expect(box.sends).toBe(2);
 	});

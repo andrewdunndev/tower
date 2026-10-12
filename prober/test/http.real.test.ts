@@ -12,7 +12,7 @@ describe("http over the real fetch", () => {
 			...parsed,
 			checks: parsed.checks.map((c) => ({ ...c, url: `http://127.0.0.1:${inject("httpPort")}/` })),
 		} as typeof parsed;
-		await tick(runEnv, config, T0);
+		await tick(runEnv, config, T0, T0);
 		expect(await all("SELECT avail, fails, reason FROM state")).toEqual([{ avail: 1, fails: 0, reason: null }]);
 		expect(await all("SELECT ok FROM samples")).toEqual([{ ok: 1 }]);
 	});

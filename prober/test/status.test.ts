@@ -28,9 +28,9 @@ describe("status", () => {
 	it("reports uptime, latency and an incident from recorded runs", async () => {
 		const { runEnv } = mailbox();
 		const config = makeConfig([{ ...web, down_after: 1, up_after: 1 }]);
-		await tick(runEnv, config, T0, respond(200));
-		await tick(runEnv, config, T0 + MINUTE, respond(500));
-		await tick(runEnv, config, T0 + 2 * MINUTE, respond(200));
+		await tick(runEnv, config, T0, T0, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(200));
 		await env.DB.batch(
 			[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].map((ms) =>
 				env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, ?2, 1)`).bind(T0 + ms, ms),
@@ -55,7 +55,7 @@ describe("status", () => {
 
 	it("turns unknown and stuck when no run lands within 3 intervals plus a minute", async () => {
 		const { runEnv } = mailbox();
-		await tick(runEnv, makeConfig(), T0, respond(200));
+		await tick(runEnv, makeConfig(), T0, T0, respond(200));
 		for (const gap of [182_000, 4 * MINUTE]) {
 			const s = await status(env.DB, makeConfig(), T0 + gap);
 			expect([s.checks[0].status, s.stuck]).toEqual(["up", 0]);
@@ -71,10 +71,10 @@ describe("status", () => {
 			await new Promise((r) => setTimeout(r, 30));
 			return new Response("", { status: 200 });
 		}) as typeof fetch;
-		for (let i = 0; i < 3; i++) await tick(runEnv, config, T0 + i * MINUTE, slow);
-		await tick(runEnv, config, T0 + 3 * MINUTE, respond(200));
+		for (let i = 0; i < 3; i++) await tick(runEnv, config, T0 + i * MINUTE, T0 + i * MINUTE, slow);
+		await tick(runEnv, config, T0 + 3 * MINUTE, T0 + 3 * MINUTE, respond(200));
 		expect((await status(env.DB, config, T0 + 3 * MINUTE)).checks[0].status).toBe("degraded");
-		for (let i = 4; i < 6; i++) await tick(runEnv, config, T0 + i * MINUTE, respond(200));
+		for (let i = 4; i < 6; i++) await tick(runEnv, config, T0 + i * MINUTE, T0 + i * MINUTE, respond(200));
 		expect((await status(env.DB, config, T0 + 5 * MINUTE)).checks[0].status).toBe("up");
 	});
 
@@ -83,7 +83,7 @@ describe("status", () => {
 		const hidden = { ...web, id: "hid-1", name: "Hidden", public: false, down_after: 1 };
 		const config = makeConfig([web, hidden]);
 		expect((await status(env.DB, config, T0)).stuck).toBe(1);
-		await tick(runEnv, config, T0, respond(500));
+		await tick(runEnv, config, T0, T0, respond(500));
 		const s = await status(env.DB, config, T0);
 		expect(s.checks.map((c) => c.name)).toEqual(["Web"]);
 		expect(JSON.stringify(s)).not.toContain("Hidden");

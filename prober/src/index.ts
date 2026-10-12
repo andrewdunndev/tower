@@ -1,3 +1,4 @@
+import { connect } from "cloudflare:sockets";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import config from "../../.tower/tower.json";
 import type { Instance } from "../../tools/schema.ts";
@@ -33,6 +34,6 @@ export class Tower extends WorkerEntrypoint<Env> {
 
 export default {
 	async scheduled(controller, env) {
-		await tick(env, instance, controller.scheduledTime);
+		await tick(env, instance, controller.scheduledTime, Date.now(), fetch, connect);
 	},
 } satisfies ExportedHandler<Env>;
