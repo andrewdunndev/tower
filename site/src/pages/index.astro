@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import Check from '../figures/02-check.astro';
+import Names from '../figures/03-names.astro';
 import Ov1 from '../figures/07-ov1.astro';
 import Hero from '@dunn.dev/reference/chrome/Hero.astro';
 import Split from '@dunn.dev/reference/chrome/Split.astro';
@@ -52,12 +53,6 @@ const rows = [
     </figure>
   </section>
 
-  <section class="section flow" id="what-it-is">
-    <SectionLabel label="What it is" />
-    <p class="section-prose">tower runs on Cloudflare, which hosts small programs, called Workers, on its network, so nothing watches your services from a server you maintain.</p>
-    <p class="section-prose">Two Workers do the work. The prober runs on a timer each minute, checks your services and keeps the history in a database. The page Worker shows the result to anyone who visits and holds no secrets of its own.</p>
-  </section>
-
   <section class="section" id="how-it-works">
     <SectionLabel label="How it works" />
     <div class="tile-grid">
@@ -83,9 +78,12 @@ const rows = [
     </Split>
   </section>
 
-  <section class="section flow" id="page">
+  <section class="section" id="page">
     <SectionLabel label="What the page shows" />
-    <p class="section-prose">The public page shows names only: each public check with its status, how long it has held it, uptime and response times. Addresses, ports and failure reasons stay in the prober, and a reason reaches only the alert mail and the log. A check that has not run recently reads as unknown, so a stopped timer cannot leave a green page.</p>
+    <figure class="cat-explainer figure-pair">
+      <Names />
+      <p>The public page shows names only: each public check with its status, how long it has held it, uptime and response times. Addresses, ports and failure reasons stay in the prober, and a reason reaches only the alert mail and the log. A check that has not run recently reads as unknown, so a stopped timer cannot leave a green page.</p>
+    </figure>
   </section>
 
   <section class="section" id="next">
