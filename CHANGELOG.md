@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 (2026-10-12)
+
+- Checks and relays take an optional `to`, one address or up to 5, in place of `alert.to`. It routes `DOWN`, `UP`, `FIRING`, `RESOLVED`, `STOPPED REPORTING` and `ALERTS`, one mail per address, each retried on its own. Deploy, digest and self-check mail stay on `alert.to`. Unsent mail to a removed address moves to the current route.
+- Migration 0003 adds `outbox.to`. Rolling back to 0.3.2 ignores it and sends pending routed alerts to `alert.to`.
+
 ## 0.3.3 (2026-10-12)
 
 - Self-checks allow a minute of cron slack: an uneven or skipped Cloudflare cron tick no longer mails `SELF-CHECK OK: probing resumed`, and stalled, stuck and database-writes alarms wait three intervals plus a minute.

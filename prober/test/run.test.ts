@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { drain, type RunEnv, step, tick } from "../src/run.ts";
+import pkg from "../../package.json";
+import { drain, type RunEnv, step, tick, watch } from "../src/run.ts";
 import { status } from "../src/status.ts";
 import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
 
@@ -308,6 +309,138 @@ describe("outbox", () => {
 		expect(await status(env.DB, config, T0 + 11 * MINUTE)).toMatchObject({ dead_outbox: 1 });
 		await tick(runEnv, config, T0 + 24 * 60 * MINUTE + MINUTE, respond(200));
 		expect(await status(env.DB, config, T0 + 24 * 60 * MINUTE + MINUTE)).toMatchObject({ dead_outbox: 0 });
+	});
+});
+
+describe("routing", () => {
+	const team = ["a@example.com", "b@example.com"];
+	const routed = { ...web, down_after: 1, up_after: 1, to: team };
+	const rows = () => all(`SELECT "to", kind FROM outbox ORDER BY rowid`);
+
+	it("writes one row per address and mails each of them DOWN and UP", async () => {
+		const { runEnv, box } = mailbox();
+		box.failing = true;
+		const config = makeConfig([routed]);
+		await tick(runEnv, config, T0, respond(500));
+		expect(await rows()).toEqual(team.map((to) => ({ to, kind: "down" })));
+		box.failing = false;
+		box.to.length = 0;
+		box.subjects.length = 0;
+		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 2 * MINUTE, respond(200));
+		expect(box.to).toEqual([...team, ...team]);
+		expect(box.subjects).toEqual(["DOWN: Web", "DOWN: Web", "UP: Web", "UP: Web"]);
+		expect(await rows()).toEqual([]);
+	});
+
+	it("takes one address as a string", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, makeConfig([{ ...routed, to: "ops@example.com" }]), T0, respond(500));
+		expect(box.to).toEqual(["ops@example.com"]);
+	});
+
+	it("writes one row for an unrouted check and mails alert.to", async () => {
+		const { runEnv, box } = mailbox();
+		box.failing = true;
+		const config = makeConfig([{ ...web, down_after: 1 }]);
+		await tick(runEnv, config, T0, respond(500));
+		expect(await rows()).toEqual([{ to: "", kind: "down" }]);
+		box.failing = false;
+		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		expect(box.to).toEqual(["oncall@example.com", "oncall@example.com"]);
+		expect(await rows()).toEqual([]);
+	});
+
+	it("routes each check to its own addresses", async () => {
+		const { runEnv, box } = mailbox();
+		const other = { ...web, id: "api", name: "API", down_after: 1, to: "api@example.com" };
+		await tick(
+			runEnv,
+			makeConfig([routed, other, { ...web, id: "www", name: "WWW", down_after: 1 }]),
+			T0,
+			respond(500),
+		);
+		expect(box.subjects.map((s, i) => `${s} -> ${box.to[i]}`).sort()).toEqual([
+			"DOWN: API -> api@example.com",
+			"DOWN: WWW -> oncall@example.com",
+			"DOWN: Web -> a@example.com",
+			"DOWN: Web -> b@example.com",
+		]);
+	});
+
+	it("retries a failed address alone and does not mail the others again", async () => {
+		const { runEnv, box } = mailbox();
+		box.failFor.add("b@example.com");
+		const config = makeConfig([routed]);
+		await tick(runEnv, config, T0, respond(500));
+		expect(box.to).toEqual(team);
+		expect(await all(`SELECT "to", attempts, dead FROM outbox`)).toEqual([
+			{ to: "b@example.com", attempts: 1, dead: 0 },
+		]);
+		await tick(runEnv, config, T0 + MINUTE, respond(500));
+		box.failFor.clear();
+		await tick(runEnv, config, T0 + 2 * MINUTE, respond(500));
+		expect(box.to).toEqual([...team, "b@example.com", "b@example.com"]);
+		expect(await rows()).toEqual([]);
+	});
+
+	it("keeps deploy, self-check, stuck and stall mail on alert.to", async () => {
+		const { runEnv, box } = mailbox();
+		await env.DB.prepare(`DELETE FROM meta WHERE key = 'version'`).run();
+		const cert = { id: "cert", type: "tls", name: "Certificate", host: "www.example.com", zone: "example.com" };
+		const config = makeConfig([
+			{ ...routed, down_after: 3 },
+			{ ...cert, every: "1m", to: team },
+		]);
+		for (let k = 0; k <= 4; k++) await tick(runEnv, config, T0 + k * MINUTE, respond(200));
+		await watch(runEnv, config, T0 + 10 * MINUTE);
+		expect(box.subjects).toEqual([
+			`DEPLOYED: tower ${pkg.version}`,
+			"SELF-CHECK FAILING: Cloudflare API token",
+			"SELF-CHECK FAILING: results for Certificate",
+			"SELF-CHECK FAILING: probing stalled",
+		]);
+		expect(box.to).toEqual(Array(4).fill("oncall@example.com"));
+	});
+
+	it("moves pending mail from a corrected address to the new one", async () => {
+		const { runEnv, box } = mailbox();
+		box.failFor.add("opz@example.com");
+		await tick(runEnv, makeConfig([{ ...routed, to: ["opz@example.com"] }]), T0, respond(500));
+		expect(await rows()).toEqual([{ to: "opz@example.com", kind: "down" }]);
+		await tick(runEnv, makeConfig([{ ...routed, to: ["ops@example.com"] }]), T0 + MINUTE, respond(500));
+		expect(box.subjects.map((s, i) => `${s} -> ${box.to[i]}`)).toEqual([
+			"DOWN: Web -> opz@example.com",
+			"DOWN: Web -> ops@example.com",
+		]);
+		expect(await rows()).toEqual([]);
+	});
+
+	it("moves pending mail from a removed address to the addresses that lack it, then to alert.to", async () => {
+		const { runEnv, box } = mailbox();
+		box.failing = true;
+		await tick(runEnv, makeConfig([routed]), T0, respond(500));
+		await tick(runEnv, makeConfig([{ ...routed, to: ["a@example.com", "c@example.com"] }]), T0 + MINUTE, respond(500));
+		expect(await rows()).toEqual([
+			{ to: "a@example.com", kind: "down" },
+			{ to: "c@example.com", kind: "down" },
+		]);
+		await tick(runEnv, makeConfig([{ ...web, down_after: 1 }]), T0 + 2 * MINUTE, respond(500));
+		expect(await rows()).toEqual([{ to: "", kind: "down" }]);
+		box.failing = false;
+		box.to.length = 0;
+		await tick(runEnv, makeConfig([{ ...web, down_after: 1 }]), T0 + 3 * MINUTE, respond(500));
+		expect(box.to).toEqual(["oncall@example.com"]);
+	});
+
+	it("keeps dead mail to a removed address as dead", async () => {
+		const { runEnv, box } = mailbox();
+		box.failFor.add("opz@example.com");
+		const typo = makeConfig([{ ...routed, to: ["opz@example.com"] }]);
+		for (let k = 0; k < 10; k++) await tick(runEnv, typo, T0 + k * MINUTE, respond(500));
+		await tick(runEnv, makeConfig([{ ...routed, to: ["ops@example.com"] }]), T0 + 10 * MINUTE, respond(500));
+		expect(box.to).not.toContain("ops@example.com");
+		expect(await all(`SELECT "to", dead FROM outbox`)).toEqual([{ to: "opz@example.com", dead: 1 }]);
 	});
 });
 

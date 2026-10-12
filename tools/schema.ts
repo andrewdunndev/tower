@@ -42,10 +42,34 @@ const host = z
 	.min(1, "required.")
 	.refine((h) => !isPrivateHost(h), PRIVATE_MESSAGE);
 
+const MAX_TO = 5;
+
+const email = z.email("use an email address.");
+
+const to = z
+	.preprocess(
+		(v) => (typeof v === "string" ? [v] : v),
+		z
+			.array(email, { error: "use an email address or a list of them." })
+			.min(1, "list at least one address.")
+			.max(MAX_TO, `use at most ${MAX_TO} addresses, or a group address.`),
+	)
+	.superRefine((list, ctx) => {
+		const seen = new Set<string>();
+		for (const [i, a] of list.entries()) {
+			if (seen.has(a.toLowerCase())) {
+				ctx.addIssue({ code: "custom", path: [i], message: `Duplicate address "${a}": list each address once.` });
+			}
+			seen.add(a.toLowerCase());
+		}
+	})
+	.optional();
+
 const common = {
 	id,
 	name: z.string().min(1, "required."),
 	public: z.boolean().default(true),
+	to,
 };
 
 const limits = {
@@ -132,6 +156,7 @@ const relay = z.strictObject({
 	name: z.string().min(1, "required."),
 	token_sha256: tokenHash,
 	grace: duration.refine((ms) => ms <= WEEK_MS, "use at most 7 days.").default(900_000),
+	to,
 });
 
 const check = z.discriminatedUnion("type", [http, tcp, dns, tls, heartbeat], {
@@ -156,8 +181,8 @@ export const instanceSchema = z
 			.string()
 			.regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, "use a bare hostname such as status.example.com, with no scheme or path."),
 		alert: z.strictObject({
-			from: z.email("use an email address."),
-			to: z.email("use an email address."),
+			from: email,
+			to: email,
 		}),
 		timeout_ms: z.number().int().min(1000).max(30000).default(10000),
 		checks: z.array(check).min(1, "list at least one check."),

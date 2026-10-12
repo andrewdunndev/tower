@@ -132,6 +132,55 @@ describe("instance", () => {
 			}
 		});
 	});
+
+	describe("to", () => {
+		const addresses = (n: number) => Array.from({ length: n }, (_, i) => `team${i}@example.com`);
+		const routed = (to: unknown) => instance({ ...http, to });
+
+		it("takes one address as a list of one", () => {
+			expect(instanceSchema.parse(routed("ops@example.com")).checks[0].to).toEqual(["ops@example.com"]);
+		});
+
+		it("leaves to unset when it is absent", () => {
+			expect(instanceSchema.parse(instance(http)).checks[0].to).toBeUndefined();
+		});
+
+		it("takes one to five addresses, as written", () => {
+			expect(instanceSchema.parse(routed(["Ops@Example.com"])).checks[0].to).toEqual(["Ops@Example.com"]);
+			expect(instanceSchema.parse(routed(addresses(5))).checks[0].to).toEqual(addresses(5));
+		});
+
+		it("rejects an empty list and more than five", () => {
+			expect(messages(routed([]))).toContain("list at least one address.");
+			expect(messages(routed(addresses(6)))).toContain("use at most 5 addresses, or a group address.");
+		});
+
+		it("rejects a bad address, alone or in a list", () => {
+			expect(messages(routed("ops"))).toContain("use an email address.");
+			expect(messages(routed(["ops@example.com", "ops"]))).toContain("use an email address.");
+			expect(messages(routed(7))).toContain("use an email address or a list of them.");
+		});
+
+		it("rejects an address listed twice in any case", () => {
+			expect(messages(routed(["ops@example.com", "OPS@example.com"]))).toContain(
+				'Duplicate address "OPS@example.com": list each address once.',
+			);
+		});
+
+		it("takes to on every check type and on a relay", () => {
+			const to = "ops@example.com";
+			const checks = [
+				{ ...http, to },
+				{ id: "t", type: "tcp", name: "T", host: "mail.example.com", port: 22, to },
+				{ id: "d", type: "dns", name: "D", query: "example.com", record: "A", to },
+				{ id: "c", type: "tls", name: "C", host: "www.example.com", zone: "example.com", to },
+				{ id: "h", type: "heartbeat", name: "H", every: "1h", grace: "5m", token_sha256: "b".repeat(64), to },
+			];
+			const relays = [{ id: "alerts", name: "Alerts", token_sha256: "a".repeat(64), to }];
+			const parsed = instanceSchema.parse({ ...example, checks, relays });
+			expect([...parsed.checks, ...parsed.relays].map((o) => o.to)).toEqual(Array(6).fill([to]));
+		});
+	});
 });
 
 describe("note", () => {
