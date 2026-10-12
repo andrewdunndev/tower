@@ -28,7 +28,10 @@ import Relay from '../../figures/05-relay.astro';
       <Check />
       <p>A probed check changes state after <code>down_after</code> or <code>up_after</code> runs in a row; a heartbeat goes down at its first missed deadline.</p>
     </div>
-    <p class="section-prose">Each change queues a DOWN or UP mail in the outbox, and a failed send is tried again on the next run. A maintenance note suppresses alerts for its checks inside its window.</p>
+    <div class="section-prose" data-step="1">A probed check starts up, and each passing run keeps it there. The prober runs on a cron each minute and runs the checks that are due. When runs fail, it stays up and counts the failures until <code>down_after</code> runs in a row have failed.</div>
+    <div class="section-prose" data-step="2">When <code>down_after</code> runs in a row have failed, the check goes down and the change queues one DOWN mail in the outbox. The failure reason goes to that mail and the Worker log only, never the public page. A maintenance note suppresses alerts for its checks inside its window.</div>
+    <div class="section-prose" data-step="3">Once runs pass again, the check stays down and counts the passes, until <code>up_after</code> runs in a row have passed. Meanwhile the public page shows it down by name, with how long it has held that status, its uptime and its response times, while its address stays behind.</div>
+    <div class="section-prose" data-step="4">When <code>up_after</code> runs in a row have passed, the check is up again and the change queues one UP mail, so tower mails once when a check goes down and once when it recovers. Each mail waits in the outbox until it sends: a failed send is tried again on the next run.</div>
   </section>
 
   <section class="section">
@@ -72,7 +75,10 @@ import Relay from '../../figures/05-relay.astro';
       <Watch />
       <p>The prober flags stuck checks, the page Worker flags a stalled prober, and a missing digest covers both being down.</p>
     </div>
-    <p class="section-prose">The prober flags any check with no conclusive result for three of its intervals and mails a self-check failure naming it, then an OK when results return. The page Worker's minute cron asks the prober to watch its last run. If no run has written results for three of the shortest intervals, the mail says probing stalled, so it survives a dead prober cron. If the prober does not answer at all, the page mails that at the top of each hour. When both Workers are dead nothing can mail, so a daily digest at a time you choose is the alarm: a missing digest means something is wrong. An outside poller can also read <code>/api/status</code>, which reports the last run, the oldest unsent mail and stuck checks.</p>
+    <div class="section-prose" data-step="1">The prober flags any check with no conclusive result for three of its intervals and mails a self-check failure naming it, then an OK when results return. A probe that stays inconclusive or misconfigured, such as a tls check with an unset token, counts as no result, so a check that stops producing results still reaches your inbox.</div>
+    <div class="section-prose" data-step="2">The page Worker's minute cron asks the prober to watch its last run. If no run has written results for three of the shortest intervals, the mail says probing stalled, then an OK follows once probing resumes. Because the page Worker's cron asks, not the prober's own, the mail survives a dead prober cron.</div>
+    <div class="section-prose" data-step="3">If the prober does not answer at all, the page Worker mails that probing stalled and the prober did not answer, at the top of each hour until it does. This is the only mail the page Worker sends: it holds no secrets or storage, and the prober sends every other alert.</div>
+    <div class="section-prose" data-step="4">When both Workers are dead, an account or platform failure, nothing can mail. A daily digest at a time you choose is the alarm: a missing digest means something is wrong. A normal day's digest is the subject <code>all up</code> with no body. An outside poller can also read <code>/api/status</code>, which reports the last run, the oldest unsent mail and stuck checks.</div>
   </section>
 
   <section class="section">
@@ -81,7 +87,10 @@ import Relay from '../../figures/05-relay.astro';
       <Relay />
       <p>A relay key mails when it opens, when it closes and when it goes quiet.</p>
     </div>
-    <p class="section-prose">A relay accepts an incident.io-format webhook at <code>POST /relay/incident</code>, as HyperDX sends, and mails on transitions only. A firing opens a key and mails FIRING. A repeat firing renews it without mail. A resolved closes it and mails RESOLVED. A key not renewed within its grace closes with STOPPED REPORTING, which also covers a lost resolved. At most five transitions per relay per minute mail at once; the rest wait for the next run and, when more than one is waiting, arrive as one mail.</p>
+    <div class="section-prose" data-step="1">A relay accepts an incident.io-format webhook at <code>POST /relay/incident</code>, as HyperDX sends, and mails on transitions only. tower reads each alert's deduplication key as its key. A firing for a closed key opens it and mails FIRING. Titles, descriptions and keys reach the alert mail only, never the page or <code>/api/status</code>.</div>
+    <div class="section-prose" data-step="2">A repeat firing of an open key renews its lease without mail, and the request answers <code>duplicate</code>. A sender that keeps re-notifying therefore holds the key open in silence, so set the relay's <code>grace</code> above the sender's re-notify gap, at most seven days.</div>
+    <div class="section-prose" data-step="3">A resolved closes the key and mails RESOLVED. A resolved for a key that is already closed is a duplicate and sends nothing, because a relay mails on transitions only. A later firing of the same key opens it again and mails FIRING again.</div>
+    <div class="section-prose" data-step="4">A key not renewed within its grace closes with STOPPED REPORTING, which also covers a lost resolved. Every transition shares one limit: at most five transitions per relay per minute mail at once; the rest wait for the next run and, when more than one is waiting, arrive as one mail.</div>
   </section>
 
   <section class="section">

@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import Check from '../figures/02-check.astro';
+import Names from '../figures/03-names.astro';
 import Ov1 from '../figures/07-ov1.astro';
 import mark from '../../public/favicon.svg?raw';
 
@@ -59,12 +60,6 @@ const rows = [
   </section>
 
   <section class="section">
-    <h2 class="section-title" id="what-it-is">What it is</h2>
-    <p class="section-prose">tower runs on Cloudflare, which hosts small programs, called Workers, on its network, so nothing watches your services from a server you maintain.</p>
-    <p class="section-prose">Two Workers do the work. The prober runs on a timer each minute, checks your services and keeps the history in a database. The page Worker shows the result to anyone who visits and holds no secrets of its own.</p>
-  </section>
-
-  <section class="section">
     <h2 class="section-title" id="how-it-works">How it works</h2>
     <div class="tile-list">
       <div class="tile">
@@ -91,7 +86,10 @@ const rows = [
 
   <section class="section">
     <h2 class="section-title" id="page">What the page shows</h2>
-    <p class="section-prose">The public page shows names only: each public check with its status, how long it has held it, uptime and response times. Addresses, ports and failure reasons stay in the prober, and a reason reaches only the alert mail and the log. A check that has not run recently reads as unknown, so a stopped timer cannot leave a green page.</p>
+    <div class="cat-explainer figure-pair">
+      <Names />
+      <p>The public page shows names only: each public check with its status, how long it has held it, uptime and response times. Addresses, ports and failure reasons stay in the prober, and a reason reaches only the alert mail and the log. A check that has not run recently reads as unknown, so a stopped timer cannot leave a green page.</p>
+    </div>
   </section>
 
   <section class="section">
