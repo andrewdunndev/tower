@@ -1,11 +1,11 @@
 import type { Instance } from "../../tools/schema.ts";
 import { MAX_KEYS } from "./relay.ts";
-import { allowance, interval, STUCK_PREFIX, selfName } from "./status.ts";
+import { allowance, DEPLOY_GRACE_MS, interval, STUCK_PREFIX, selfName } from "./status.ts";
 
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
 
-type Version = { id: string };
+type Version = { id: string; timestamp?: string };
 
 const lastRun = `(SELECT MAX(last_run) FROM state)`;
 const newest = (t: string) => `${t} >= (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'tick')`;
@@ -19,7 +19,13 @@ const queue = (db: D1Database, key: string, kind: string, t: number, guard: stri
 		)
 		.bind(key, t, kind, ...binds);
 
-export async function raiseStall(db: D1Database, config: Instance, t: number): Promise<boolean> {
+export function inDeployGrace(version: Version, t: number): boolean {
+	const deployed = Date.parse(version.timestamp ?? "");
+	return t - deployed < DEPLOY_GRACE_MS;
+}
+
+export async function raiseStall(db: D1Database, config: Instance, t: number, version: Version): Promise<boolean> {
+	if (inDeployGrace(version, t)) return false;
 	const cutoff = stallCutoff(config, t);
 	const row = await db.prepare(`SELECT ${lastRun} < ?1 AS stalled`).bind(cutoff).first<{ stalled: number | null }>();
 	if (row?.stalled !== 1) return false;
@@ -34,8 +40,13 @@ export async function raiseStall(db: D1Database, config: Instance, t: number): P
 	return true;
 }
 
-export function resumedAfter(config: Instance, previous: string | undefined, t: number): boolean {
-	return previous !== undefined && t - Number(previous) > staleWindow(config);
+export function resumedAfter(config: Instance, previous: string | undefined, t: number, version: Version): boolean {
+	if (previous === undefined) return false;
+	const last = Number(previous);
+	const window = staleWindow(config);
+	if (t - last <= window) return false;
+	const deployed = Date.parse(version.timestamp ?? "");
+	return !(inDeployGrace(version, t) && last >= deployed - (window - MINUTE_MS));
 }
 
 export async function reportWriteFailure(

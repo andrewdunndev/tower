@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { status } from "../../prober/src/status.ts";
+import { DEPLOY_GRACE_MS, status } from "../../prober/src/status.ts";
 import { all, reset } from "../../prober/test/util.ts";
 import { hyperdx } from "../../test/fixture/hyperdx-incidentio.ts";
 import example from "../../test/fixture/tower.json";
@@ -82,17 +82,27 @@ describe("the relay through the page and the real prober", () => {
 });
 
 describe("the page's cron through the real prober", () => {
-	it("raises the stall flag and drains its mail when the prober's last run is stale", async () => {
-		const now = Date.now();
-		await env.DB.prepare(
+	const scheduled = (scheduledTime: number) =>
+		(page as Fetcher & { scheduled(options: { scheduledTime: number }): Promise<unknown> }).scheduled({ scheduledTime });
+	const staleRun = async (now: number) =>
+		env.DB.prepare(
 			`INSERT INTO state ("check", avail, degraded, fails, passes, since, slot, last_run) VALUES ('any', 1, 0, 0, 0, 0, -1, ?1)`,
 		)
 			.bind(now - 10 * 60_000)
 			.run();
-		await (page as Fetcher & { scheduled(options: { scheduledTime: number }): Promise<unknown> }).scheduled({
-			scheduledTime: now,
-		});
+
+	it("raises the stall flag and drains its mail when the prober's last run is stale", async () => {
+		const now = Date.now();
+		await staleRun(now);
+		await scheduled(now + DEPLOY_GRACE_MS);
 		expect(await all("SELECT key FROM meta WHERE key = 'stall'")).toEqual([{ key: "stall" }]);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
+	});
+
+	it("holds the stall flag while the prober's version is freshly deployed", async () => {
+		const now = Date.now();
+		await staleRun(now);
+		await scheduled(now);
+		expect(await all("SELECT key FROM meta WHERE key = 'stall'")).toEqual([]);
 	});
 });

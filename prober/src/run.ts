@@ -8,7 +8,7 @@ import { DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & {
 	EMAIL: Pick<SendEmail, "send">;
-	VERSION: Pick<WorkerVersionMetadata, "id">;
+	VERSION: Pick<WorkerVersionMetadata, "id"> & Partial<Pick<WorkerVersionMetadata, "timestamp">>;
 	CF_API_TOKEN?: string;
 };
 
@@ -254,7 +254,7 @@ export async function tick(
 	writes.push(
 		...expire(env.DB, config, t),
 		...prune(env.DB, config, t),
-		...selfWrites(env.DB, config, t, env.VERSION, resumedAfter(config, claimed.previous, t), token),
+		...selfWrites(env.DB, config, t, env.VERSION, resumedAfter(config, claimed.previous, t, env.VERSION), token),
 	);
 	await env.DB.batch(writes);
 
@@ -262,7 +262,7 @@ export async function tick(
 }
 
 export async function watch(env: RunEnv, config: Instance, now: number) {
-	if (await raiseStall(env.DB, config, now)) await drain(env, config);
+	if (await raiseStall(env.DB, config, now, env.VERSION)) await drain(env, config);
 }
 
 function expire(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {

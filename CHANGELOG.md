@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 (2026-10-12)
+
+- The stall alarm holds for 15 minutes after the prober is deployed: Cloudflare re-registers the cron on deploy, and the gap no longer mails `probing stalled` or `probing resumed`. A deploy that never ticks is still caught once the 15 minutes pass.
+
 ## 0.4.1 (2026-10-12)
 
 - A slow probe no longer costs the run: checks that finished before the next tick keep their results, and a probe still running counts as no result.

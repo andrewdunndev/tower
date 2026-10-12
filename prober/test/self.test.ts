@@ -5,7 +5,7 @@ import { compose, towerMessage } from "../src/mail.ts";
 import { incident, MAX_KEYS } from "../src/relay.ts";
 import { tick, watch } from "../src/run.ts";
 import { attention } from "../src/self.ts";
-import { status } from "../src/status.ts";
+import { DEPLOY_GRACE_MS, status } from "../src/status.ts";
 import { all, MINUTE, mailbox, makeConfig, reset, respond, sha256, steadyTick, T0, web } from "./util.ts";
 
 beforeEach(reset);
@@ -383,6 +383,82 @@ describe("stuck checks", () => {
 			"SELF-CHECK OK: results for Certificate",
 			`Certificate has fresh results again, ${new Date(T0 + 3 * MINUTE).toISOString()}.\n`,
 		]);
+	});
+});
+
+describe("deploy grace", () => {
+	const config = makeConfig();
+	const stalls = (box: { subjects: string[] }) => box.subjects.filter((s) => s.includes("stalled"));
+	const deployedAt = (t: number) => ({ id: "v1", timestamp: new Date(t).toISOString() });
+
+	it("raises no stall inside the grace even with no ticks past the window", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, T0, T0, respond(200));
+		const graced = { ...runEnv, VERSION: deployedAt(T0 + 4 * MINUTE) };
+		await watch(graced, config, T0 + 10 * MINUTE);
+		await watch(graced, config, T0 + 4 * MINUTE + DEPLOY_GRACE_MS - 1);
+		expect(box.sends).toBe(0);
+		expect(await all("SELECT * FROM meta WHERE key = 'stall'")).toEqual([]);
+	});
+
+	it("raises as before once the grace has passed", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, T0, T0, respond(200));
+		const graced = { ...runEnv, VERSION: deployedAt(T0 + 4 * MINUTE) };
+		await watch(graced, config, T0 + 4 * MINUTE + DEPLOY_GRACE_MS);
+		expect(stalls(box)).toHaveLength(1);
+	});
+
+	it("gives no grace for a missing or unparsable timestamp", async () => {
+		for (const VERSION of [{ id: "v1" }, { id: "v1", timestamp: "not a date" }]) {
+			await reset();
+			const { runEnv, box } = mailbox();
+			await tick(runEnv, config, T0, T0, respond(200));
+			await watch({ ...runEnv, VERSION }, config, T0 + 5 * MINUTE);
+			expect(stalls(box)).toHaveLength(1);
+		}
+	});
+
+	it("raises a deploy that never ticks at the later of grace end and the normal window", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, T0, T0, respond(200));
+		const late = { ...runEnv, VERSION: deployedAt(T0 + 30 * MINUTE) };
+		await watch(late, config, T0 + 30 * MINUTE + DEPLOY_GRACE_MS - 1);
+		expect(stalls(box)).toHaveLength(0);
+		await watch(late, config, T0 + 30 * MINUTE + DEPLOY_GRACE_MS);
+		expect(stalls(box)).toHaveLength(1);
+
+		await reset();
+		const again = mailbox();
+		await tick(again.runEnv, config, T0, T0, respond(200));
+		const early = { ...again.runEnv, VERSION: deployedAt(T0 - 20 * MINUTE) };
+		await watch(early, config, T0 + 5 * MINUTE);
+		expect(stalls(again.box)).toHaveLength(1);
+	});
+
+	it("sends no resumed mail for a gap that ends inside the grace", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, T0, T0, respond(200));
+		const graced = { ...runEnv, VERSION: deployedAt(T0 - MINUTE) };
+		await watch(graced, config, T0 + 10 * MINUTE);
+		await tick(graced, config, T0 + 13 * MINUTE, T0 + 13 * MINUTE, respond(200));
+		await tick(graced, config, T0 + 14 * MINUTE, T0 + 14 * MINUTE, respond(200));
+		expect(box.subjects.filter((s) => s.includes("probing"))).toEqual([]);
+	});
+	it("still sends resumed when the gap began early enough for a database-writes FAILING", async () => {
+		const window = 3 * MINUTE + MINUTE;
+		for (const [last, resumed] of [
+			[T0 - window, true],
+			[T0 - (window - MINUTE) - 1, true],
+			[T0 - (window - MINUTE), false],
+		] as const) {
+			await reset();
+			const { runEnv, box } = mailbox();
+			await tick(runEnv, config, last, last, respond(200));
+			const graced = { ...runEnv, VERSION: deployedAt(T0) };
+			await tick(graced, config, T0 + 5 * MINUTE, T0 + 5 * MINUTE, respond(200));
+			expect(box.subjects.includes("SELF-CHECK OK: probing resumed")).toBe(resumed);
+		}
 	});
 });
 
