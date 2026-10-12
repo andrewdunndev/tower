@@ -79,7 +79,7 @@ function stuckMessage(check: Check, p: Pending): [subject: string, text: string]
 	const last = p.reason ? `Last reason: ${clip(p.reason)}.\n` : "";
 	return [
 		`SELF-CHECK FAILING: results for ${name}`,
-		`${name}${target(check)} has had no fresh result since ${since}, three of its intervals; detected ${at}.\n${last}`,
+		`${name}${target(check)} has had no fresh result since ${since}, three of its intervals plus a minute; detected ${at}.\n${last}`,
 	];
 }
 

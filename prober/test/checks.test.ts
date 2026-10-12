@@ -105,10 +105,15 @@ describe("dns", () => {
 		const { runEnv, box } = mailbox();
 		const config = makeConfig([record]);
 		await tick(runEnv, config, T0, resolver(answer));
-		const failing = [noFetch, resolver(503), (async () => new Response("<html>", { status: 200 })) as typeof fetch];
+		const failing = [
+			noFetch,
+			resolver(503),
+			(async () => new Response("<html>", { status: 200 })) as typeof fetch,
+			noFetch,
+		];
 		for (const [i, f] of failing.entries()) await tick(runEnv, config, T0 + (i + 1) * MINUTE, f);
 		expect(await all("SELECT avail, fails, last_conclusive, last_run FROM state")).toEqual([
-			{ avail: 1, fails: 0, last_conclusive: T0, last_run: T0 + 3 * MINUTE },
+			{ avail: 1, fails: 0, last_conclusive: T0, last_run: T0 + 4 * MINUTE },
 		]);
 		expect(await all("SELECT * FROM samples")).toHaveLength(1);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);

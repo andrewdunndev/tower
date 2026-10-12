@@ -1,6 +1,6 @@
 {
 	"name": "tower",
-	"version": "0.3.2",
+	"version": "0.3.3",
 	"description": "A status page that runs on Cloudflare Workers: a cron prober, D1 history and email alerts.",
 	"repository": {
 		"type": "git",
