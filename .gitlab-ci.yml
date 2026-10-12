@@ -28,9 +28,31 @@ include:
       npm_dir: site
       production_url: https://tower.dunn.dev
 
-test:
-  stage: test
+.node:
   image: node:24.21.0@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+  variables:
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+    policy: pull
+  before_script:
+    - npm ci --ignore-scripts --prefer-offline
+
+test:
+  extends: .node
+  stage: test
+  cache:
+    policy: pull-push
   script:
-    - npm ci --ignore-scripts
     - npm run check
+
+worker-dry-run:
+  extends: .node
+  stage: build
+  needs: []
+  script:
+    - WRANGLER_SEND_METRICS=false npm run deploy -- example --dry-run
