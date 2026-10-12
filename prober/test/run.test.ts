@@ -392,7 +392,7 @@ describe("routing", () => {
 			{ ...routed, down_after: 3 },
 			{ ...cert, every: "1m", to: team },
 		]);
-		for (let k = 0; k <= 3; k++) await tick(runEnv, config, T0 + k * MINUTE, respond(200));
+		for (let k = 0; k <= 4; k++) await tick(runEnv, config, T0 + k * MINUTE, respond(200));
 		await watch(runEnv, config, T0 + 10 * MINUTE);
 		expect(box.subjects).toEqual([
 			`DEPLOYED: tower ${pkg.version}`,
