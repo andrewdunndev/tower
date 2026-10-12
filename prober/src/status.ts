@@ -7,6 +7,7 @@ const POINTS = 288;
 export const DAYS = 90;
 const STALE_INTERVALS = 3;
 const CRON_SLACK_MS = 60_000;
+export const DEPLOY_GRACE_MS = 15 * MINUTE_MS;
 export const STUCK_PREFIX = "self:stuck:";
 export const SELF_NAMES: Record<string, string> = { "self:token": "Cloudflare API token" };
 
