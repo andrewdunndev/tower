@@ -34,6 +34,6 @@ export class Tower extends WorkerEntrypoint<Env> {
 
 export default {
 	async scheduled(controller, env) {
-		await tick(env, instance, controller.scheduledTime, fetch, connect, Date.now());
+		await tick(env, instance, controller.scheduledTime, Date.now(), fetch, connect);
 	},
 } satisfies ExportedHandler<Env>;

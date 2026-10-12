@@ -91,7 +91,7 @@ describe("the built page", () => {
 			const config = makeConfig([tls("shown", "Shown", true), tls("hidden", "Hidden", false)]);
 			const { runEnv } = mailbox();
 			const unavailable = (async () => new Response("{}", { status: 503 })) as typeof fetch;
-			for (let k = 0; k <= 4; k++) await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0 + k * MINUTE, unavailable);
+			for (let k = 0; k <= 4; k++) await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0 + k * MINUTE, T0 + k * MINUTE, unavailable);
 			const data = await status(env.DB, config, T0 + 4 * MINUTE);
 			expect(data.self.map((s) => s.name)).toEqual(["results for Shown"]);
 			await answer(JSON.stringify(data));
@@ -114,7 +114,7 @@ describe("the built page", () => {
 			const leakyConnect = ((address: { hostname: string; port: number }) => {
 				throw new Error(`connect ECONNREFUSED ${address.hostname}:${address.port}`);
 			}) as unknown as typeof connect;
-			for (let i = 0; i < 3; i++) await tick(mailbox().runEnv, config, T0 + i * 60_000, leaky, leakyConnect);
+			for (let i = 0; i < 3; i++) await tick(mailbox().runEnv, config, T0 + i * 60_000, T0 + i * 60_000, leaky, leakyConnect);
 			await answer(JSON.stringify(await status(env.DB, config, T0 + 180_000)));
 
 			const res = await get("/api/status", "api");

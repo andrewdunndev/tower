@@ -38,6 +38,7 @@ const CONCURRENCY = 6;
 const MAX_ATTEMPTS = 10;
 const LEASE_MS = 50_000;
 const DB_MARGIN_MS = 5_000;
+const MIN_BUDGET_MS = 20_000;
 const RECENT_SAMPLES = 5;
 const OWNED_TABLES = ["state", "samples", "daily", "beats", "events"];
 
@@ -115,9 +116,9 @@ export async function tick(
 	env: RunEnv,
 	config: Instance,
 	t: number,
+	startedAt: number,
 	doFetch: typeof fetch = fetch,
 	doConnect: typeof connect = connect,
-	startedAt = t,
 ) {
 	const offset = startedAt - Date.now();
 	const now = () => Date.now() + offset;
@@ -129,7 +130,10 @@ export async function tick(
 		throw e;
 	}
 
-	const deadline = t + Math.min(...claimed.claimed.map(({ check }) => interval(check))) - SKEW_MS - DB_MARGIN_MS;
+	const deadline = Math.max(
+		t + Math.min(...claimed.claimed.map(({ check }) => interval(check))) - SKEW_MS - DB_MARGIN_MS,
+		startedAt + MIN_BUDGET_MS,
+	);
 	const open = () => now() < deadline;
 	const probes = pool(claimed.claimed, CONCURRENCY, open, async ({ check, row }) => {
 		const started = Date.now();

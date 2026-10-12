@@ -77,7 +77,7 @@ export async function steadyTick(runEnv: RunEnv, config: Instance, t: number, do
 	await env.DB.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('tick', ?1)`)
 		.bind(String(t - MINUTE))
 		.run();
-	await tick(runEnv, config, t, doFetch);
+	await tick(runEnv, config, t, t, doFetch);
 }
 
 export async function sha256(text: string) {
