@@ -187,6 +187,50 @@ describe("run deadline", () => {
 			{ avail: 1, last_conclusive: T0 + 4 * MINUTE },
 		]);
 	});
+
+	it("starts no queued probe once the deadline has passed", async () => {
+		const { runEnv } = mailbox();
+		const late = Array.from({ length: 6 }, (_, i) => ({ ...slow, id: `s${i}`, name: `S${i}` }));
+		const queued = { ...web, id: "queued", name: "Queued", url: "https://queued.example.com/" };
+		let release = () => {};
+		const gate = new Promise<void>((r) => (release = r));
+		const calls = { queued: 0 };
+		const fetch = (async (input: RequestInfo | URL) => {
+			if (String(input).includes("queued")) calls.queued++;
+			else await gate;
+			return new Response("", { status: 200 });
+		}) as typeof globalThis.fetch;
+		await tick(runEnv, makeConfig([...late, queued]), T0, fetch, undefined, tight(T0));
+		release();
+		await new Promise((r) => setTimeout(r, 50));
+		expect(calls.queued).toBe(0);
+		expect(await all("SELECT reason FROM state WHERE \"check\" = 'queued'")).toEqual([
+			{ reason: "probe outlived the run" },
+		]);
+	});
+
+	it("cuts a longer-interval probe at the shortest interval's deadline", async () => {
+		const { runEnv } = mailbox();
+		const fetch = (async (input: RequestInfo | URL) => {
+			if (String(input).includes("slow")) await new Promise((r) => setTimeout(r, 1000));
+			return new Response("", { status: 500 });
+		}) as typeof globalThis.fetch;
+		await tick(
+			runEnv,
+			makeConfig([
+				{ ...web, down_after: 1 },
+				{ ...slow, every: "5m" },
+			]),
+			T0,
+			fetch,
+			undefined,
+			tight(T0),
+		);
+		expect(await all('SELECT "check", avail, reason FROM state ORDER BY "check"')).toEqual([
+			{ check: "slow", avail: 1, reason: "probe outlived the run" },
+			{ check: "web", avail: 0, reason: "HTTP 500" },
+		]);
+	});
 });
 
 describe("hysteresis", () => {
