@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (2026-10-12)
+
+- A slow probe no longer costs the run: checks that finished before the next tick keep their results, and a probe still running counts as no result.
+
 ## 0.4.0 (2026-10-12)
 
 - Checks and relays take an optional `to`, one address or up to 5, in place of `alert.to`. It routes `DOWN`, `UP`, `FIRING`, `RESOLVED`, `STOPPED REPORTING` and `ALERTS`, one mail per address, each retried on its own. Deploy, digest and self-check mail stay on `alert.to`. Unsent mail to a removed address moves to the current route.

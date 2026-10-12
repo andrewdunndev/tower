@@ -59,18 +59,20 @@ export function step(
 	return { next: { avail: false, fails: 0, passes: 0, since: now }, transition: "down" };
 }
 
-async function pool<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-	const out: R[] = new Array(items.length);
+function pool<T, R>(items: T[], size: number, open: () => boolean, fn: (item: T) => Promise<R>) {
+	const out: (R | undefined)[] = new Array(items.length);
 	let next = 0;
 	const worker = async () => {
-		while (next < items.length) {
+		while (next < items.length && open()) {
 			const i = next++;
 			out[i] = await fn(items[i]);
 		}
 	};
-	await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
-	return out;
+	const done = Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
+	return { out, done };
 }
+
+const OUTLIVED: Outcome = { verdict: "inconclusive", reason: "probe outlived the run" };
 
 export const route = (o: { to?: string[] }) => JSON.stringify(o.to ?? [""]);
 
@@ -115,7 +117,10 @@ export async function tick(
 	t: number,
 	doFetch: typeof fetch = fetch,
 	doConnect: typeof connect = connect,
+	startedAt = t,
 ) {
+	const offset = startedAt - Date.now();
+	const now = () => Date.now() + offset;
 	let claimed: Awaited<ReturnType<typeof claim>>;
 	try {
 		claimed = await claim(env.DB, config, t);
@@ -124,7 +129,9 @@ export async function tick(
 		throw e;
 	}
 
-	const ran = await pool(claimed.claimed, CONCURRENCY, async ({ check, row }) => {
+	const deadline = t + Math.min(...claimed.claimed.map(({ check }) => interval(check))) - SKEW_MS - DB_MARGIN_MS;
+	const open = () => now() < deadline;
+	const probes = pool(claimed.claimed, CONCURRENCY, open, async ({ check, row }) => {
 		const started = Date.now();
 		const outcome: Outcome =
 			check.type === "heartbeat"
@@ -139,6 +146,14 @@ export async function tick(
 					});
 		return { check, row, outcome, ms: Date.now() - started };
 	});
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([probes.done, new Promise((r) => (timer = setTimeout(r, deadline - now())))]);
+	} finally {
+		clearTimeout(timer);
+	}
+	probes.done.catch(() => {});
+	const ran = claimed.claimed.map(({ check, row }, i) => probes.out[i] ?? { check, row, outcome: OUTLIVED, ms: 0 });
 
 	const recent = await Promise.all(
 		ran.map(({ check }) =>

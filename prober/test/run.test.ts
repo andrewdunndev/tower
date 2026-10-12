@@ -133,6 +133,62 @@ describe("slot claims", () => {
 	});
 });
 
+describe("run deadline", () => {
+	const LEFT = 250;
+	const tight = (t: number) => t + MINUTE - 7000 - LEFT;
+	const slow = { ...web, id: "slow", name: "Slow", url: "https://slow.example.com/", down_after: 1 };
+	const config = makeConfig([{ ...web, down_after: 1 }, slow]);
+	const serve = (status: number, hang: boolean) =>
+		(async (input: RequestInfo | URL) =>
+			hang && String(input).includes("slow")
+				? new Promise<Response>(() => {})
+				: new Response("", { status })) as typeof fetch;
+	const dump = async () => ({
+		state: await all('SELECT * FROM state ORDER BY "check"'),
+		samples: await all('SELECT "check", at, ok FROM samples ORDER BY "check"'),
+		daily: await all('SELECT * FROM daily ORDER BY "check"'),
+		events: await all('SELECT * FROM events ORDER BY "check"'),
+		outbox: await all("SELECT * FROM outbox"),
+	});
+
+	it("commits the probes that finished and counts a probe still running as no result", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, T0, serve(500, true), undefined, tight(T0));
+		expect(await all('SELECT "check", avail, last_conclusive, last_run, reason FROM state ORDER BY "check"')).toEqual([
+			{ check: "slow", avail: 1, last_conclusive: null, last_run: T0, reason: "probe outlived the run" },
+			{ check: "web", avail: 0, last_conclusive: T0, last_run: T0, reason: "HTTP 500" },
+		]);
+		expect(await all('SELECT "check", at FROM samples')).toEqual([{ check: "web", at: T0 }]);
+		expect(await all('SELECT "check", "to" FROM events')).toEqual([{ check: "web", to: "down" }]);
+		expect(await all('SELECT "check" FROM daily')).toEqual([{ check: "web" }]);
+		expect(box.subjects).toEqual(["DOWN: Web"]);
+	});
+
+	it("writes the same rows as before when every probe finishes in time", async () => {
+		const run = async (startedAt?: number) => {
+			await reset();
+			const { runEnv, box } = mailbox();
+			await tick(runEnv, config, T0, serve(500, false), undefined, startedAt);
+			return { ...(await dump()), subjects: box.subjects };
+		};
+		const unbounded = await run();
+		expect(await run(tight(T0))).toEqual(unbounded);
+		expect(unbounded.events).toHaveLength(2);
+	});
+
+	it("flags only the check whose probe keeps outliving the run", async () => {
+		const { runEnv, box } = mailbox();
+		const hung = (t: number) => tick(runEnv, config, t, serve(200, true), undefined, tight(t));
+		for (let k = 0; k <= 3; k++) await hung(T0 + k * MINUTE);
+		expect(box.subjects).toEqual([]);
+		await hung(T0 + 4 * MINUTE);
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Slow"]);
+		expect(await all("SELECT avail, last_conclusive FROM state WHERE \"check\" = 'web'")).toEqual([
+			{ avail: 1, last_conclusive: T0 + 4 * MINUTE },
+		]);
+	});
+});
+
 describe("hysteresis", () => {
 	const limits = { down_after: 3, up_after: 2 };
 	const up = { avail: true, fails: 0, passes: 0, since: 0 };
