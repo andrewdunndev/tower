@@ -1,0 +1,5 @@
+{
+	"name": "tower-prober",
+	"main": "../../page/test/tower-stub.mjs",
+	"compatibility_date": "2026-10-01"
+}

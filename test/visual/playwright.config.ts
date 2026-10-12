@@ -2,8 +2,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineConfig } from "@playwright/test";
 
-const PAGE = "http://127.0.0.1:8799";
-
 const wrangler = join(import.meta.dirname, "../../node_modules/.bin/wrangler");
 const env = {
 	...process.env,
@@ -16,19 +14,19 @@ export default defineConfig({
 	testDir: ".",
 	workers: 1,
 	forbidOnly: true,
-	use: { baseURL: PAGE, browserName: "chromium" },
+	use: { baseURL: "http://127.0.0.1:8799", browserName: "chromium" },
 	webServer: [
 		{
-			command: `${dev(8801)} page/test/tower-stub.mjs --name tower-prober --compatibility-date 2026-10-01`,
-			cwd: join(import.meta.dirname, "../.."),
-			url: "http://127.0.0.1:8801/",
+			command: `${dev(8801)} -c stub.wrangler.jsonc`,
+			cwd: import.meta.dirname,
+			port: 8801,
 			env,
 			stdout: "pipe",
 		},
 		{
 			command: dev(8799),
 			cwd: join(import.meta.dirname, "../../page"),
-			url: `${PAGE}/favicon.svg`,
+			port: 8799,
 			env,
 			stdout: "pipe",
 		},
