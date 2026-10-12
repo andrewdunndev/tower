@@ -1,16 +1,14 @@
 import type { Instance } from "../../tools/schema.ts";
 import { MAX_KEYS } from "./relay.ts";
-import { interval, STALE_INTERVALS, STUCK_PREFIX, selfName } from "./status.ts";
+import { allowance, interval, STUCK_PREFIX, selfName } from "./status.ts";
 
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
-const CRON_SLACK_MS = 60_000;
 
 type Version = { id: string };
 
 const lastRun = `(SELECT MAX(last_run) FROM state)`;
 const newest = (t: string) => `${t} >= (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'tick')`;
-const allowance = (every: number) => STALE_INTERVALS * every + CRON_SLACK_MS;
 const staleWindow = (config: Instance) => allowance(Math.min(...config.checks.map(interval)));
 const stallCutoff = (config: Instance, t: number) => t - staleWindow(config);
 

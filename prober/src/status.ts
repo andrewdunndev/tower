@@ -5,13 +5,15 @@ const DAY_MS = 86_400_000;
 const BUCKET_MS = 300_000;
 const POINTS = 288;
 export const DAYS = 90;
-export const STALE_INTERVALS = 3;
+const STALE_INTERVALS = 3;
+const CRON_SLACK_MS = 60_000;
 export const STUCK_PREFIX = "self:stuck:";
 export const SELF_NAMES: Record<string, string> = { "self:token": "Cloudflare API token" };
 
 const iso = (t: number) => new Date(t).toISOString();
 
 export const interval = (c: Check) => (c.type === "heartbeat" ? MINUTE_MS : c.every);
+export const allowance = (every: number) => STALE_INTERVALS * every + CRON_SLACK_MS;
 
 export function selfName(config: Instance, key: string, publicOnly: boolean): string | undefined {
 	if (!key.startsWith(STUCK_PREFIX)) return SELF_NAMES[key];
@@ -83,7 +85,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 
 	const all = config.checks.map((check) => {
 		const state = stateOf.get(check.id);
-		const stale = state?.last_conclusive == null || now - state.last_conclusive > STALE_INTERVALS * interval(check);
+		const stale = state?.last_conclusive == null || now - state.last_conclusive > allowance(interval(check));
 		const level = inWindow(config, check.id, now)
 			? "maintenance"
 			: state?.config_error

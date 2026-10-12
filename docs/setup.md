@@ -136,7 +136,7 @@ tower reports a stuck check and a stalled prober itself, so polling is optional.
 - `last_run` is when the last probe ran.
 - `outbox_oldest_unsent_at` is when the oldest unsent alert was queued, or null.
 - `dead_outbox` counts alerts that gave up in the last 24 h.
-- `stuck` counts public checks with no conclusive run inside three intervals.
+- `stuck` counts public checks with no conclusive run inside three intervals plus a minute.
 - `self` lists failing self-checks by name with their start time: the Cloudflare API token and `results for <check>` for a stuck public check.
 
 Alert when:
