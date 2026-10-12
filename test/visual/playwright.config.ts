@@ -23,12 +23,14 @@ export default defineConfig({
 			cwd: join(import.meta.dirname, "../.."),
 			url: "http://127.0.0.1:8801/",
 			env,
+			stdout: "pipe",
 		},
 		{
 			command: dev(8799),
 			cwd: join(import.meta.dirname, "../../page"),
 			url: `${PAGE}/favicon.svg`,
 			env,
+			stdout: "pipe",
 		},
 	],
 });
