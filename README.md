@@ -10,6 +10,8 @@ tower is a status page that runs on Cloudflare Workers. A prober Worker checks e
 
 A relay turns an incident.io-format webhook, such as HyperDX's, into one mail per transition.
 
+The design, in figures, is at [tower.dunn.dev/architecture/](https://tower.dunn.dev/architecture/).
+
 Shared as-is: no roadmap, no support promise. Design after [herdr.dev](https://herdr.dev).
 
 ## Cloudflare, product by job

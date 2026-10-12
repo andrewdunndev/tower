@@ -1,0 +1,19 @@
+{
+	"name": "tower-web",
+	"type": "module",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Static site for tower at tower.dunn.dev. Consumes @dunn.dev/reference for tokens and chrome.",
+	"scripts": {
+		"dev": "astro dev",
+		"build": "astro check && astro build",
+		"preview": "astro preview",
+		"astro": "astro"
+	},
+	"dependencies": {
+		"@astrojs/check": "^0.9.4",
+		"@dunn.dev/reference": "^0.7.1",
+		"astro": "^7.0.0",
+		"typescript": "^6.0.0"
+	}
+}

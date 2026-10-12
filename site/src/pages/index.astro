@@ -1,0 +1,106 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Check from '../figures/02-check.astro';
+import Names from '../figures/03-names.astro';
+import Ov1 from '../figures/07-ov1.astro';
+import Hero from '@dunn.dev/reference/chrome/Hero.astro';
+import Split from '@dunn.dev/reference/chrome/Split.astro';
+import SectionLabel from '@dunn.dev/reference/chrome/SectionLabel.astro';
+
+const days = Array.from({ length: 24 }, (_, i) => i);
+const rows = [
+  { name: 52, dot: 'var(--success)', bad: [17] },
+  { name: 38, dot: 'var(--success)', bad: [] },
+  { name: 60, dot: 'var(--danger)', bad: [23] },
+];
+---
+<Layout title="tower" description="tower is a status page that runs on Cloudflare Workers. It checks your services from outside, mails once when one goes down and once when it recovers, and needs no server.">
+  <Hero title="tower" eyebrow="status page">
+    tower tells you when a service stops answering. It checks from outside, shows a public status page, mails once when something goes down and once when it comes back, and runs on Cloudflare, so there is no server to keep.
+    <Fragment slot="actions">
+      <a class="cta-primary" href="/setup/">Install</a>
+      <a class="cta-secondary" href="/architecture/">Architecture</a>
+    </Fragment>
+    <a slot="aside" class="live" href="https://status.dunn.dev" rel="external">
+      <p class="tile-eyebrow">live</p>
+      <p class="tile-headline">See it running</p>
+      <p class="tile-prose">status.dunn.dev runs tower against dunn.dev's own services.</p>
+      <svg viewBox="0 0 232 112" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0.5" y="0.5" width="231" height="111" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+        <rect x="12" y="12" width="64" height="8" rx="2" fill="var(--text-2)"/>
+        <rect x="180" y="9" width="40" height="14" rx="7" fill="var(--success-subtle)"/>
+        <circle cx="192" cy="16" r="3" fill="var(--success)"/>
+        <rect x="199" y="14" width="15" height="4" rx="2" fill="var(--success)"/>
+        {rows.map((r, j) => (
+          <g transform={`translate(0 ${40 + j * 24})`}>
+            <circle cx="16" cy="6" r="4" fill={r.dot}/>
+            <rect x="26" y="3" width={r.name} height="6" rx="2" fill="var(--border-strong)"/>
+            {days.map((d) => (
+              <rect x={110 + d * 4.5} y="0" width="3" height="12" rx="1" fill={r.bad.includes(d) ? 'var(--danger)' : 'var(--success)'}/>
+            ))}
+          </g>
+        ))}
+      </svg>
+      <p><span class="cta-primary">Open status.dunn.dev &rarr;</span></p>
+    </a>
+  </Hero>
+
+  <section class="section" id="at-a-glance">
+    <SectionLabel label="At a glance" />
+    <figure class="cat-explainer figure-pair figure-full">
+      <Ov1 />
+      <p>The operator deploys one config file to Cloudflare. The public sees names only; failure detail goes to the inbox.</p>
+    </figure>
+  </section>
+
+  <section class="section" id="how-it-works">
+    <SectionLabel label="How it works" />
+    <div class="tile-grid">
+      <div class="tile">
+        <p class="tile-eyebrow">1 · check</p>
+        <h3 class="tile-headline">Checks from outside</h3>
+        <p class="tile-prose">Each minute the prober tests whatever is due: a web address, a port, a DNS name, a certificate, or a job that reports in. Every check runs from Cloudflare, outside your own network.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">2 · mail</p>
+        <h3 class="tile-headline">One mail per change</h3>
+        <p class="tile-prose">An http, tcp, dns or tls check goes down only after it fails a set number of runs in a row. A heartbeat goes down at its first missed deadline. tower mails once, and once more on recovery.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">3 · watch</p>
+        <h3 class="tile-headline">Watches itself</h3>
+        <p class="tile-prose">tower mails when a check stops producing results or probing stalls. A daily digest covers the day both Workers are down: a missing digest is the alarm.</p>
+      </div>
+    </div>
+    <Split>
+      <p>A probed check changes state only after several runs in a row agree, and each change queues one mail that is retried on each run.</p>
+      <div class="figure-pair" slot="aside"><Check /></div>
+    </Split>
+  </section>
+
+  <section class="section" id="page">
+    <SectionLabel label="What the page shows" />
+    <figure class="cat-explainer figure-pair">
+      <Names />
+      <p>The public page shows names only: each public check with its status, how long it has held it, uptime and response times. Addresses, ports and failure reasons stay in the prober, and a reason reaches only the alert mail and the log. A check that has not run recently reads as unknown, so a stopped timer cannot leave a green page.</p>
+    </figure>
+  </section>
+
+  <section class="section" id="next">
+    <SectionLabel label="Where next" />
+    <div class="tile-grid">
+      <div class="tile">
+        <h3 class="tile-headline"><a href="/architecture/">Architecture</a></h3>
+        <p class="tile-prose">Each mechanism in figures, from a check's life to what happens when tower itself fails.</p>
+      </div>
+      <div class="tile">
+        <h3 class="tile-headline"><a href="/setup/">Install</a></h3>
+        <p class="tile-prose">The commands to deploy tower and set up alerts, heartbeats and relays.</p>
+      </div>
+      <div class="tile">
+        <h3 class="tile-headline"><a href="https://gitlab.com/dunn.dev/tower" rel="external">Source</a></h3>
+        <p class="tile-prose">Shared as-is: no roadmap, no support promise.</p>
+      </div>
+    </div>
+  </section>
+</Layout>

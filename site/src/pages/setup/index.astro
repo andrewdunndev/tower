@@ -1,0 +1,28 @@
+---
+import { getEntry, render } from 'astro:content';
+import Layout from '../../layouts/Layout.astro';
+import Quickstart from '../../figures/06-quickstart.astro';
+
+const DOCS = 'https://gitlab.com/dunn.dev/tower/-/blob/main/docs/';
+
+// docs/setup.md targets the forge: drop its h1, resolve relative links against docs/.
+const setup = await getEntry('docs', 'setup');
+if (!setup?.rendered) throw new Error('docs/setup.md did not render');
+const html = setup.rendered.html
+  .replace(/<h1[^>]*>.*?<\/h1>/s, '')
+  .replace(/href="(?![a-z]+:|#|\/)([^"]*)"/gi, (_, url) => `href="${new URL(url, DOCS).href}"`);
+const headings = (await render(setup)).headings
+  .filter(h => h.depth === 2)
+  .map(h => ({ slug: h.slug, text: h.text }));
+---
+<Layout title="Install" description="Deploy tower and set up alerts, heartbeats, relays and upgrades." headings={headings}>
+  <header class="page-header">
+    <h1 class="page-title">Install</h1>
+  </header>
+  <div class="cat-explainer figure-pair figure-full">
+    <Quickstart />
+  </div>
+  <article>
+    <Fragment set:html={html} />
+  </article>
+</Layout>

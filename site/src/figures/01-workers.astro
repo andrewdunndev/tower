@@ -1,0 +1,81 @@
+<svg class="figure-wide" viewBox="0 0 660 296" role="img" aria-label="Visitors, heartbeat jobs and relay senders reach the page Worker, which holds no secrets or storage. The page Worker calls the prober over Workers RPC. The prober alone owns the D1 database and sends alert mail; the page Worker mails only when the prober does not answer." xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="workers-arrow-accent" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--accent)"/></marker>
+    <marker id="workers-arrow-muted" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--text-2)"/></marker>
+  </defs>
+  <g font-family="'IBM Plex Sans', Helvetica, Arial, sans-serif">
+    <rect x="20" y="20" width="620" height="256" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <path d="M144,84 H196" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#workers-arrow-muted)"/>
+    <path d="M304,84 H356" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#workers-arrow-accent)"/>
+    <path d="M464,84 H516" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#workers-arrow-muted)"/>
+    <path d="M410,124 V172" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#workers-arrow-muted)"/>
+    <rect x="157" y="70" width="26" height="12" fill="var(--bg)"/>
+    <text x="170" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">HTTP</text>
+    <rect x="320" y="70" width="21" height="12" fill="var(--bg)"/>
+    <text x="330" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">RPC</text>
+    <rect x="477" y="70" width="26" height="12" fill="var(--bg)"/>
+    <text x="490" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">owns</text>
+    <text x="417" y="151" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">alerts</text>
+    <rect x="36" y="44" width="108" height="80" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+    <text x="90" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">OUTSIDE</text>
+    <text x="90" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">readers, senders</text>
+    <text x="90" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">page, /beat, /relay</text>
+    <rect x="196" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="250" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">PAGE WORKER</text>
+    <text x="250" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">no secrets</text>
+    <text x="250" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">no storage</text>
+    <text x="250" y="114" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">minute cron</text>
+    <rect x="356" y="44" width="108" height="80" rx="6" fill="var(--accent)"/>
+    <text x="410" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--accent-contrast)" opacity="0.8">PROBER WORKER</text>
+    <text x="410" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--accent-contrast)">cron checks</text>
+    <text x="410" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--accent-contrast)" opacity="0.85">sole D1 owner</text>
+    <rect x="516" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="570" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">D1</text>
+    <text x="570" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">history</text>
+    <text x="570" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">state, outbox</text>
+    <rect x="356" y="172" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="410" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">EMAIL</text>
+    <text x="410" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">alert mail</text>
+    <text x="410" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">send_email</text>
+  </g>
+</svg>
+<svg class="figure-narrow" viewBox="0 0 340 424" role="img" aria-label="Visitors, heartbeat jobs and relay senders reach the page Worker, which holds no secrets or storage. The page Worker calls the prober over Workers RPC. The prober alone owns the D1 database and sends alert mail; the page Worker mails only when the prober does not answer." xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="workers-n-arrow-accent" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--accent)"/></marker>
+    <marker id="workers-n-arrow-muted" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" fill="var(--text-2)"/></marker>
+  </defs>
+  <g font-family="'IBM Plex Sans', Helvetica, Arial, sans-serif">
+    <rect x="20" y="20" width="300" height="384" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <path d="M148,84 H192" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#workers-n-arrow-muted)"/>
+    <path d="M246,124 V172" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#workers-n-arrow-accent)"/>
+    <path d="M192,212 H148" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#workers-n-arrow-muted)"/>
+    <path d="M246,252 V300" fill="none" stroke="var(--text-2)" stroke-width="1.5" marker-end="url(#workers-n-arrow-muted)"/>
+    <rect x="157" y="70" width="26" height="12" fill="var(--bg)"/>
+    <text x="170" y="79" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">HTTP</text>
+    <text x="253" y="151" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">RPC</text>
+    <rect x="157" y="198" width="26" height="12" fill="var(--bg)"/>
+    <text x="170" y="207" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">owns</text>
+    <text x="253" y="279" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" fill="var(--text-2)">alerts</text>
+    <rect x="40" y="44" width="108" height="80" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+    <text x="94" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">OUTSIDE</text>
+    <text x="94" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">readers, senders</text>
+    <text x="94" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">page, /beat, /relay</text>
+    <rect x="192" y="44" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="246" y="70" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">PAGE WORKER</text>
+    <text x="246" y="86" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">no secrets</text>
+    <text x="246" y="102" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">no storage</text>
+    <text x="246" y="114" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">minute cron</text>
+    <rect x="192" y="172" width="108" height="80" rx="6" fill="var(--accent)"/>
+    <text x="246" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--accent-contrast)" opacity="0.8">PROBER WORKER</text>
+    <text x="246" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--accent-contrast)">cron checks</text>
+    <text x="246" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--accent-contrast)" opacity="0.85">sole D1 owner</text>
+    <rect x="40" y="172" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="94" y="198" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">D1</text>
+    <text x="94" y="214" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">history</text>
+    <text x="94" y="230" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">state, outbox</text>
+    <rect x="192" y="300" width="108" height="80" rx="6" fill="var(--bg)" stroke="var(--border)"/>
+    <text x="246" y="326" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="8" letter-spacing="0.08em" fill="var(--text-muted)">EMAIL</text>
+    <text x="246" y="342" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">alert mail</text>
+    <text x="246" y="358" text-anchor="middle" font-family="'IBM Plex Mono', Menlo, monospace" font-size="9" fill="var(--text-2)">send_email</text>
+  </g>
+</svg>

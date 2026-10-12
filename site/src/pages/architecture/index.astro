@@ -1,0 +1,112 @@
+---
+import Split from '@dunn.dev/reference/chrome/Split.astro';
+import DiagramTrack from '@dunn.dev/reference/chrome/DiagramTrack.astro';
+import Layout from '../../layouts/Layout.astro';
+import Workers from '../../figures/01-workers.astro';
+import Check from '../../figures/02-check.astro';
+import Names from '../../figures/03-names.astro';
+import Watch from '../../figures/04-watch.astro';
+import Relay from '../../figures/05-relay.astro';
+---
+<Layout title="Architecture" description="How tower works: its two Workers, a check's life, what the page shows, how it watches itself, relays and limits.">
+  <header class="page-header">
+    <p class="page-eyebrow">architecture</p>
+    <h1 class="page-title">How tower works</h1>
+    <p class="page-lede">A prober Worker checks and mails; a page Worker serves the page and hands requests to it.</p>
+  </header>
+  <article>
+
+    <Split>
+      <h2 id="workers">Two Workers</h2>
+      <p>The prober runs on a cron each minute, runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober.</p>
+      <Fragment slot="aside">
+        <figure class="diagram">
+        <div class="figure-pair">
+          <Workers />
+        </div>
+        <figcaption class="diagram-caption">The page Worker faces the internet and holds no secrets or storage. The prober owns the data and sends the alert mail; the page Worker mails only when the prober does not answer.</figcaption>
+        </figure>
+      </Fragment>
+    </Split>
+
+    <h2 id="check">A check's life</h2>
+    <DiagramTrack>
+      <div class="section-prose" data-step="1">A probed check starts up, and each passing run keeps it there. The prober runs on a cron each minute and runs the checks that are due. When runs fail, it stays up and counts the failures until <code>down_after</code> runs in a row have failed.</div>
+      <div class="section-prose" data-step="2">When <code>down_after</code> runs in a row have failed, the check goes down and the change queues one DOWN mail in the outbox. The failure reason goes to that mail and the Worker log only, never the public page. A maintenance note suppresses alerts for its checks inside its window.</div>
+      <div class="section-prose" data-step="3">Once runs pass again, the check stays down and counts the passes, until <code>up_after</code> runs in a row have passed. Meanwhile the public page shows it down by name, with how long it has held that status, its uptime and its response times, while its address stays behind.</div>
+      <div class="section-prose" data-step="4">When <code>up_after</code> runs in a row have passed, the check is up again and the change queues one UP mail, so tower mails once when a check goes down and once when it recovers. Each mail waits in the outbox until it sends: a failed send is tried again on the next run.</div>
+      <Fragment slot="figure">
+        <div class="figure-pair"><Check /></div>
+        <figcaption class="diagram-caption">A probed check changes state after <code>down_after</code> or <code>up_after</code> runs in a row; a heartbeat goes down at its first missed deadline.</figcaption>
+      </Fragment>
+    </DiagramTrack>
+
+    <h2 id="types">Five check types</h2>
+    <div class="tile-grid">
+      <div class="tile">
+        <p class="tile-eyebrow">http</p>
+        <p class="tile-prose">Requests an address and judges the response.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">tcp</p>
+        <p class="tile-prose">Opens a connection to a port. It sends no data.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">dns</p>
+        <p class="tile-prose">Resolves a name through 1.1.1.1 over DoH.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">tls</p>
+        <p class="tile-prose">Reads a zone's edge certificates through the Cloudflare API.</p>
+      </div>
+      <div class="tile">
+        <p class="tile-eyebrow">heartbeat</p>
+        <p class="tile-prose">Waits for a request from your job within its interval plus a grace.</p>
+      </div>
+    </div>
+
+    <Split>
+      <h2 id="names">Names only</h2>
+      <p>Failure reasons go to the alert mail and the Worker log only. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
+      <Fragment slot="aside">
+        <figure class="diagram">
+        <div class="figure-pair">
+          <Names />
+        </div>
+        <figcaption class="diagram-caption">Names, status, uptime and response times cross to the public page; addresses and reasons stay behind.</figcaption>
+        </figure>
+      </Fragment>
+    </Split>
+
+    <h2 id="watching">Watching itself</h2>
+    <DiagramTrack caption="The prober flags stuck checks, the page Worker flags a stalled prober, and a missing digest covers both being down.">
+      <div class="section-prose" data-step="1">The prober flags any check with no conclusive result for three of its intervals and mails a self-check failure naming it, then an OK when results return. A probe that stays inconclusive or misconfigured, such as a tls check with an unset token, counts as no result, so a check that stops producing results still reaches your inbox.</div>
+      <div class="section-prose" data-step="2">The page Worker's minute cron asks the prober to watch its last run. If no run has written results for three of the shortest intervals, the mail says probing stalled, then an OK follows once probing resumes. Because the page Worker's cron asks, not the prober's own, the mail survives a dead prober cron.</div>
+      <div class="section-prose" data-step="3">If the prober does not answer at all, the page Worker mails that probing stalled and the prober did not answer, at the top of each hour until it does. This is the only mail the page Worker sends: it holds no secrets or storage, and the prober sends every other alert.</div>
+      <div class="section-prose" data-step="4">When both Workers are dead, an account or platform failure, nothing can mail. A daily digest at a time you choose is the alarm: a missing digest means something is wrong. A normal day's digest is the subject <code>all up</code> with no body. An outside poller can also read <code>/api/status</code>, which reports the last run, the oldest unsent mail and stuck checks.</div>
+      <div slot="figure" class="figure-pair"><Watch /></div>
+    </DiagramTrack>
+
+    <h2 id="relays">Relays</h2>
+    <DiagramTrack caption="A relay key mails when it opens, when it closes and when it goes quiet.">
+      <div class="section-prose" data-step="1">A relay accepts an incident.io-format webhook at <code>POST /relay/incident</code>, as HyperDX sends, and mails on transitions only. tower reads each alert's deduplication key as its key. A firing for a closed key opens it and mails FIRING. Titles, descriptions and keys reach the alert mail only, never the page or <code>/api/status</code>.</div>
+      <div class="section-prose" data-step="2">A repeat firing of an open key renews its lease without mail, and the request answers <code>duplicate</code>. A sender that keeps re-notifying therefore holds the key open in silence, so set the relay's <code>grace</code> above the sender's re-notify gap, at most seven days.</div>
+      <div class="section-prose" data-step="3">A resolved closes the key and mails RESOLVED. A resolved for a key that is already closed is a duplicate and sends nothing, because a relay mails on transitions only. A later firing of the same key opens it again and mails FIRING again.</div>
+      <div class="section-prose" data-step="4">A key not renewed within its grace closes with STOPPED REPORTING, which also covers a lost resolved. Every transition shares one limit: at most five transitions per relay per minute mail at once; the rest wait for the next run and, when more than one is waiting, arrive as one mail.</div>
+      <div slot="figure" class="figure-pair"><Relay /></div>
+    </DiagramTrack>
+
+    <div class="flow">
+    <h2 id="limits">Limits</h2>
+    <ul class="section-prose">
+      <li>A tcp check against a Cloudflare-proxied address, or one Cloudflare blocks, reads as down.</li>
+      <li>A tcp check sends no data, so a service that accepts and then fails reads as up.</li>
+      <li>A tls check covers edge certificates. An origin certificate failure shows as http 526.</li>
+      <li>Checks run from one Cloudflare location per cron run, so a failure near it can read as down.</li>
+      <li>Relays have no silences or maintenance windows.</li>
+      <li>A relay holds at most 100 open keys. A firing past that is rejected, and one SELF-CHECK FAILING mail says so.</li>
+      <li>If both Workers are dead, nothing mails, and only the missing digest says so.</li>
+    </ul>
+    </div>
+  </article>
+</Layout>
