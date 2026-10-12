@@ -91,8 +91,8 @@ describe("the built page", () => {
 			const config = makeConfig([tls("shown", "Shown", true), tls("hidden", "Hidden", false)]);
 			const { runEnv } = mailbox();
 			const unavailable = (async () => new Response("{}", { status: 503 })) as typeof fetch;
-			for (let k = 0; k <= 3; k++) await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0 + k * MINUTE, unavailable);
-			const data = await status(env.DB, config, T0 + 3 * MINUTE);
+			for (let k = 0; k <= 4; k++) await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0 + k * MINUTE, unavailable);
+			const data = await status(env.DB, config, T0 + 4 * MINUTE);
 			expect(data.self.map((s) => s.name)).toEqual(["results for Shown"]);
 			await answer(JSON.stringify(data));
 			const html = await (await get("/", "stuck")).text();

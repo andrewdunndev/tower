@@ -1,8 +1,7 @@
 import type { Instance } from "../../tools/schema.ts";
 import { MAX_KEYS } from "./relay.ts";
-import { interval, STALE_INTERVALS, STUCK_PREFIX, selfName } from "./status.ts";
+import { allowance, interval, STUCK_PREFIX, selfName } from "./status.ts";
 
-const RESUME_AFTER_MS = 90_000;
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
 
@@ -10,7 +9,8 @@ type Version = { id: string };
 
 const lastRun = `(SELECT MAX(last_run) FROM state)`;
 const newest = (t: string) => `${t} >= (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'tick')`;
-const stallCutoff = (config: Instance, t: number) => t - STALE_INTERVALS * Math.min(...config.checks.map(interval));
+const staleWindow = (config: Instance) => allowance(Math.min(...config.checks.map(interval)));
+const stallCutoff = (config: Instance, t: number) => t - staleWindow(config);
 
 const queue = (db: D1Database, key: string, kind: string, t: number, guard: string, ...binds: unknown[]) =>
 	db
@@ -34,24 +34,26 @@ export async function raiseStall(db: D1Database, config: Instance, t: number): P
 	return true;
 }
 
-export function resumedAfter(previous: string | undefined, t: number): boolean {
-	return previous !== undefined && t - Number(previous) > RESUME_AFTER_MS;
+export function resumedAfter(config: Instance, previous: string | undefined, t: number): boolean {
+	return previous !== undefined && t - Number(previous) > staleWindow(config);
 }
 
 export async function reportWriteFailure(
 	db: D1Database,
+	config: Instance,
 	send: (subject: string, text: string) => Promise<boolean>,
 	t: number,
 ): Promise<void> {
-	let recent: boolean;
+	let due: boolean;
 	try {
 		const row = await db.prepare(`SELECT value FROM meta WHERE key = 'tick'`).first<{ value: string }>();
-		recent = row !== null && t - Number(row.value) < RESUME_AFTER_MS;
+		const gap = t - Number(row?.value);
+		const window = staleWindow(config);
+		due = window - MINUTE_MS < gap && gap <= window;
 	} catch {
-		recent = t % HOUR_MS < MINUTE_MS;
+		due = t % HOUR_MS < MINUTE_MS;
 	}
-	if (recent)
-		await send("SELF-CHECK FAILING: database writes", `Database writes failed, ${new Date(t).toISOString()}.\n`);
+	if (due) await send("SELF-CHECK FAILING: database writes", `Database writes failed, ${new Date(t).toISOString()}.\n`);
 }
 
 export function selfWrites(
@@ -127,7 +129,7 @@ export function selfWrites(
 }
 
 function stuckWrites(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
-	const cutoffs = JSON.stringify(config.checks.map((c) => [c.id, t - STALE_INTERVALS * interval(c)]));
+	const cutoffs = JSON.stringify(config.checks.map((c) => [c.id, t - allowance(interval(c))]));
 	const verdicts = (op: "<=" | ">") =>
 		`SELECT s."check" AS id, COALESCE(s.last_conclusive, s.since) AS last, s.reason FROM state s JOIN json_each(?1) j ON s."check" = json_extract(j.value, '$[0]') WHERE COALESCE(s.last_conclusive, s.since) ${op} json_extract(j.value, '$[1]')`;
 	const flag = `'${STUCK_PREFIX}' || id`;

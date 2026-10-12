@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 (2026-10-12)
+
+- Self-checks allow a minute of cron slack: an uneven or skipped Cloudflare cron tick no longer mails `SELF-CHECK OK: probing resumed`, and stalled, stuck and database-writes alarms wait three intervals plus a minute.
+
 ## 0.3.2 (2026-10-11)
 
 - Relay and alert mail drop emoji and other non-ASCII (accented letters keep their base letter) instead of printing `?`.

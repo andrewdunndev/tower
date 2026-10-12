@@ -118,7 +118,7 @@ export async function tick(
 	try {
 		claimed = await claim(env.DB, config, t);
 	} catch (e) {
-		await reportWriteFailure(env.DB, (subject, text) => sendMail(env.EMAIL, config.alert, subject, text), t);
+		await reportWriteFailure(env.DB, config, (subject, text) => sendMail(env.EMAIL, config.alert, subject, text), t);
 		throw e;
 	}
 
@@ -225,7 +225,7 @@ export async function tick(
 	writes.push(
 		...expire(env.DB, config, t),
 		...prune(env.DB, config, t),
-		...selfWrites(env.DB, config, t, env.VERSION, resumedAfter(claimed.previous, t), token),
+		...selfWrites(env.DB, config, t, env.VERSION, resumedAfter(config, claimed.previous, t), token),
 	);
 	await env.DB.batch(writes);
 

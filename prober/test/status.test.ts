@@ -53,11 +53,15 @@ describe("status", () => {
 		expect(s.last_run).toBe(new Date(T0 + 2 * MINUTE).toISOString());
 	});
 
-	it("turns unknown when no run lands within 3 intervals", async () => {
+	it("turns unknown and stuck when no run lands within 3 intervals plus a minute", async () => {
 		const { runEnv } = mailbox();
 		await tick(runEnv, makeConfig(), T0, respond(200));
-		expect((await status(env.DB, makeConfig(), T0 + 3 * MINUTE)).checks[0].status).toBe("up");
-		expect((await status(env.DB, makeConfig(), T0 + 3 * MINUTE + 1)).checks[0].status).toBe("unknown");
+		for (const gap of [182_000, 4 * MINUTE]) {
+			const s = await status(env.DB, makeConfig(), T0 + gap);
+			expect([s.checks[0].status, s.stuck]).toEqual(["up", 0]);
+		}
+		const s = await status(env.DB, makeConfig(), T0 + 4 * MINUTE + 1);
+		expect([s.checks[0].status, s.stuck]).toEqual(["unknown", 1]);
 	});
 
 	it("flags degraded when the median of recent samples exceeds slow_ms", async () => {
