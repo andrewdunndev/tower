@@ -70,7 +70,7 @@ Mail goes to `alert.to` unless a check or relay names its own `to`: one address,
 { "id": "api", "type": "http", "name": "API", "url": "https://api.example.com/health", "to": ["api@example.com", "oncall@example.com"] }
 ```
 
-`to` routes `DOWN`, `UP`, `FIRING`, `RESOLVED`, `STOPPED REPORTING` and `ALERTS`. Each address gets its own mail, retried on its own, so one failing address never repeats a mail to the others. An address that is not a verified destination fails 10 times, then shows as dead in the digest and in `dead_outbox`.
+`to` routes `DOWN`, `UP`, `FIRING`, `RESOLVED`, `STOPPED REPORTING` and `ALERTS`. Each address gets its own mail, retried on its own, so one failing address never repeats a mail to the others. An address that is not a verified destination fails 10 times, then shows as dead in the digest and in `dead_outbox`. Unsent mail to an address you remove or correct moves to the current `to`, or to `alert.to` once `to` is gone, and skips an address that already has it. Mail already dead stays dead.
 
 ## Heartbeats
 

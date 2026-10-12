@@ -262,7 +262,7 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 	const owners = JSON.stringify([...config.checks.map((c) => c.id), ...config.relays.map((r) => r.id), ""]);
 	const relays = JSON.stringify(config.relays.map((r) => r.id));
 	const routes = JSON.stringify(
-		[...config.checks, ...config.relays].flatMap((o) => (o.to ?? []).map((a) => [o.id, a])),
+		Object.fromEntries([...config.checks, ...config.relays].map((o) => [o.id, o.to ?? [""]])),
 	);
 	const cutoff = t - DAYS * DAY_MS;
 	return [
@@ -276,7 +276,12 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		db.prepare(`DELETE FROM outbox WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(owners),
 		db
 			.prepare(
-				`DELETE FROM outbox WHERE "to" <> '' AND ("check", "to") NOT IN (SELECT value ->> 0, value ->> 1 FROM json_each(?1))`,
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT DISTINCT o."check", o."key", o.at, o.kind, o.since, o.reason, r.value FROM outbox o JOIN json_each(?1) c ON c.key = o."check", json_each(c.value) r WHERE o.dead = 0 AND o."to" <> '' AND o."to" NOT IN (SELECT value FROM json_each(c.value)) AND NOT EXISTS (SELECT 1 FROM outbox d WHERE d."check" = o."check" AND d."key" = o."key" AND d.at = o.at AND d.kind = o.kind AND d."to" = r.value)`,
+			)
+			.bind(routes),
+		db
+			.prepare(
+				`DELETE FROM outbox WHERE dead = 0 AND "to" <> '' AND NOT EXISTS (SELECT 1 FROM json_each(?1) c, json_each(c.value) r WHERE c.key = outbox."check" AND r.value = outbox."to")`,
 			)
 			.bind(routes),
 		db
