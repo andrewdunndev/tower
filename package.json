@@ -25,7 +25,7 @@
 		"typescript": "6.0.3",
 		"vitest": "5.0.3",
 		"wrangler": "4.149.0",
-		"zod": "4.6.5"
+		"zod": "4.6.6"
 	},
 	"workspaces": [
 		"prober",
