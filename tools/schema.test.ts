@@ -105,6 +105,12 @@ describe("instance", () => {
 			expect(instanceSchema.parse({ ...example, relays: undefined }).relays).toEqual([]);
 		});
 
+		it("defaults digest_only to false and takes a boolean", () => {
+			expect(instanceSchema.parse(withRelays(relay)).relays[0].digest_only).toBe(false);
+			expect(instanceSchema.parse(withRelays({ ...relay, digest_only: true })).relays[0].digest_only).toBe(true);
+			expect(messages(withRelays({ ...relay, digest_only: "yes" })).length).toBeGreaterThan(0);
+		});
+
 		it("rejects an unknown relay key", () => {
 			expect(messages(withRelays({ ...relay, stale_after: "1h" }))).toContain("unknown key stale_after.");
 		});

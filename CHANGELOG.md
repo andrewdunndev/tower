@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 (2026-10-17)
+
+- Mail is for outages. Self-checks no longer mail when they fail: the `DIGEST` lists a failing Cloudflare API token, `results for <check>`, `probing stalled` and a full relay while it lasts. Where the digest cannot be produced, one `SELF-CHECK FAILING` mail goes out at the digest time instead: from the page Worker when the prober does not answer (was hourly), from the prober when D1 writes fail. An instance without `digest` keeps `SELF-CHECK FAILING` as push.
+- `DEPLOYED` and every `SELF-CHECK OK` mail (`probing resumed`, token, `results for <check>`, relay has room) are gone. Queued ones are dropped.
+- Checks that go down or recover in the same run share one `DOWN` or `UP` mail per address, with a line per check. A single check keeps its subject.
+- A relay takes `digest_only`: its keys are recorded and listed in the `DIGEST`, and nothing is mailed for them.
+
 ## 0.4.2 (2026-10-12)
 
 - The stall alarm holds for 15 minutes after the prober is deployed: Cloudflare re-registers the cron on deploy, and the gap no longer mails `probing stalled` or `probing resumed`. A deploy that never ticks is still caught once the 15 minutes pass.
