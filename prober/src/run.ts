@@ -3,7 +3,7 @@ import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { compose, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
-import { attention, raiseStall, reportWriteFailure, resumedAfter, selfWrites } from "./self.ts";
+import { attention, raiseStall, reportWriteFailure, selfWrites } from "./self.ts";
 import { DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & {
@@ -88,7 +88,6 @@ async function claim(db: D1Database, config: Instance, t: number) {
 			.bind(c.id, t),
 	);
 	const ticks = [
-		db.prepare(`SELECT value FROM meta WHERE key = 'tick'`),
 		db
 			.prepare(
 				`INSERT INTO meta (key, value) VALUES ('tick', ?1) ON CONFLICT (key) DO UPDATE SET value = MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))`,
@@ -102,14 +101,13 @@ async function claim(db: D1Database, config: Instance, t: number) {
 			)
 			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c)) * interval(c)),
 	);
-	const results = await db.batch<StateRow | { value: string }>([...ticks, ...seeds, ...claims]);
+	const results = await db.batch<StateRow>([...ticks, ...seeds, ...claims]);
 	const offset = ticks.length + seeds.length;
-	const previous = (results[0].results[0] as { value: string } | undefined)?.value;
 	const claimed = config.checks.flatMap((check, i) => {
-		const row = results[offset + i].results[0] as StateRow | undefined;
+		const row = results[offset + i].results[0];
 		return row ? [{ check, row }] : [];
 	});
-	return { claimed, previous };
+	return claimed;
 }
 
 export async function tick(
@@ -131,11 +129,11 @@ export async function tick(
 	}
 
 	const deadline = Math.max(
-		t + Math.min(...claimed.claimed.map(({ check }) => interval(check))) - SKEW_MS - DB_MARGIN_MS,
+		t + Math.min(...claimed.map(({ check }) => interval(check))) - SKEW_MS - DB_MARGIN_MS,
 		startedAt + MIN_BUDGET_MS,
 	);
 	const open = () => now() < deadline;
-	const probes = pool(claimed.claimed, CONCURRENCY, open, async ({ check, row }) => {
+	const probes = pool(claimed, CONCURRENCY, open, async ({ check, row }) => {
 		const started = Date.now();
 		const outcome: Outcome =
 			check.type === "heartbeat"
@@ -157,7 +155,7 @@ export async function tick(
 		clearTimeout(timer);
 	}
 	probes.done.catch(() => {});
-	const ran = claimed.claimed.map(({ check, row }, i) => probes.out[i] ?? { check, row, outcome: OUTLIVED, ms: 0 });
+	const ran = claimed.map(({ check, row }, i) => probes.out[i] ?? { check, row, outcome: OUTLIVED, ms: 0 });
 
 	const recent = await Promise.all(
 		ran.map(({ check }) =>
@@ -254,7 +252,7 @@ export async function tick(
 	writes.push(
 		...expire(env.DB, config, t),
 		...prune(env.DB, config, t),
-		...selfWrites(env.DB, config, t, env.VERSION, resumedAfter(config, claimed.previous, t, env.VERSION), token),
+		...selfWrites(env.DB, config, t, env.VERSION, token),
 	);
 	await env.DB.batch(writes);
 
@@ -289,6 +287,7 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		db.prepare(`DELETE FROM daily WHERE day < ?1`).bind(new Date(cutoff).toISOString().slice(0, 10)),
 		db.prepare(`DELETE FROM events WHERE at < ?1`).bind(cutoff),
 		db.prepare(`DELETE FROM outbox WHERE dead = 1 AND at < ?1`).bind(t - DAY_MS),
+		db.prepare(`DELETE FROM outbox WHERE kind IN ('deployed', 'resumed', 'self-ok')`),
 		...OWNED_TABLES.map((table) =>
 			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
 		),

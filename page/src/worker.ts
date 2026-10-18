@@ -4,5 +4,5 @@ import { watch } from './server.ts';
 
 export default {
   fetch: handle,
-  scheduled: (controller, env) => watch(env, page.alert, controller.scheduledTime),
+  scheduled: (controller, env) => watch(env, page.alert, controller.scheduledTime, page.digest),
 } satisfies ExportedHandler<Env>;

@@ -1,6 +1,5 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import pkg from "../../package.json";
 import { drain, type RunEnv, step, tick, watch } from "../src/run.ts";
 import { status } from "../src/status.ts";
 import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
@@ -505,7 +504,7 @@ describe("routing", () => {
 		expect(await rows()).toEqual([]);
 	});
 
-	it("keeps deploy, self-check, stuck and stall mail on alert.to", async () => {
+	it("keeps self-check, stuck and stall mail on alert.to", async () => {
 		const { runEnv, box } = mailbox();
 		await env.DB.prepare(`DELETE FROM meta WHERE key = 'version'`).run();
 		const cert = { id: "cert", type: "tls", name: "Certificate", host: "www.example.com", zone: "example.com" };
@@ -516,12 +515,11 @@ describe("routing", () => {
 		for (let k = 0; k <= 4; k++) await tick(runEnv, config, T0 + k * MINUTE, T0 + k * MINUTE, respond(200));
 		await watch(runEnv, config, T0 + 10 * MINUTE);
 		expect(box.subjects).toEqual([
-			`DEPLOYED: tower ${pkg.version}`,
 			"SELF-CHECK FAILING: Cloudflare API token",
 			"SELF-CHECK FAILING: results for Certificate",
 			"SELF-CHECK FAILING: probing stalled",
 		]);
-		expect(box.to).toEqual(Array(4).fill("oncall@example.com"));
+		expect(box.to).toEqual(Array(3).fill("oncall@example.com"));
 	});
 
 	it("moves pending mail from a corrected address to the new one", async () => {
@@ -589,7 +587,7 @@ describe("pruning", () => {
 				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('alerts', 'k', ?1, 'firing', 0, 'x')`,
 			).bind(T0 + 1),
 			env.DB.prepare(
-				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('', 'deployed', ?1, 'deployed', NULL, NULL)`,
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('', 'stall', ?1, 'self-failing', NULL, NULL)`,
 			).bind(T0 + 1),
 			env.DB.prepare(
 				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('ghost', 'k', ?1, 'firing', 0, 'x')`,
@@ -604,6 +602,16 @@ describe("pruning", () => {
 		await tick(runEnv, makeConfig([web], { relays }), T0 + MINUTE, T0 + MINUTE, respond(200));
 		expect(await all(`SELECT "check" FROM outbox ORDER BY "check"`)).toEqual([{ check: "" }, { check: "alerts" }]);
 		expect(await all(`SELECT relay FROM relay_keys`)).toEqual([{ relay: "alerts" }]);
+	});
+
+	it("drops queued deployed, resumed and self-ok rows", async () => {
+		const { runEnv, box } = mailbox();
+		await env.DB.prepare(
+			`INSERT INTO outbox ("check", "key", at, kind) VALUES ('', 'deployed', 1, 'deployed'), ('', 'resumed', 1, 'resumed'), ('', 'stall', 1, 'self-ok')`,
+		).run();
+		await tick(runEnv, makeConfig(), T0, T0, respond(200));
+		expect(await all(`SELECT * FROM outbox`)).toEqual([]);
+		expect(box.sends).toBe(0);
 	});
 
 	it("drops every row of a check removed from the config", async () => {

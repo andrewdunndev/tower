@@ -1,5 +1,4 @@
 import { EmailMessage } from "cloudflare:email";
-import pkg from "../../package.json";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { hint } from "./http.ts";
 import { SELF_NAMES } from "./status.ts";
@@ -7,17 +6,7 @@ import { SELF_NAMES } from "./status.ts";
 export interface Pending {
 	at: number;
 	key: string;
-	kind:
-		| "down"
-		| "up"
-		| "firing"
-		| "resolved"
-		| "stale"
-		| "deployed"
-		| "digest"
-		| "resumed"
-		| "self-failing"
-		| "self-ok";
+	kind: "down" | "up" | "firing" | "resolved" | "stale" | "digest" | "self-failing";
 	since: number | null;
 	reason: string | null;
 }
@@ -74,7 +63,6 @@ export function message(check: Check, p: Pending): [subject: string, text: strin
 function stuckMessage(check: Check, p: Pending): [subject: string, text: string] {
 	const name = clip(check.name);
 	const at = new Date(p.at).toISOString();
-	if (p.kind === "self-ok") return [`SELF-CHECK OK: results for ${name}`, `${name} has fresh results again, ${at}.\n`];
 	const since = new Date(p.since ?? p.at).toISOString();
 	const last = p.reason ? `Last reason: ${clip(p.reason)}.\n` : "";
 	return [
@@ -128,41 +116,27 @@ function digest(config: Instance, p: Pending, lines: string[]): [string, string]
 
 export function towerMessage(config: Instance, p: Pending, lines: string[] = []): [subject: string, text: string] {
 	const at = new Date(p.at).toISOString();
-	switch (p.kind) {
-		case "deployed":
-			return [`DEPLOYED: tower ${pkg.version}`, `Version ${pkg.version} is running, ${at}.\n`];
-		case "digest":
-			return digest(config, p, lines);
-		case "resumed":
-			return ["SELF-CHECK OK: probing resumed", `Probing resumed after a gap, ${at}.\n`];
-	}
+	if (p.kind === "digest") return digest(config, p, lines);
 	if (p.key === "stall") {
 		const since = new Date(p.since ?? p.at).toISOString();
-		return p.kind === "self-ok"
-			? towerMessage(config, { ...p, kind: "resumed" })
-			: [
-					"SELF-CHECK FAILING: probing stalled",
-					`No probe run has written results since ${since}; detected ${at}. The prober's cron trigger or its runs are failing; its Worker log says which.\n`,
-				];
+		return [
+			"SELF-CHECK FAILING: probing stalled",
+			`No probe run has written results since ${since}; detected ${at}. The prober's cron trigger or its runs are failing; its Worker log says which.\n`,
+		];
 	}
-	const ok = p.kind === "self-ok";
 	const relay = config.relays.find((r) => `full:${r.id}` === p.key);
 	if (relay) {
 		const name = clip(relay.name);
-		return ok
-			? [`SELF-CHECK OK: relay ${name} has room`, `Relay ${name} is below its limit of open keys, ${at}.\n`]
-			: [
-					`SELF-CHECK FAILING: relay ${name} is full`,
-					`Relay ${name} is at its limit of open keys and refused a new one, ${at}.\nIt closes keys that resolve or stop reporting.\n`,
-				];
+		return [
+			`SELF-CHECK FAILING: relay ${name} is full`,
+			`Relay ${name} is at its limit of open keys and refused a new one, ${at}.\nIt closes keys that resolve or stop reporting.\n`,
+		];
 	}
 	const what = SELF_NAMES[p.key] ?? clip(p.key);
-	return ok
-		? [`SELF-CHECK OK: ${what}`, `${what} recovered, ${at}.\n`]
-		: [
-				`SELF-CHECK FAILING: ${what}`,
-				`${what} is failing, ${at}.\nThe token needs Zone Read and SSL and Certificates Read, and CF_API_TOKEN must be set.\n`,
-			];
+	return [
+		`SELF-CHECK FAILING: ${what}`,
+		`${what} is failing, ${at}.\nThe token needs Zone Read and SSL and Certificates Read, and CF_API_TOKEN must be set.\n`,
+	];
 }
 
 export function compose(

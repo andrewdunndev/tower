@@ -3,6 +3,7 @@
 	"title": "Example Status",
 	"domain": "status.example.com",
 	"alert": { "from": "tower@example.com", "to": "oncall@example.com" },
+	"digest": "07:30",
 	"checks": [
 		{
 			"id": "web",

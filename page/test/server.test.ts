@@ -210,4 +210,13 @@ describe('watch', () => {
     await watch(env, alert, 5 * HOUR + 1800_000);
     expect(calls.subjects).toEqual(['SELF-CHECK FAILING: probing stalled']);
   });
+
+  it('with a digest time mails once a day at that time and not hourly', async () => {
+    const { calls, env } = setup(false);
+    const noon = 5 * 24 * HOUR + 12 * HOUR;
+    for (let k = 0; k < 24 * 60; k += 1) await watch(env, alert, 5 * 24 * HOUR + k * 60_000, '12:00');
+    expect(calls.subjects).toEqual(['SELF-CHECK FAILING: probing stalled']);
+    await watch(env, alert, noon + 24 * HOUR, '12:00');
+    expect(calls.subjects).toHaveLength(2);
+  });
 });
