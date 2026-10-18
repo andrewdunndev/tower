@@ -110,7 +110,7 @@ A relay accepts an incident.io alert-event body at `POST /relay/incident` and ma
 In HyperDX add a webhook with service `incident.io`, URL `https://<domain>/relay/incident`, header `Authorization: Bearer <token>` and an empty body template. tower reads `title`, `description`, `source_url`, `deduplication_key` and `status` (`firing` or `resolved`) and ignores the rest.
 
 - A request answers `202` with `{"result": "transition"}` (mailed), `"duplicate"` (the key was already in that state; a firing renews its lease) or `"rejected"` (the relay holds 100 open keys). A bad or missing token answers `404`, a body without a title, key or valid status `400`, another media type than `application/json` `415`, and a body over 64 KiB `413`.
-- Set `"digest_only": true` on a relay to keep its keys out of the mail: transitions are recorded and the `DIGEST` lists open keys, but nothing is sent for a firing, a resolve or a key that stops reporting.
+- Set `"digest_only": true` on a relay (it needs `digest`) to keep its keys out of the mail: transitions are recorded and the `DIGEST` lists open keys, but nothing is sent for a firing, a resolve or a key that stops reporting.
 - A key left open for `grace` without another firing closes with one `STOPPED REPORTING` mail, which also covers a lost resolved. A later firing of the key mails again. Set `grace` above the sender's re-notify gap, at most 7 days.
 - At most 5 transitions per relay per minute mail at once; the rest wait for the next cron run and, when more than one is waiting, arrive as one `ALERTS: <relay>: <n> changed` mail per address with a line per key. 100 open keys can therefore send up to 100 changes in a burst. A rejected key makes a `SELF-CHECK` flag (see Self-checks).
 - There are no silences or maintenance windows on relays.
@@ -119,12 +119,12 @@ In HyperDX add a webhook with service `incident.io`, URL `https://<domain>/relay
 
 ## Self-checks
 
-Self-checks never mail when they fail and recover; the `DIGEST` lists each one while it is failing. tower never mails `DEPLOYED` or `OK`. Mail about tower itself goes to `alert.to`, even for a check or relay with its own `to`.
+With `digest` set, self-checks never mail when they fail and recover; the `DIGEST` lists each one while it is failing. tower never mails `DEPLOYED` or `OK`. Mail about tower itself goes to `alert.to`, even for a check or relay with its own `to`.
 
 - `DIGEST` once a day at `digest` (`HH:MM` UTC). A normal day is the subject `all up` with no body; otherwise the subject counts the items and the body lists down checks, open relay keys, unsent or dead mail and failing self-checks. A day missed to an outage is not backfilled.
 - Cloudflare API token: a tls check gets a `401` or `403`, or the secret is unset. A token that expires is not warned about ahead of time.
 - `results for <check>`: any check, public or not, with no conclusive result for three of its intervals plus a minute. A probe that stays inconclusive or misconfigured, such as a tls check with an unset token, counts as no result. A probe that has not answered shortly before the next run of the shortest interval, or never started, counts as no result for that run. A check added later gets the same from when it was added.
-- `probing stalled`: no run has written results for three of the shortest `every` plus a minute. The page Worker's minute cron asks the prober, so a dead prober cron is caught. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
+- `probing stalled`: no run has written results for three of the shortest `every` plus a minute. The page Worker's minute cron asks the prober, so a dead prober cron is caught, and the digest due while the cron is stalled is still queued and lists it. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
 - A relay at its limit of open keys, which refused a new one.
 
 Where the digest cannot be produced, one mail goes out at the digest time instead:

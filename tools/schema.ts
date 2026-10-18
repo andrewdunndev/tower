@@ -223,6 +223,13 @@ export const instanceSchema = z
 				});
 			}
 			hashes.add(r.token_sha256);
+			if (r.digest_only && !inst.digest) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["relays", i, "digest_only"],
+					message: 'digest_only needs "digest" set: without a digest its keys are never listed.',
+				});
+			}
 		}
 	});
 

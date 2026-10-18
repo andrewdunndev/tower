@@ -218,6 +218,17 @@ describe("burst", () => {
 		expect(await outbox()).toEqual([]);
 	});
 
+	it("covers each key in exactly one mail across the inline singles and the summary", async () => {
+		const { runEnv, box } = mailbox();
+		const titles = Array.from({ length: 9 }, (_, i) => `Incident number ${i}`);
+		for (const [i, title] of titles.entries())
+			await send(runEnv, payload({ title, deduplication_key: `k${i}` }), T0 + i * 1000);
+		await tick(runEnv, config, T0 + MINUTE, respond(200));
+		for (const title of titles) expect(box.bodies.filter((b) => b.includes(title))).toHaveLength(1);
+		expect(box.subjects.filter((s) => s.startsWith("ALERTS:"))).toEqual(["ALERTS: Alerts: 4 changed"]);
+		expect(box.sends).toBe(6);
+	});
+
 	it("does not count duplicates and resets the window after a minute", async () => {
 		const { runEnv, box } = mailbox();
 		await fire(runEnv, 0, T0);

@@ -107,8 +107,15 @@ describe("instance", () => {
 
 		it("defaults digest_only to false and takes a boolean", () => {
 			expect(instanceSchema.parse(withRelays(relay)).relays[0].digest_only).toBe(false);
-			expect(instanceSchema.parse(withRelays({ ...relay, digest_only: true })).relays[0].digest_only).toBe(true);
+			const digested = (r: Json) => ({ ...withRelays(r), digest: "07:30" });
+			expect(instanceSchema.parse(digested({ ...relay, digest_only: true })).relays[0].digest_only).toBe(true);
 			expect(messages(withRelays({ ...relay, digest_only: "yes" })).length).toBeGreaterThan(0);
+		});
+
+		it("rejects digest_only on an instance without a digest", () => {
+			expect(messages({ ...withRelays({ ...relay, digest_only: true }), digest: undefined }).join()).toContain(
+				"digest_only needs",
+			);
 		});
 
 		it("rejects an unknown relay key", () => {
