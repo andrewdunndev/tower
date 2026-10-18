@@ -67,6 +67,24 @@ export async function reportWriteFailure(
 	if (due) await send("SELF-CHECK FAILING: database writes", `Database writes failed, ${new Date(t).toISOString()}.\n`);
 }
 
+export function digestWrites(db: D1Database, config: Instance, t: number, guard = "1"): D1PreparedStatement[] {
+	if (!config.digest) return [];
+	const day = new Date(t).toISOString().slice(0, 10);
+	const due = Date.parse(`${day}T${config.digest}:00Z`);
+	return [
+		queue(
+			db,
+			"digest",
+			"digest",
+			t,
+			`?4 <= ?2 AND COALESCE((SELECT value FROM meta WHERE key = 'digest'), '') <> ?5 AND ${guard}`,
+			due,
+			day,
+		),
+		db.prepare(`INSERT OR REPLACE INTO meta (key, value) SELECT 'digest', ?1 WHERE ?2 <= ?3 AND ${guard}`).bind(day, due, t),
+	];
+}
+
 export function selfWrites(
 	db: D1Database,
 	config: Instance,
@@ -85,22 +103,7 @@ export function selfWrites(
 		set("version", version.id),
 	);
 
-	if (config.digest) {
-		const day = new Date(t).toISOString().slice(0, 10);
-		const due = Date.parse(`${day}T${config.digest}:00Z`);
-		writes.push(
-			queue(
-				db,
-				"digest",
-				"digest",
-				t,
-				`?4 <= ?2 AND COALESCE((SELECT value FROM meta WHERE key = 'digest'), '') <> ?5`,
-				due,
-				day,
-			),
-			db.prepare(`INSERT OR REPLACE INTO meta (key, value) SELECT 'digest', ?1 WHERE ?2 <= ?3`).bind(day, due, t),
-		);
-	}
+	writes.push(...digestWrites(db, config, t));
 
 	if (token === "bad") {
 		if (!config.digest) {

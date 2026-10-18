@@ -3,7 +3,7 @@ import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { compose, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
-import { attention, raiseStall, reportWriteFailure, selfWrites } from "./self.ts";
+import { attention, digestWrites, raiseStall, reportWriteFailure, selfWrites } from "./self.ts";
 import { DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & {
@@ -260,7 +260,10 @@ export async function tick(
 }
 
 export async function watch(env: RunEnv, config: Instance, now: number) {
-	if (await raiseStall(env.DB, config, now, env.VERSION)) await drain(env, config);
+	if (!(await raiseStall(env.DB, config, now, env.VERSION))) return;
+	const queued = digestWrites(env.DB, config, now, `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`);
+	if (queued.length > 0) await env.DB.batch(queued);
+	await drain(env, config);
 }
 
 function expire(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
@@ -347,12 +350,13 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 	const relayIds = new Set(config.relays.map((r) => r.id));
 	const checkIds = new Set(config.checks.map((c) => c.id));
 	const transition = (r: Row) => checkIds.has(r.check) && (r.kind === "down" || r.kind === "up");
+	const addr = (r: Row) => (r.to || config.alert.to).toLowerCase();
 	const latestKind = new Map<string, string>();
-	for (const r of results) if (transition(r)) latestKind.set(JSON.stringify([r.check, r.to]), r.kind);
+	for (const r of results) if (transition(r)) latestKind.set(JSON.stringify([r.check, addr(r)]), r.kind);
 	const groups = Map.groupBy(results, (r) =>
 		transition(r)
-			? JSON.stringify(["transition", latestKind.get(JSON.stringify([r.check, r.to])), r.to])
-			: JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, r.to]),
+			? JSON.stringify(["transition", latestKind.get(JSON.stringify([r.check, addr(r)])), addr(r)])
+			: JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, addr(r)]),
 	);
 	for (const rows of groups.values()) {
 		const composed = compose(config, rows, lines);
@@ -365,7 +369,7 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 		const [subject, text] = composed;
 		const sent = await sendMail(
 			env.EMAIL,
-			{ from: config.alert.from, to: rows[0].to || config.alert.to },
+			{ from: config.alert.from, to: addr(rows[0]) },
 			subject,
 			text,
 		);

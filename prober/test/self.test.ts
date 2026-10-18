@@ -516,14 +516,16 @@ describe("self-checks with a digest", () => {
 		return { box, env: { ...runEnv, CF_API_TOKEN: "tok" } };
 	};
 
-	it("lists a stalled prober from its flag and mails nothing", async () => {
+	it("mails one digest listing a stalled prober when only watch() runs through the digest time", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, quiet, T0 - 30 * MINUTE, T0 - 30 * MINUTE, respond(200));
-		await watch(runEnv, quiet, T0 - 20 * MINUTE);
-		expect(await all("SELECT key FROM meta WHERE key = 'stall'")).toEqual([{ key: "stall" }]);
-		expect(await unsent()).toEqual([]);
+		for (let m = -20; m <= 25 * 60; m++) await watch(runEnv, quiet, T0 + m * MINUTE);
+		const digests = box.subjects.filter((s) => s.startsWith("DIGEST"));
+		expect(box.subjects).toEqual(digests);
+		expect(digests).toHaveLength(2);
+		expect(box.bodies.filter((b) => b.includes("probing stalled"))).toHaveLength(2);
+		expect(box.bodies[0]).toContain("SELF-CHECK: probing stalled");
 		expect(await attention(env.DB, quiet)).toEqual(["SELF-CHECK: probing stalled"]);
-		expect(box.sends).toBe(0);
 	});
 
 	it("lists a bad token and a stuck check from their flags and mails nothing", async () => {

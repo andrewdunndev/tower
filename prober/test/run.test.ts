@@ -701,6 +701,17 @@ describe("one mail per outage", () => {
 		);
 	});
 
+	it("groups a default-routed row and an explicit alert.to row as one recipient, ignoring case", async () => {
+		const { runEnv, box } = mailbox();
+		const mixed = six.map((c, i) => (i === 0 ? { ...c, to: ["ONCALL@example.com", "other@example.com"] } : c));
+		const config = makeConfig(mixed);
+		await tick(runEnv, config, T0, T0, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
+		expect(box.to.filter((t) => t === "oncall@example.com")).toHaveLength(1);
+		expect(box.subjects).toHaveLength(2);
+		expect(box.subjects[0]).toBe("DOWN: 6 checks: Site a, Site b, Site c, Site d, Site e, Site f");
+	});
+
 	it("sends a relay's pending keys as one mail per drain", async () => {
 		const { runEnv, box } = mailbox();
 		const relays = [{ id: "alerts", name: "Alerts", token_sha256: "a".repeat(64) }];
