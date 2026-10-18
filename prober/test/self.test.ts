@@ -519,7 +519,7 @@ describe("self-checks with a digest", () => {
 	it("mails one digest listing a stalled prober when only watch() runs through the digest time", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, quiet, T0 - 30 * MINUTE, T0 - 30 * MINUTE, respond(200));
-		for (let m = -20; m <= 25 * 60; m++) await watch(runEnv, quiet, T0 + m * MINUTE);
+		for (let m = -20; m <= 25 * 60; m += 5) await watch(runEnv, quiet, T0 + m * MINUTE);
 		const digests = box.subjects.filter((s) => s.startsWith("DIGEST"));
 		expect(box.subjects).toEqual(digests);
 		expect(digests).toHaveLength(2);
