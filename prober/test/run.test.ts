@@ -26,14 +26,20 @@ function before(runEnv: RunEnv, hook: () => unknown) {
 	}) as typeof send;
 }
 
+const seeded = [
+	["", "down"],
+	["", "up"],
+	["stuck", "self-failing"],
+] as const;
+
 async function seed(n: number) {
 	await env.DB.batch(
 		ids
 			.slice(0, n)
-			.map((c) =>
-				env.DB.prepare(`INSERT INTO outbox ("check", at, kind, since, reason) VALUES (?1, 1, 'down', 0, 'x')`).bind(
-					c.id,
-				),
+			.map((c, i) =>
+				env.DB.prepare(
+					`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES (?1, ?2, 1, ?3, 0, 'x')`,
+				).bind(c.id, seeded[i][0], seeded[i][1]),
 			),
 	);
 }
@@ -321,15 +327,14 @@ describe("outbox", () => {
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 	});
 
-	it("mails each key of one check separately", async () => {
+	it("mails a check's transition and its stuck flag separately", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, downAfterOne, T0, T0, respond(200));
 		await env.DB.batch(
-			["a", "b"].map((k) =>
-				env.DB.prepare(
-					`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('web', ?1, 1, 'down', 0, 'x')`,
-				).bind(k),
-			),
+			[
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('web', '', 1, 'down', 0, 'x')`,
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('web', 'stuck', 1, 'self-failing', 0, 'x')`,
+			].map((q) => env.DB.prepare(q)),
 		);
 		await tick(runEnv, downAfterOne, T0 + MINUTE, T0 + MINUTE, respond(200));
 		expect(box.sends).toBe(2);
@@ -643,5 +648,70 @@ describe("pruning", () => {
 		await tick(runEnv, config, T0 + 91 * 86_400_000, T0 + 91 * 86_400_000, respond(200));
 		expect(await all("SELECT day FROM daily")).toEqual([{ day: "2026-10-09" }, { day: "2027-01-07" }]);
 		expect(await all("SELECT * FROM events")).toEqual([]);
+	});
+});
+
+describe("one mail per outage", () => {
+	const six = ["a", "b", "c", "d", "e", "f"].map((id) => ({
+		...web,
+		id,
+		name: `Site ${id}`,
+		down_after: 1,
+		up_after: 1,
+	}));
+
+	it("sends one DOWN mail for six checks going down and one UP mail on recovery", async () => {
+		const { runEnv, box } = mailbox();
+		const config = makeConfig(six);
+		await tick(runEnv, config, T0, T0, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
+		expect(box.subjects).toEqual(["DOWN: 6 checks: Site a, Site b, Site c, Site d, Site e, Site f"]);
+		for (const id of ["a", "f"]) expect(box.bodies[0]).toContain(`Site ${id} (https://www.example.com/): HTTP 500`);
+		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(200));
+		expect(box.subjects).toHaveLength(2);
+		expect(box.subjects[1]).toBe("UP: 6 checks: Site a, Site b, Site c, Site d, Site e, Site f");
+		expect(await all("SELECT * FROM outbox")).toEqual([]);
+	});
+
+	it("keeps a single check's subject", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, makeConfig(six.slice(0, 2)), T0, T0, respond(200));
+		await tick(
+			runEnv,
+			makeConfig([six[0], { ...six[1], url: "https://ok.example.com/" }]),
+			T0 + MINUTE,
+			T0 + MINUTE,
+			async (input) => new Response("", { status: String(input).includes("ok.") ? 200 : 500 }),
+		);
+		expect(box.subjects).toEqual(["DOWN: Site a"]);
+	});
+
+	it("groups per recipient and retries each recipient's mail on its own", async () => {
+		const { runEnv, box } = mailbox();
+		box.failFor.add("b@example.com");
+		const routedSix = six.map((c, i) => ({ ...c, to: i < 3 ? ["a@example.com"] : ["a@example.com", "b@example.com"] }));
+		const config = makeConfig(routedSix);
+		await tick(runEnv, config, T0, T0, respond(200));
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
+		expect(box.to.filter((t) => t === "a@example.com")).toHaveLength(1);
+		expect(box.subjects[0]).toBe("DOWN: 6 checks: Site a, Site b, Site c, Site d, Site e, Site f");
+		expect(box.subjects[1]).toBe("DOWN: 3 checks: Site d, Site e, Site f");
+		expect(await all(`SELECT "to", attempts FROM outbox`)).toEqual(
+			["d", "e", "f"].map(() => ({ to: "b@example.com", attempts: 1 })),
+		);
+	});
+
+	it("sends a relay's pending keys as one mail per drain", async () => {
+		const { runEnv, box } = mailbox();
+		const relays = [{ id: "alerts", name: "Alerts", token_sha256: "a".repeat(64) }];
+		await env.DB.batch(
+			["k1", "k2", "k3"].map((k) =>
+				env.DB.prepare(
+					`INSERT INTO outbox ("check", "key", at, kind, since, reason) VALUES ('alerts', ?1, 1, 'firing', NULL, '{"title":"t"}')`,
+				).bind(k),
+			),
+		);
+		await drain(runEnv, makeConfig([web], { relays }));
+		expect(box.subjects).toEqual(["ALERTS: Alerts: 3 changed"]);
 	});
 });

@@ -345,7 +345,15 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 		.all<Row>();
 	const lines = results.some((r) => r.kind === "digest") ? await attention(env.DB, config) : [];
 	const relayIds = new Set(config.relays.map((r) => r.id));
-	const groups = Map.groupBy(results, (r) => JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, r.to]));
+	const checkIds = new Set(config.checks.map((c) => c.id));
+	const transition = (r: Row) => checkIds.has(r.check) && (r.kind === "down" || r.kind === "up");
+	const latestKind = new Map<string, string>();
+	for (const r of results) if (transition(r)) latestKind.set(JSON.stringify([r.check, r.to]), r.kind);
+	const groups = Map.groupBy(results, (r) =>
+		transition(r)
+			? JSON.stringify(["transition", latestKind.get(JSON.stringify([r.check, r.to])), r.to])
+			: JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, r.to]),
+	);
 	for (const rows of groups.values()) {
 		const composed = compose(config, rows, lines);
 		if (!composed) continue;

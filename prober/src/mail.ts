@@ -60,6 +60,21 @@ export function message(check: Check, p: Pending): [subject: string, text: strin
 	];
 }
 
+function transitions(items: [Check, Pending][]): [subject: string, text: string] {
+	if (items.length === 1) return message(...items[0]);
+	const up = items[0][1].kind === "up";
+	const names = items.map(([c]) => clip(line(c.name)));
+	const lines = items.map(([check, p]) => {
+		const at = new Date(p.at).toISOString();
+		const since = p.since === null ? null : new Date(p.since).toISOString();
+		const name = `${clip(check.name)}${target(check)}`;
+		if (up) return `${name}: ${since ? `down since ${since}, up ${at}` : `up ${at}`}.`;
+		const why = [p.reason && clip(p.reason), hint(p.reason)].filter(Boolean).join(": ");
+		return `${name}: ${why}. Detected ${at}.`;
+	});
+	return [clip(`${up ? "UP" : "DOWN"}: ${items.length} checks: ${names.join(", ")}`), `${lines.join("\n")}\n`];
+}
+
 function stuckMessage(check: Check, p: Pending): [subject: string, text: string] {
 	const name = clip(check.name);
 	const at = new Date(p.at).toISOString();
@@ -146,7 +161,16 @@ export function compose(
 ): [string, string] | null {
 	const latest = rows[rows.length - 1];
 	const check = config.checks.find((c) => c.id === latest.check);
-	if (check) return latest.key === "stuck" ? stuckMessage(check, latest) : message(check, latest);
+	if (check) {
+		if (latest.key === "stuck") return stuckMessage(check, latest);
+		const newest = new Map(rows.map((r) => [r.check, r]));
+		return transitions(
+			[...newest.values()].flatMap((r) => {
+				const c = config.checks.find((x) => x.id === r.check);
+				return c ? [[c, r] as [Check, Pending]] : [];
+			}),
+		);
+	}
 	const relay = config.relays.find((r) => r.id === latest.check);
 	if (relay) return rows.length > 1 ? relaySummary(relay, rows) : relayMessage(relay, latest);
 	return latest.check === "" ? towerMessage(config, latest, lines) : null;
