@@ -157,6 +157,7 @@ const relay = z.strictObject({
 	token_sha256: tokenHash,
 	grace: duration.refine((ms) => ms <= WEEK_MS, "use at most 7 days.").default(900_000),
 	to,
+	digest_only: z.boolean().default(false),
 });
 
 const check = z.discriminatedUnion("type", [http, tcp, dns, tls, heartbeat], {
@@ -222,6 +223,13 @@ export const instanceSchema = z
 				});
 			}
 			hashes.add(r.token_sha256);
+			if (r.digest_only && !inst.digest) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["relays", i, "digest_only"],
+					message: 'digest_only needs "digest" set: without a digest its keys are never listed.',
+				});
+			}
 		}
 	});
 

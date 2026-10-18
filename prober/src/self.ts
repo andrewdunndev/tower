@@ -30,23 +30,18 @@ export async function raiseStall(db: D1Database, config: Instance, t: number, ve
 	const row = await db.prepare(`SELECT ${lastRun} < ?1 AS stalled`).bind(cutoff).first<{ stalled: number | null }>();
 	if (row?.stalled !== 1) return false;
 	await db.batch([
-		db
-			.prepare(
-				`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', 'stall', ?1, 'self-failing', ${lastRun}, NULL WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`,
-			)
-			.bind(t),
+		...(config.digest
+			? []
+			: [
+					db
+						.prepare(
+							`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', 'stall', ?1, 'self-failing', ${lastRun}, NULL WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`,
+						)
+						.bind(t),
+				]),
 		db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('stall', ?1)`).bind(String(t)),
 	]);
 	return true;
-}
-
-export function resumedAfter(config: Instance, previous: string | undefined, t: number, version: Version): boolean {
-	if (previous === undefined) return false;
-	const last = Number(previous);
-	const window = staleWindow(config);
-	if (t - last <= window) return false;
-	const deployed = Date.parse(version.timestamp ?? "");
-	return !(inDeployGrace(version, t) && last >= deployed - (window - MINUTE_MS));
 }
 
 export async function reportWriteFailure(
@@ -56,15 +51,40 @@ export async function reportWriteFailure(
 	t: number,
 ): Promise<void> {
 	let due: boolean;
-	try {
-		const row = await db.prepare(`SELECT value FROM meta WHERE key = 'tick'`).first<{ value: string }>();
-		const gap = t - Number(row?.value);
-		const window = staleWindow(config);
-		due = window - MINUTE_MS < gap && gap <= window;
-	} catch {
-		due = t % HOUR_MS < MINUTE_MS;
+	if (config.digest) {
+		const at = Date.parse(`${new Date(t).toISOString().slice(0, 10)}T${config.digest}:00Z`);
+		due = t >= at && t - at < MINUTE_MS;
+	} else {
+		try {
+			const row = await db.prepare(`SELECT value FROM meta WHERE key = 'tick'`).first<{ value: string }>();
+			const gap = t - Number(row?.value);
+			const window = staleWindow(config);
+			due = window - MINUTE_MS < gap && gap <= window;
+		} catch {
+			due = t % HOUR_MS < MINUTE_MS;
+		}
 	}
 	if (due) await send("SELF-CHECK FAILING: database writes", `Database writes failed, ${new Date(t).toISOString()}.\n`);
+}
+
+export function digestWrites(db: D1Database, config: Instance, t: number, guard = "1"): D1PreparedStatement[] {
+	if (!config.digest) return [];
+	const day = new Date(t).toISOString().slice(0, 10);
+	const due = Date.parse(`${day}T${config.digest}:00Z`);
+	return [
+		queue(
+			db,
+			"digest",
+			"digest",
+			t,
+			`?4 <= ?2 AND COALESCE((SELECT value FROM meta WHERE key = 'digest'), '') <> ?5 AND ${guard}`,
+			due,
+			day,
+		),
+		db
+			.prepare(`INSERT OR REPLACE INTO meta (key, value) SELECT 'digest', ?1 WHERE ?2 <= ?3 AND ${guard}`)
+			.bind(day, due, t),
+	];
 }
 
 export function selfWrites(
@@ -72,68 +92,37 @@ export function selfWrites(
 	config: Instance,
 	t: number,
 	version: Version,
-	resumed: boolean,
 	token: "bad" | "ok" | null,
 ): D1PreparedStatement[] {
 	const writes: D1PreparedStatement[] = [];
 	const set = (key: string, value: string | number) =>
 		db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)`).bind(key, String(value));
 
-	const stalled = `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`;
-	const recovered = stallCutoff(config, t);
-	if (resumed) writes.push(queue(db, "resumed", "resumed", t, `NOT ${stalled}`));
 	writes.push(
-		queue(db, "stall", "self-ok", t, `${stalled} AND ${lastRun} >= ?4 AND ${newest("?2")}`, recovered),
-		db.prepare(`DELETE FROM meta WHERE key = 'stall' AND ${lastRun} >= ?1 AND ${newest("?2")}`).bind(recovered, t),
-	);
-
-	writes.push(
-		queue(
-			db,
-			"deployed",
-			"deployed",
-			t,
-			`COALESCE((SELECT value FROM meta WHERE key = 'version'), '') <> ?4`,
-			version.id,
-		),
+		db
+			.prepare(`DELETE FROM meta WHERE key = 'stall' AND ${lastRun} >= ?1 AND ${newest("?2")}`)
+			.bind(stallCutoff(config, t), t),
 		set("version", version.id),
 	);
 
-	if (config.digest) {
-		const day = new Date(t).toISOString().slice(0, 10);
-		const due = Date.parse(`${day}T${config.digest}:00Z`);
-		writes.push(
-			queue(
-				db,
-				"digest",
-				"digest",
-				t,
-				`?4 <= ?2 AND COALESCE((SELECT value FROM meta WHERE key = 'digest'), '') <> ?5`,
-				due,
-				day,
-			),
-			db.prepare(`INSERT OR REPLACE INTO meta (key, value) SELECT 'digest', ?1 WHERE ?2 <= ?3`).bind(day, due, t),
-		);
-	}
+	writes.push(...digestWrites(db, config, t));
 
 	if (token === "bad") {
-		writes.push(
-			queue(db, "self:token", "self-failing", t, `NOT EXISTS (SELECT 1 FROM meta WHERE key = 'self:token')`),
-			db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('self:token', ?1)`).bind(String(t)),
-		);
+		if (!config.digest) {
+			writes.push(
+				queue(db, "self:token", "self-failing", t, `NOT EXISTS (SELECT 1 FROM meta WHERE key = 'self:token')`),
+			);
+		}
+		writes.push(db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('self:token', ?1)`).bind(String(t)));
 	} else if (token === "ok") {
-		const raised = `EXISTS (SELECT 1 FROM meta WHERE key = 'self:token')`;
-		writes.push(queue(db, "self:token", "self-ok", t, raised), db.prepare(`DELETE FROM meta WHERE key = 'self:token'`));
+		writes.push(db.prepare(`DELETE FROM meta WHERE key = 'self:token'`));
 	}
 
 	for (const r of config.relays) {
-		const key = `full:${r.id}`;
-		const cleared = `EXISTS (SELECT 1 FROM meta WHERE key = ?4) AND (SELECT count(*) FROM relay_keys WHERE relay = ?5) < ${MAX_KEYS}`;
 		writes.push(
-			queue(db, key, "self-ok", t, cleared, key, r.id),
 			db
 				.prepare(`DELETE FROM meta WHERE key = ?1 AND (SELECT count(*) FROM relay_keys WHERE relay = ?2) < ${MAX_KEYS}`)
-				.bind(key, r.id),
+				.bind(`full:${r.id}`, r.id),
 		);
 	}
 	return [...writes, ...stuckWrites(db, config, t)];
@@ -146,19 +135,18 @@ function stuckWrites(db: D1Database, config: Instance, t: number): D1PreparedSta
 	const flag = `'${STUCK_PREFIX}' || id`;
 	const outbox = `INSERT INTO outbox ("check", "key", at, kind, since, reason)`;
 	return [
-		db
-			.prepare(
-				`${outbox} SELECT id, 'stuck', ?2, 'self-failing', last, reason FROM (${verdicts("<=")}) WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = ${flag})`,
-			)
-			.bind(cutoffs, t),
+		...(config.digest
+			? []
+			: [
+					db
+						.prepare(
+							`${outbox} SELECT id, 'stuck', ?2, 'self-failing', last, reason FROM (${verdicts("<=")}) WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = ${flag})`,
+						)
+						.bind(cutoffs, t),
+				]),
 		db
 			.prepare(`INSERT OR IGNORE INTO meta (key, value) SELECT ${flag}, ?2 FROM (${verdicts("<=")})`)
 			.bind(cutoffs, String(t)),
-		db
-			.prepare(
-				`${outbox} SELECT id, 'stuck', ?2, 'self-ok', NULL, NULL FROM (${verdicts(">")}) WHERE EXISTS (SELECT 1 FROM meta WHERE key = ${flag}) AND ${newest("?2")}`,
-			)
-			.bind(cutoffs, t),
 		db
 			.prepare(`DELETE FROM meta WHERE key IN (SELECT ${flag} FROM (${verdicts(">")})) AND ${newest("?2")}`)
 			.bind(cutoffs, t),
@@ -172,7 +160,7 @@ export async function attention(db: D1Database, config: Instance): Promise<strin
 		db.prepare(
 			`SELECT COALESCE(SUM(dead = 0), 0) AS unsent, COALESCE(SUM(dead), 0) AS dead FROM outbox WHERE kind <> 'digest' AND (dead = 1 OR attempts > 0)`,
 		),
-		db.prepare(`SELECT key FROM meta WHERE key LIKE 'self:%' OR key LIKE 'full:%' ORDER BY key`),
+		db.prepare(`SELECT key FROM meta WHERE key LIKE 'self:%' OR key LIKE 'full:%' OR key = 'stall' ORDER BY key`),
 	]);
 	const names = new Map<string, string>([
 		...config.checks.map((c) => [c.id, c.name] as const),

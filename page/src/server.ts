@@ -99,17 +99,22 @@ export async function watch(
   env: { TOWER: Pick<Tower, 'watch'>; EMAIL: Pick<SendEmail, 'send'> },
   alert: { from: string; to: string },
   t: number,
+  digest?: string,
 ): Promise<void> {
   try {
     await env.TOWER.watch(t);
   } catch (e) {
     console.error('tower-page: prober did not answer:', e);
-    if (t % HOUR_MS < MINUTE_MS) {
+    const at = digest ? Date.parse(`${new Date(t).toISOString().slice(0, 10)}T${digest}:00Z`) : null;
+    const due = at === null ? t % HOUR_MS < MINUTE_MS : t >= at && t - at < MINUTE_MS;
+    if (due) {
       await sendMail(
         env.EMAIL,
         alert,
         'SELF-CHECK FAILING: probing stalled',
-        `The prober did not answer, ${new Date(t).toISOString()}. This repeats hourly until it answers.\n`,
+        at === null
+          ? `The prober did not answer, ${new Date(t).toISOString()}. This repeats hourly until it answers.\n`
+          : `The prober did not answer at the digest time, ${new Date(t).toISOString()}, so there is no digest today.\n`,
       );
     }
   }

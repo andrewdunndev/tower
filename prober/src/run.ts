@@ -3,7 +3,7 @@ import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { compose, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
-import { attention, raiseStall, reportWriteFailure, resumedAfter, selfWrites } from "./self.ts";
+import { attention, digestWrites, raiseStall, reportWriteFailure, selfWrites } from "./self.ts";
 import { DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & {
@@ -88,7 +88,6 @@ async function claim(db: D1Database, config: Instance, t: number) {
 			.bind(c.id, t),
 	);
 	const ticks = [
-		db.prepare(`SELECT value FROM meta WHERE key = 'tick'`),
 		db
 			.prepare(
 				`INSERT INTO meta (key, value) VALUES ('tick', ?1) ON CONFLICT (key) DO UPDATE SET value = MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))`,
@@ -102,14 +101,13 @@ async function claim(db: D1Database, config: Instance, t: number) {
 			)
 			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c)) * interval(c)),
 	);
-	const results = await db.batch<StateRow | { value: string }>([...ticks, ...seeds, ...claims]);
+	const results = await db.batch<StateRow>([...ticks, ...seeds, ...claims]);
 	const offset = ticks.length + seeds.length;
-	const previous = (results[0].results[0] as { value: string } | undefined)?.value;
 	const claimed = config.checks.flatMap((check, i) => {
-		const row = results[offset + i].results[0] as StateRow | undefined;
+		const row = results[offset + i].results[0];
 		return row ? [{ check, row }] : [];
 	});
-	return { claimed, previous };
+	return claimed;
 }
 
 export async function tick(
@@ -131,11 +129,11 @@ export async function tick(
 	}
 
 	const deadline = Math.max(
-		t + Math.min(...claimed.claimed.map(({ check }) => interval(check))) - SKEW_MS - DB_MARGIN_MS,
+		t + Math.min(...claimed.map(({ check }) => interval(check))) - SKEW_MS - DB_MARGIN_MS,
 		startedAt + MIN_BUDGET_MS,
 	);
 	const open = () => now() < deadline;
-	const probes = pool(claimed.claimed, CONCURRENCY, open, async ({ check, row }) => {
+	const probes = pool(claimed, CONCURRENCY, open, async ({ check, row }) => {
 		const started = Date.now();
 		const outcome: Outcome =
 			check.type === "heartbeat"
@@ -157,7 +155,7 @@ export async function tick(
 		clearTimeout(timer);
 	}
 	probes.done.catch(() => {});
-	const ran = claimed.claimed.map(({ check, row }, i) => probes.out[i] ?? { check, row, outcome: OUTLIVED, ms: 0 });
+	const ran = claimed.map(({ check, row }, i) => probes.out[i] ?? { check, row, outcome: OUTLIVED, ms: 0 });
 
 	const recent = await Promise.all(
 		ran.map(({ check }) =>
@@ -254,7 +252,7 @@ export async function tick(
 	writes.push(
 		...expire(env.DB, config, t),
 		...prune(env.DB, config, t),
-		...selfWrites(env.DB, config, t, env.VERSION, resumedAfter(config, claimed.previous, t, env.VERSION), token),
+		...selfWrites(env.DB, config, t, env.VERSION, token),
 	);
 	await env.DB.batch(writes);
 
@@ -262,16 +260,19 @@ export async function tick(
 }
 
 export async function watch(env: RunEnv, config: Instance, now: number) {
-	if (await raiseStall(env.DB, config, now, env.VERSION)) await drain(env, config);
+	if (!(await raiseStall(env.DB, config, now, env.VERSION))) return;
+	const queued = digestWrites(env.DB, config, now, `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`);
+	if (queued.length > 0) await env.DB.batch(queued);
+	await drain(env, config);
 }
 
 function expire(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
 	return config.relays.flatMap((r) => [
 		db
 			.prepare(
-				`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT r.relay, r."key", ?2, 'stale', r.since, json_object('title', r.title), j.value FROM relay_keys r, json_each(?4) j WHERE r.relay = ?1 AND r.seen < ?3`,
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT r.relay, r."key", ?2, 'stale', r.since, json_object('title', r.title), j.value FROM relay_keys r, json_each(?4) j WHERE r.relay = ?1 AND r.seen < ?3 AND ?5 = 0`,
 			)
-			.bind(r.id, t, t - r.grace, route(r)),
+			.bind(r.id, t, t - r.grace, route(r), r.digest_only ? 1 : 0),
 		db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND seen < ?2`).bind(r.id, t - r.grace),
 	]);
 }
@@ -289,6 +290,7 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		db.prepare(`DELETE FROM daily WHERE day < ?1`).bind(new Date(cutoff).toISOString().slice(0, 10)),
 		db.prepare(`DELETE FROM events WHERE at < ?1`).bind(cutoff),
 		db.prepare(`DELETE FROM outbox WHERE dead = 1 AND at < ?1`).bind(t - DAY_MS),
+		db.prepare(`DELETE FROM outbox WHERE kind IN ('deployed', 'resumed', 'self-ok')`),
 		...OWNED_TABLES.map((table) =>
 			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
 		),
@@ -346,7 +348,16 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 		.all<Row>();
 	const lines = results.some((r) => r.kind === "digest") ? await attention(env.DB, config) : [];
 	const relayIds = new Set(config.relays.map((r) => r.id));
-	const groups = Map.groupBy(results, (r) => JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, r.to]));
+	const checkIds = new Set(config.checks.map((c) => c.id));
+	const transition = (r: Row) => checkIds.has(r.check) && (r.kind === "down" || r.kind === "up");
+	const addr = (r: Row) => (r.to || config.alert.to).toLowerCase();
+	const latestKind = new Map<string, string>();
+	for (const r of results) if (transition(r)) latestKind.set(JSON.stringify([r.check, addr(r)]), r.kind);
+	const groups = Map.groupBy(results, (r) =>
+		transition(r)
+			? JSON.stringify(["transition", latestKind.get(JSON.stringify([r.check, addr(r)])), addr(r)])
+			: JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, addr(r)]),
+	);
 	for (const rows of groups.values()) {
 		const composed = compose(config, rows, lines);
 		if (!composed) continue;
@@ -356,12 +367,7 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 			.bind(rowids)
 			.run();
 		const [subject, text] = composed;
-		const sent = await sendMail(
-			env.EMAIL,
-			{ from: config.alert.from, to: rows[0].to || config.alert.to },
-			subject,
-			text,
-		);
+		const sent = await sendMail(env.EMAIL, { from: config.alert.from, to: addr(rows[0]) }, subject, text);
 		const update = sent
 			? env.DB.prepare(`DELETE FROM outbox WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(rowids)
 			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?2 WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(

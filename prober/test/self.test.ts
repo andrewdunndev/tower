@@ -1,6 +1,5 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import pkg from "../../package.json";
 import { compose, towerMessage } from "../src/mail.ts";
 import { incident, MAX_KEYS } from "../src/relay.ts";
 import { tick, watch } from "../src/run.ts";
@@ -46,17 +45,16 @@ function cloudflare(packs: number | object[]) {
 
 const unsent = () => all<{ key: string; kind: string }>(`SELECT "key", kind FROM outbox`);
 
-describe("deploy mail", () => {
-	it("mails once per version id", async () => {
+describe("deploy", () => {
+	it("records the version id and sends no mail", async () => {
 		const { runEnv, box } = mailbox();
 		await env.DB.prepare(`DELETE FROM meta WHERE key = 'version'`).run();
 		const config = makeConfig();
 		await tick(runEnv, config, T0, T0, respond(200));
-		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(200));
-		expect(box.subjects).toEqual([`DEPLOYED: tower ${pkg.version}`]);
-		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(200));
-		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 3 * MINUTE, T0 + 3 * MINUTE, respond(200));
-		expect(box.subjects).toHaveLength(2);
+		expect(await all("SELECT value FROM meta WHERE key = 'version'")).toEqual([{ value: "v1" }]);
+		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + MINUTE, T0 + MINUTE, respond(200));
+		expect(await all("SELECT value FROM meta WHERE key = 'version'")).toEqual([{ value: "v2" }]);
+		expect(box.sends).toBe(0);
 	});
 });
 
@@ -145,7 +143,7 @@ describe("token", () => {
 		expect((await status(env.DB, config, T0 + 2 * MINUTE)).self).toHaveLength(1);
 		expect(failing(box)).toHaveLength(1);
 		await tick(live, config, T0 + 3 * MINUTE, T0 + 3 * MINUTE, cloudflare([]));
-		expect(failing(box)).toEqual(["SELF-CHECK FAILING: Cloudflare API token", "SELF-CHECK OK: Cloudflare API token"]);
+		expect(failing(box)).toEqual(["SELF-CHECK FAILING: Cloudflare API token"]);
 		expect((await status(env.DB, config, T0 + 3 * MINUTE)).self).toEqual([]);
 	});
 
@@ -187,12 +185,12 @@ describe("write self-check", () => {
 		}
 	});
 
-	it("sends one direct mail once writes fail for three intervals plus a minute, then a resumed mail", async () => {
+	it("sends one direct mail once writes fail for three intervals plus a minute, and nothing on recovery", async () => {
 		for (const runs of [4, 6]) {
 			await reset();
 			const { failing, sent } = await failFor(runs);
 			expect(failing).toEqual(["SELF-CHECK FAILING: database writes"]);
-			expect(sent).toEqual(["SELF-CHECK FAILING: database writes", "SELF-CHECK OK: probing resumed"]);
+			expect(sent).toEqual(["SELF-CHECK FAILING: database writes"]);
 		}
 	});
 
@@ -210,22 +208,22 @@ describe("write self-check", () => {
 		expect(box.sends).toBe(0);
 		expect(await all("SELECT key FROM meta WHERE key = 'stall' OR key LIKE 'self:%'")).toEqual([]);
 		await tick(runEnv, config, t + 4 * MINUTE + 1, t + 4 * MINUTE + 1, respond(200));
-		expect(box.subjects).toEqual(["SELF-CHECK OK: probing resumed"]);
+		expect(box.sends).toBe(0);
 	});
 
-	it("mails resumed after a stalled cron", async () => {
+	it("sends no mail after a stalled cron resumes", async () => {
 		const { runEnv, box } = mailbox();
 		const config = makeConfig();
 		await tick(runEnv, config, T0, T0, respond(200));
 		await tick(runEnv, config, T0 + 10 * MINUTE, T0 + 10 * MINUTE, respond(200));
 		await tick(runEnv, config, T0 + 11 * MINUTE, T0 + 11 * MINUTE, respond(200));
-		expect(box.subjects).toEqual(["SELF-CHECK OK: probing resumed"]);
+		expect(box.sends).toBe(0);
 		expect(await unsent()).toEqual([]);
 	});
 });
 
 describe("relay cap", () => {
-	it("clears the full flag with one OK once the relay has room", async () => {
+	it("clears the full flag without mail once the relay has room", async () => {
 		const { runEnv, box } = mailbox();
 		const token = "relay-secret";
 		const hash = await sha256(token);
@@ -243,8 +241,8 @@ describe("relay cap", () => {
 		await steadyTick(runEnv, config, T0 + 3 * MINUTE, respond(200));
 		expect(box.subjects.filter((s) => s.startsWith("SELF-CHECK"))).toEqual([
 			"SELF-CHECK FAILING: relay Alerts is full",
-			"SELF-CHECK OK: relay Alerts has room",
 		]);
+		expect(await all("SELECT key FROM meta WHERE key LIKE 'full:%'")).toEqual([]);
 	});
 });
 
@@ -291,15 +289,12 @@ describe("stuck checks", () => {
 		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toEqual([{ key: "self:stuck:cert" }]);
 	});
 
-	it("mails once, then one OK on a conclusive result, and no OK for a check that was never flagged", async () => {
+	it("mails once, clears the flag on a conclusive result without mail, and for a check that was never flagged", async () => {
 		const { box, env: runEnv } = live();
 		await minutes(runEnv, config, 0, 5, serve(503));
 		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
 		await minutes(runEnv, config, 6, 8, serve([]));
-		expect(stuck(box)).toEqual([
-			"SELF-CHECK FAILING: results for Certificate",
-			"SELF-CHECK OK: results for Certificate",
-		]);
+		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
 		expect(await all("SELECT * FROM meta WHERE key LIKE 'self:stuck:%'")).toEqual([]);
 
 		const quiet = live();
@@ -343,14 +338,14 @@ describe("stuck checks", () => {
 		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Web"]);
 		await env.DB.prepare(`UPDATE state SET slot = -1`).run();
 		await minutes(runEnv, makeConfig(), 5, 5, respond(200));
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Web", "SELF-CHECK OK: results for Web"]);
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Web"]);
 	});
 
 	it("sends no stuck mail when a stalled cron resumes with fresh results", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, makeConfig(), T0, T0, respond(200));
 		await tick(runEnv, makeConfig(), T0 + 10 * MINUTE, T0 + 10 * MINUTE, respond(200));
-		expect(box.subjects).toEqual(["SELF-CHECK OK: probing resumed"]);
+		expect(box.sends).toBe(0);
 	});
 
 	it("mails a private check but shows only a public one in status", async () => {
@@ -373,15 +368,11 @@ describe("stuck checks", () => {
 		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toEqual([]);
 	});
 
-	it("writes both mails with the check's name, target and last reason", () => {
+	it("writes the mail with the check's name, target and last reason", () => {
 		const row = { check: "cert", key: "stuck", at: T0 + 3 * MINUTE, since: T0, reason: "Cloudflare API 503" } as const;
 		expect(compose(config, [{ ...row, kind: "self-failing" }])).toEqual([
 			"SELF-CHECK FAILING: results for Certificate",
 			`Certificate (www.example.com) has had no fresh result since ${new Date(T0).toISOString()}, three of its intervals plus a minute; detected ${new Date(T0 + 3 * MINUTE).toISOString()}.\nLast reason: Cloudflare API 503.\n`,
-		]);
-		expect(compose(config, [{ ...row, kind: "self-ok", since: null, reason: null }])).toEqual([
-			"SELF-CHECK OK: results for Certificate",
-			`Certificate has fresh results again, ${new Date(T0 + 3 * MINUTE).toISOString()}.\n`,
 		]);
 	});
 });
@@ -435,31 +426,6 @@ describe("deploy grace", () => {
 		await watch(early, config, T0 + 5 * MINUTE);
 		expect(stalls(again.box)).toHaveLength(1);
 	});
-
-	it("sends no resumed mail for a gap that ends inside the grace", async () => {
-		const { runEnv, box } = mailbox();
-		await tick(runEnv, config, T0, T0, respond(200));
-		const graced = { ...runEnv, VERSION: deployedAt(T0 - MINUTE) };
-		await watch(graced, config, T0 + 10 * MINUTE);
-		await tick(graced, config, T0 + 13 * MINUTE, T0 + 13 * MINUTE, respond(200));
-		await tick(graced, config, T0 + 14 * MINUTE, T0 + 14 * MINUTE, respond(200));
-		expect(box.subjects.filter((s) => s.includes("probing"))).toEqual([]);
-	});
-	it("still sends resumed when the gap began early enough for a database-writes FAILING", async () => {
-		const window = 3 * MINUTE + MINUTE;
-		for (const [last, resumed] of [
-			[T0 - window, true],
-			[T0 - (window - MINUTE) - 1, true],
-			[T0 - (window - MINUTE), false],
-		] as const) {
-			await reset();
-			const { runEnv, box } = mailbox();
-			await tick(runEnv, config, last, last, respond(200));
-			const graced = { ...runEnv, VERSION: deployedAt(T0) };
-			await tick(graced, config, T0 + 5 * MINUTE, T0 + 5 * MINUTE, respond(200));
-			expect(box.subjects.includes("SELF-CHECK OK: probing resumed")).toBe(resumed);
-		}
-	});
 });
 
 describe("stalled prober", () => {
@@ -493,13 +459,13 @@ describe("stalled prober", () => {
 		expect(stalls(box)).toHaveLength(1);
 	});
 
-	it("is cleared by the next committed run with one OK", async () => {
+	it("is cleared by the next committed run without mail", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, config, T0, T0, respond(200));
 		await watch(runEnv, config, T0 + 5 * MINUTE);
 		await tick(runEnv, config, T0 + 6 * MINUTE, T0 + 6 * MINUTE, respond(200));
 		await tick(runEnv, config, T0 + 7 * MINUTE, T0 + 7 * MINUTE, respond(200));
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled", "SELF-CHECK OK: probing resumed"]);
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
 		expect(await all("SELECT * FROM meta WHERE key = 'stall'")).toEqual([]);
 	});
 
@@ -539,5 +505,78 @@ describe("stalled prober", () => {
 			"SELF-CHECK FAILING: probing stalled",
 			`No probe run has written results since ${new Date(T0).toISOString()}; detected ${new Date(T0 + 5 * MINUTE).toISOString()}. The prober's cron trigger or its runs are failing; its Worker log says which.\n`,
 		]);
+	});
+});
+
+describe("self-checks with a digest", () => {
+	const quiet = makeConfig([web], { digest: "12:00" });
+	const certs = makeConfig([cert], { digest: "12:00" });
+	const live = () => {
+		const { runEnv, box } = mailbox();
+		return { box, env: { ...runEnv, CF_API_TOKEN: "tok" } };
+	};
+
+	it("mails one digest listing a stalled prober when only watch() runs through the digest time", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, quiet, T0 - 30 * MINUTE, T0 - 30 * MINUTE, respond(200));
+		for (let m = -20; m <= 25 * 60; m += 5) await watch(runEnv, quiet, T0 + m * MINUTE);
+		const digests = box.subjects.filter((s) => s.startsWith("DIGEST"));
+		expect(box.subjects).toEqual(digests);
+		expect(digests).toHaveLength(2);
+		expect(box.bodies.filter((b) => b.includes("probing stalled"))).toHaveLength(2);
+		expect(box.bodies[0]).toContain("SELF-CHECK: probing stalled");
+		expect(await attention(env.DB, quiet)).toEqual(["SELF-CHECK: probing stalled"]);
+	});
+
+	it("lists a bad token and a stuck check from their flags and mails nothing", async () => {
+		const { box, env: runEnv } = live();
+		for (let k = 0; k <= 4; k++) {
+			const t = T0 - 30 * MINUTE + k * MINUTE;
+			await tick(runEnv, certs, t, t, cloudflare(401));
+		}
+		expect(box.sends).toBe(0);
+		expect(await unsent()).toEqual([]);
+		expect(await attention(env.DB, certs)).toEqual([
+			"SELF-CHECK: results for Certificate",
+			"SELF-CHECK: Cloudflare API token",
+		]);
+	});
+
+	it("lists a full relay and mails nothing", async () => {
+		const { runEnv, box } = mailbox();
+		const hash = await sha256("relay-secret");
+		const config = makeConfig([web], {
+			digest: "12:00",
+			relays: [{ id: "alerts", name: "Alerts", token_sha256: hash }],
+		});
+		for (let i = 0; i <= MAX_KEYS; i++) {
+			const body = JSON.stringify({ title: "t", deduplication_key: `k${i}`, status: "firing" });
+			await incident(runEnv, config, "relay-secret", body, T0 - 30 * MINUTE);
+		}
+		await steadyTick(runEnv, config, T0 - 20 * MINUTE, respond(200));
+		expect(box.subjects.filter((s) => s.startsWith("SELF-CHECK"))).toEqual([]);
+		expect(await attention(env.DB, config)).toContain("SELF-CHECK: relay Alerts is full");
+	});
+
+	it("mails one direct note at the digest time when writes fail, not before or after", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, quiet, T0 - 5 * MINUTE, T0 - 5 * MINUTE, respond(200));
+		await env.DB.prepare(`CREATE TRIGGER boom BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
+		for (const k of [-4, -3, -2, -1, 0, 1, 2, 3, 4]) {
+			await expect(tick(runEnv, quiet, T0 + k * MINUTE, T0 + k * MINUTE, respond(200))).rejects.toThrow();
+		}
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: database writes"]);
+	});
+});
+
+describe("self-checks without a digest", () => {
+	it("keeps FAILING mail as push and never sends OK, DEPLOYED or resumed", async () => {
+		const { runEnv, box } = mailbox();
+		const config = makeConfig();
+		await tick(runEnv, config, T0, T0, respond(200));
+		await watch(runEnv, config, T0 + 5 * MINUTE);
+		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 6 * MINUTE, T0 + 6 * MINUTE, respond(200));
+		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 7 * MINUTE, T0 + 7 * MINUTE, respond(200));
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
 	});
 });

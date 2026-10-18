@@ -218,6 +218,17 @@ describe("burst", () => {
 		expect(await outbox()).toEqual([]);
 	});
 
+	it("covers each key in exactly one mail across the inline singles and the summary", async () => {
+		const { runEnv, box } = mailbox();
+		const titles = Array.from({ length: 9 }, (_, i) => `Incident number ${i}`);
+		for (const [i, title] of titles.entries())
+			await send(runEnv, payload({ title, deduplication_key: `k${i}` }), T0 + i * 1000);
+		await tick(runEnv, config, T0 + MINUTE, respond(200));
+		for (const title of titles) expect(box.bodies.filter((b) => b.includes(title))).toHaveLength(1);
+		expect(box.subjects.filter((s) => s.startsWith("ALERTS:"))).toEqual(["ALERTS: Alerts: 4 changed"]);
+		expect(box.sends).toBe(6);
+	});
+
 	it("does not count duplicates and resets the window after a minute", async () => {
 		const { runEnv, box } = mailbox();
 		await fire(runEnv, 0, T0);
@@ -369,5 +380,36 @@ describe("routing", () => {
 		expect(results.filter((r) => r === "transition")).toHaveLength(100);
 		expect(results.at(-1)).toBe("rejected");
 		expect(await all("SELECT count(*) AS n FROM outbox")).toEqual([{ n: 400 }]);
+	});
+});
+
+describe("digest_only relay", () => {
+	const quiet = makeConfig([web], {
+		digest: "12:00",
+		relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, digest_only: true }],
+	});
+
+	it("records firing and resolve without outbox rows, and the digest lists the open key", async () => {
+		const { runEnv, box } = mailbox();
+		const res = await incident(runEnv, quiet, TOKEN, payload({}), T0);
+		expect(await result(res)).toBe("transition");
+		expect(await outbox()).toEqual([]);
+		expect(await attention(env.DB, quiet)).toEqual(["OPEN: Alerts: Disk full"]);
+		expect(await result(await incident(runEnv, quiet, TOKEN, payload({}), T0 + MINUTE))).toBe("duplicate");
+		expect(await result(await incident(runEnv, quiet, TOKEN, payload({ status: "resolved" }), T0 + 2 * MINUTE))).toBe(
+			"transition",
+		);
+		expect(await outbox()).toEqual([]);
+		expect(await keys()).toEqual([]);
+		expect(box.sends).toBe(0);
+	});
+
+	it("expires a silent key without mail", async () => {
+		const { runEnv, box } = mailbox();
+		await incident(runEnv, quiet, TOKEN, payload({}), T0);
+		await tick(runEnv, quiet, T0 + 20 * MINUTE, respond(200));
+		expect(await keys()).toEqual([]);
+		expect(await outbox()).toEqual([]);
+		expect(box.subjects.filter((x) => x.startsWith("STOPPED"))).toEqual([]);
 	});
 });

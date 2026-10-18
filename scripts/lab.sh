@@ -99,7 +99,7 @@ ok "outbox drained" 0 "$(row queued)"
 for f in $(grep -ho 'Email: [^[:space:]]*\.eml' "$work/prober.log" | cut -c8- || true); do
 	grep -h '^Subject:' "$f" >> "$work/subjects"
 done
-ok "deploy mail sent" 1 "$(grep -c '^Subject: DEPLOYED' "$work/subjects" || true)"
+ok "no deploy mail" 0 "$(grep -c '^Subject: DEPLOYED' "$work/subjects" || true)"
 ok "no SELF-CHECK mail for the gap" 0 "$(grep -c '^Subject: SELF-CHECK' "$work/subjects" || true)"
 
 echo "failures: $fails"
