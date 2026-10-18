@@ -76,8 +76,45 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 	const backlog = `(SELECT count(*) FROM (SELECT DISTINCT "key", at, kind FROM outbox WHERE "check" = ?1 AND dead = 0)) < ${MAX_PENDING}`;
 	const db = env.DB;
 
+	const fullMail = (): D1PreparedStatement[] =>
+		config.digest
+			? []
+			: [
+					db
+						.prepare(
+							`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', ?4, ?3, 'self-failing', NULL, NULL WHERE ${full} AND NOT EXISTS (SELECT 1 FROM meta WHERE key = ?4)`,
+						)
+						.bind(id, key, now, `full:${id}`),
+				];
+
 	let result: "transition" | "duplicate" | "rejected";
 	let burst: number | undefined;
+	if (relay.digest_only) {
+		const had = db.prepare(`SELECT 1 AS had FROM relay_keys WHERE relay = ?1 AND "key" = ?2`).bind(id, key);
+		if (body.status === "firing") {
+			const [seen, kept] = await db.batch<{ had: number } & { kept: number }>([
+				had,
+				db
+					.prepare(
+						`INSERT INTO relay_keys (relay, "key", title, since, seen) SELECT ?1, ?2, ?3, ?4, ?4 WHERE NOT (${full})
+						 ON CONFLICT (relay, "key") DO UPDATE SET seen = excluded.seen, title = excluded.title RETURNING 1 AS kept`,
+					)
+					.bind(id, key, body.title, now),
+				...fullMail(),
+				db
+					.prepare(`INSERT OR IGNORE INTO meta (key, value) SELECT ?4, ?3 WHERE ${full}`)
+					.bind(id, key, now, `full:${id}`),
+			]);
+			result = kept.results.length === 0 ? "rejected" : seen.results.length > 0 ? "duplicate" : "transition";
+		} else {
+			const [seen] = await db.batch<{ had: number }>([
+				had,
+				db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND "key" = ?2`).bind(id, key),
+			]);
+			result = seen.results.length > 0 ? "transition" : "duplicate";
+		}
+		return reply(202, { result });
+	}
 	if (body.status === "firing") {
 		const [, counted, kept] = await db.batch<{ n: number } & { kept: number }>([
 			db
@@ -92,11 +129,7 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 					 ON CONFLICT (relay, "key") DO UPDATE SET seen = excluded.seen, title = excluded.title RETURNING 1 AS kept`,
 				)
 				.bind(id, key, body.title, now),
-			db
-				.prepare(
-					`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', ?4, ?3, 'self-failing', NULL, NULL WHERE ${full} AND NOT EXISTS (SELECT 1 FROM meta WHERE key = ?4)`,
-				)
-				.bind(id, key, now, `full:${id}`),
+			...fullMail(),
 			db
 				.prepare(`INSERT OR IGNORE INTO meta (key, value) SELECT ?4, ?3 WHERE ${full}`)
 				.bind(id, key, now, `full:${id}`),

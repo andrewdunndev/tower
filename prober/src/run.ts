@@ -269,9 +269,9 @@ function expire(db: D1Database, config: Instance, t: number): D1PreparedStatemen
 	return config.relays.flatMap((r) => [
 		db
 			.prepare(
-				`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT r.relay, r."key", ?2, 'stale', r.since, json_object('title', r.title), j.value FROM relay_keys r, json_each(?4) j WHERE r.relay = ?1 AND r.seen < ?3`,
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT r.relay, r."key", ?2, 'stale', r.since, json_object('title', r.title), j.value FROM relay_keys r, json_each(?4) j WHERE r.relay = ?1 AND r.seen < ?3 AND ?5 = 0`,
 			)
-			.bind(r.id, t, t - r.grace, route(r)),
+			.bind(r.id, t, t - r.grace, route(r), r.digest_only ? 1 : 0),
 		db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND seen < ?2`).bind(r.id, t - r.grace),
 	]);
 }
