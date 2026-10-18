@@ -81,7 +81,9 @@ export function digestWrites(db: D1Database, config: Instance, t: number, guard 
 			due,
 			day,
 		),
-		db.prepare(`INSERT OR REPLACE INTO meta (key, value) SELECT 'digest', ?1 WHERE ?2 <= ?3 AND ${guard}`).bind(day, due, t),
+		db
+			.prepare(`INSERT OR REPLACE INTO meta (key, value) SELECT 'digest', ?1 WHERE ?2 <= ?3 AND ${guard}`)
+			.bind(day, due, t),
 	];
 }
 

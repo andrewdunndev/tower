@@ -367,12 +367,7 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 			.bind(rowids)
 			.run();
 		const [subject, text] = composed;
-		const sent = await sendMail(
-			env.EMAIL,
-			{ from: config.alert.from, to: addr(rows[0]) },
-			subject,
-			text,
-		);
+		const sent = await sendMail(env.EMAIL, { from: config.alert.from, to: addr(rows[0]) }, subject, text);
 		const update = sent
 			? env.DB.prepare(`DELETE FROM outbox WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(rowids)
 			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?2 WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(
