@@ -35,10 +35,12 @@ const TIMED = new Set<Check["type"]>(["http", "tcp", "dns"]);
 
 const DAY_MS = 86_400_000;
 const FIRED_DAYS = 7;
+const ABSENT_DAYS = 7;
 const MAX_ATTEMPTS = 10;
 const LEASE_MS = 50_000;
 const MIN_BUDGET_MS = 20_000;
 const RECENT_SAMPLES = 5;
+const GONE_PREFIX = "gone:";
 const OWNED_TABLES = ["state", "samples", "daily", "beats", "events"];
 
 export function step(
@@ -284,15 +286,32 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		Object.fromEntries([...config.checks, ...config.relays].map((o) => [o.id, o.to ?? [""]])),
 	);
 	const cutoff = t - DAYS * DAY_MS;
+	const absentCutoff = t - ABSENT_DAYS * DAY_MS;
+	const lapsed = `key LIKE '${GONE_PREFIX}%' AND CAST(value AS INTEGER) < ?1`;
 	return [
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
 		db.prepare(`DELETE FROM daily WHERE day < ?1`).bind(new Date(cutoff).toISOString().slice(0, 10)),
 		db.prepare(`DELETE FROM events WHERE at < ?1`).bind(cutoff),
 		db.prepare(`DELETE FROM outbox WHERE dead = 1 AND at < ?1`).bind(t - DAY_MS),
 		db.prepare(`DELETE FROM outbox WHERE kind IN ('deployed', 'resumed', 'self-ok')`),
+		db
+			.prepare(
+				`INSERT OR IGNORE INTO meta (key, value) SELECT '${GONE_PREFIX}' || "check", ?2 FROM state WHERE "check" NOT IN (SELECT value FROM json_each(?1))`,
+			)
+			.bind(ids, String(t)),
+		db
+			.prepare(
+				`DELETE FROM meta WHERE key LIKE '${GONE_PREFIX}%' AND substr(key, ${GONE_PREFIX.length + 1}) IN (SELECT value FROM json_each(?1))`,
+			)
+			.bind(ids),
 		...OWNED_TABLES.map((table) =>
-			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
+			db
+				.prepare(
+					`DELETE FROM ${table} WHERE "check" IN (SELECT substr(key, ${GONE_PREFIX.length + 1}) FROM meta WHERE ${lapsed})`,
+				)
+				.bind(absentCutoff),
 		),
+		db.prepare(`DELETE FROM meta WHERE ${lapsed}`).bind(absentCutoff),
 		db.prepare(`DELETE FROM outbox WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(owners),
 		db
 			.prepare(

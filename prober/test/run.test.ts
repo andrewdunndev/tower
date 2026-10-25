@@ -619,21 +619,57 @@ describe("pruning", () => {
 		expect(box.sends).toBe(0);
 	});
 
-	it("drops every row of a check removed from the config", async () => {
-		const { runEnv } = mailbox();
+	describe("a check absent from the config", () => {
+		const DAY = 24 * 60 * MINUTE;
 		const gone = { ...web, id: "gone", name: "Gone", down_after: 1 };
-		await tick(runEnv, makeConfig([web, gone]), T0, T0, respond(500));
-		for (const table of ["state", "samples", "daily"]) {
-			expect(await all(`SELECT * FROM ${table} WHERE "check" = 'gone'`)).toHaveLength(1);
-		}
-		await env.DB.prepare(
-			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('gone', 1, 'down', 0, 'x')`,
-		).run();
-		await tick(runEnv, makeConfig([web]), T0 + MINUTE, T0 + MINUTE, respond(200));
-		for (const table of ["state", "samples", "daily", "events", "outbox"]) {
-			expect(await all(`SELECT * FROM ${table} WHERE "check" = 'gone'`)).toEqual([]);
-		}
-		expect(await all(`SELECT "check" FROM state`)).toEqual([{ check: "web" }]);
+		const both = makeConfig([web, gone]);
+		const only = makeConfig([web]);
+		const tables = ["state", "daily", "events"];
+		const rows = async () => {
+			const out: Record<string, number> = {};
+			for (const table of tables) out[table] = (await all(`SELECT * FROM ${table} WHERE "check" = 'gone'`)).length;
+			return out;
+		};
+		const marker = () => all(`SELECT key FROM meta WHERE key = 'gone:gone'`);
+
+		it("keeps its history for 7 days, then drops it with the marker", async () => {
+			const { runEnv } = mailbox();
+			await tick(runEnv, both, T0, T0, respond(500));
+			const full = await rows();
+			expect(full).toEqual({ state: 1, daily: 1, events: 1 });
+			await tick(runEnv, only, T0 + MINUTE, T0 + MINUTE, respond(200));
+			expect(await marker()).toHaveLength(1);
+			await tick(runEnv, only, T0 + 7 * DAY - MINUTE, T0 + 7 * DAY - MINUTE, respond(200));
+			expect(await rows()).toEqual(full);
+			await tick(runEnv, only, T0 + 7 * DAY + 2 * MINUTE, T0 + 7 * DAY + 2 * MINUTE, respond(200));
+			expect(await rows()).toEqual({ state: 0, daily: 0, events: 0 });
+			expect(await marker()).toEqual([]);
+		});
+
+		it("clears the marker when the id comes back, and restarts the 7 days when it leaves again", async () => {
+			const { runEnv } = mailbox();
+			await tick(runEnv, both, T0, T0, respond(500));
+			await tick(runEnv, only, T0 + MINUTE, T0 + MINUTE, respond(200));
+			await tick(runEnv, both, T0 + 3 * DAY, T0 + 3 * DAY, respond(500));
+			expect(await marker()).toEqual([]);
+			await tick(runEnv, only, T0 + 3 * DAY + MINUTE, T0 + 3 * DAY + MINUTE, respond(200));
+			const at = T0 + 7 * DAY + 2 * MINUTE;
+			await tick(runEnv, only, at, at, respond(200));
+			expect((await rows()).state).toBe(1);
+			const later = T0 + 10 * DAY + 2 * MINUTE;
+			await tick(runEnv, only, later, later, respond(200));
+			expect((await rows()).state).toBe(0);
+		});
+
+		it("drops its queued mail and stuck flag at once", async () => {
+			const { runEnv } = mailbox();
+			await tick(runEnv, both, T0, T0, respond(500));
+			await env.DB.prepare(
+				`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('gone', 1, 'down', 0, 'x')`,
+			).run();
+			await tick(runEnv, only, T0 + MINUTE, T0 + MINUTE, respond(200));
+			expect(await all(`SELECT * FROM outbox WHERE "check" = 'gone'`)).toEqual([]);
+		});
 	});
 
 	it("keeps samples for 24 hours and daily rows and events for 90 days", async () => {
