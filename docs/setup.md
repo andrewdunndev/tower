@@ -147,7 +147,7 @@ D1 time travel also restores the database to any minute inside your plan's reten
 
 tower reports a stalled prober and failing database writes itself, so polling is optional. If both Workers are dead, an account or platform failure, nothing can mail: treat a missing digest as the alarm, or poll from outside. [Outside watcher](#outside-watcher) does the polling.
 
-`GET https://<domain>/healthz` answers `200` with body `ok` only when the prober's last run is within `max(5 min, 3 x shortest interval + 1 min)` (ignored for 15 minutes after a deploy) and no outbox row is dead. Otherwise it answers `503` with `stale`, `dead` or `unavailable`. It sends `Cache-Control: no-store`, never redirects and carries no data. Each request reads D1, so include it in the zone's WAF rate limiting. A dead row keeps it `503` for the 24 hours dead rows are kept.
+`GET https://<domain>/healthz` answers `200` with body `ok` only when the prober's last run is within `max(5 min, 3 x shortest interval + 1 min)` (ignored for 15 minutes after a deploy) and no outbox row is dead. Otherwise it answers `503` with `stale`, `dead` or `unavailable`. It sends `Cache-Control: no-store`, never redirects and carries no data. Each request reads D1, so give it its own per-IP WAF rate limiting rule that blocks, never challenges, scoped to `/healthz` alone: not shared with `/beat/*` or any global count. A dead row keeps it `503` for the 24 hours dead rows are kept.
 
 A Cloudflare Health Check on it: GET, port 443, `expected_codes` 200, `expected_body` `ok`, `follow_redirects` off, two or three regions, `consecutive_fails` 2 or 3. Health Checks need a Pro zone or above (Free has none); any external poller works. The check runs on Cloudflare's edge, so a Cloudflare-wide outage is not caught.
 
@@ -172,7 +172,7 @@ A Cloudflare Health Check on it: GET, port 443, `expected_codes` 200, `expected_
 
 The mail names the reason, `<status> <body>`, `no answer within 10 s` or `network error`, and when the failure began. A mail that does not send is retried on the next minute.
 
-It catches a dark route, a stalled or dead prober, a dead mail row, `unavailable`, a dead page Worker, and a certificate or DNS fault on the route. A WAF or Access rule that challenges Workers on `/healthz` reads as failing. It runs on Cloudflare, as does its mail, so a Cloudflare-wide outage silences it too; the missing digest remains the alarm for that.
+It catches a dark route, a stalled or dead prober, a dead mail row, `unavailable`, a dead page Worker, and a certificate or DNS fault on the route. A challenge or Access rule on `/healthz` reads as failing. It runs on Cloudflare, as does its mail, so a Cloudflare-wide outage silences it too; the missing digest remains the alarm for that.
 
 Turning `outside` off stops deploying the Worker but leaves the deployed one running. Remove it with `npx wrangler delete --name <name>-outside` and `npx wrangler d1 delete <name>-outside`.
 
