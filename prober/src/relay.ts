@@ -154,6 +154,10 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 		]);
 		burst = counted.results[0]?.n;
 		result = burst !== undefined ? "transition" : stored.results.length > 0 ? "duplicate" : "rejected";
+		if (result === "rejected") {
+			const row = await db.prepare(`SELECT ${full} AS full`).bind(id, key).first<{ full: number }>();
+			if (row?.full === 0) return new Response(null, { status: 503 });
+		}
 	} else {
 		const [, counted] = await db.batch<{ n: number }>([
 			db
