@@ -163,4 +163,8 @@ A Cloudflare Health Check on it: GET, port 443, `expected_codes` 200, `expected_
 
 ## Upgrade
 
-Check out the release tag you want, then run the deploy command again. Never roll back below 0.2.0. [CHANGELOG.md](../CHANGELOG.md) lists what changed.
+Check out the release tag you want, then run the deploy command again. [CHANGELOG.md](../CHANGELOG.md) lists what changed.
+
+## Rollback
+
+A Worker version rollback restores code, not D1. Migrations are additive, so an older version runs on a newer schema: 0.6.0 ignores `outbox.next_at` from migration `0005_outbox_retry`. Versions before 0.7.0 delete the history of a check id missing from the config at once; 0.7.0 keeps it for 7 days. A Cloudflare Worker rollback re-serves any secret deleted since that version, such as `CF_API_TOKEN`, and does not show it in `secret list`. Never roll back below 0.2.0.
