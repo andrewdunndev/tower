@@ -193,12 +193,16 @@ export function mime(from: string, to: string, subject: string, text: string): s
 	].join("\r\n");
 }
 
+export type Sent = "sent" | "retry" | "permanent";
+
+const TRANSIENT = new Set(["E_RATE_LIMIT_EXCEEDED", "E_DAILY_LIMIT_EXCEEDED", "E_INTERNAL_SERVER_ERROR"]);
+
 export async function sendMail(
 	email: Pick<SendEmail, "send">,
 	alert: { from: string; to: string },
 	subject: string,
 	text: string,
-): Promise<boolean> {
+): Promise<Sent> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const limit = new Promise<never>((_, reject) => {
 		timer = setTimeout(() => reject(new Error("send timed out")), SEND_TIMEOUT_MS);
@@ -208,10 +212,11 @@ export async function sendMail(
 			email.send(new EmailMessage(alert.from, alert.to, mime(alert.from, alert.to, subject, text))),
 			limit,
 		]);
-		return true;
+		return "sent";
 	} catch (e) {
-		console.error("tower: mail failed, will retry:", (e as Error).message);
-		return false;
+		const { code, message } = e as { code?: string; message: string };
+		console.error("tower: mail failed:", code, message);
+		return code === undefined || TRANSIENT.has(code) ? "retry" : "permanent";
 	} finally {
 		clearTimeout(timer);
 	}

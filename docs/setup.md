@@ -62,7 +62,7 @@ Without it, tls checks report a configuration error and never alert.
 
 ## Alerts
 
-tower mails when checks go down and when they recover: one `DOWN` mail per run for every check that went down, one `UP` mail for every check that recovered, per address. A single check keeps its own subject, `DOWN: <name>`; several share one subject listing them, with a line per check. A failed send is retried on the next run.
+tower mails when checks go down and when they recover: one `DOWN` mail per run for every check that went down, one `UP` mail for every check that recovered, per address. A single check keeps its own subject, `DOWN: <name>`; several share one subject listing them, with a line per check. A failed send is retried with backoff, 1 minute doubling to 15.
 
 Mail goes to `alert.to` unless a check or relay names its own `to`: one address, or a list of up to 5. `to` replaces `alert.to`, so list `alert.to` as well to keep a copy. For a larger team, use a group address.
 
@@ -70,7 +70,7 @@ Mail goes to `alert.to` unless a check or relay names its own `to`: one address,
 { "id": "api", "type": "http", "name": "API", "url": "https://api.example.com/health", "to": ["api@example.com", "oncall@example.com"] }
 ```
 
-`to` routes `DOWN`, `UP`, the firing and resolved mails, `STOPPED REPORTING` and `ALERTS`. Each address gets its own mail, retried on its own, so one failing address never repeats a mail to the others. An address that is not a verified destination fails 10 times, then shows as dead in the digest and in `dead_outbox`. Unsent mail to an address you remove or correct moves to the current `to`, or to `alert.to` once `to` is gone, and skips an address that already has it. Mail already dead stays dead.
+`to` routes `DOWN`, `UP`, the firing and resolved mails, `STOPPED REPORTING` and `ALERTS`. Each address gets its own mail, retried on its own, so one failing address never repeats a mail to the others. A mail is retried for 24 hours, then goes dead and shows in the digest and in `dead_outbox`. A rejected recipient or sender (`E_RECIPIENT_NOT_ALLOWED`, `E_SENDER_NOT_VERIFIED` and the other non-transient codes) goes dead after 3 tries. A `DOWN` whose check is still down is never dead. Unsent mail to an address you remove or correct moves to the current `to`, or to `alert.to` once `to` is gone, and skips an address that already has it. Mail already dead stays dead.
 
 ## Heartbeats
 

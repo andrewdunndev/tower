@@ -1,6 +1,6 @@
 import type { Instance } from "../../tools/schema.ts";
 import { matches, sha256Hex } from "./heartbeat.ts";
-import { drain, type RunEnv, route } from "./run.ts";
+import { clockAt, drain, type RunEnv, route } from "./run.ts";
 
 export const MAX_KEYS = 100;
 const MAX_PENDING = 200;
@@ -174,7 +174,7 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 
 	if (burst !== undefined && burst <= BURST_INLINE) {
 		try {
-			await drain(env, config, { relay: id });
+			await drain(env, config, { relay: id, now: clockAt(now) });
 		} catch (e) {
 			console.error("tower: relay drain failed:", e);
 		}
