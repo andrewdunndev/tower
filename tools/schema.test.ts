@@ -154,16 +154,21 @@ describe("instance", () => {
 			expect(hashes()).toContain("list at least one hash.");
 		});
 
-		it("rejects a hash repeated across relays or inside one list", () => {
+		it("rejects a hash repeated across relays", () => {
 			const a = "a".repeat(64);
 			const b = "b".repeat(64);
 			const other = { ...relay, id: "other", token_sha256: [b, a] };
 			expect(messages(withRelays({ ...relay, token_sha256: [a] }, other))).toContain(
 				"Two relays share a token: mint a token for each.",
 			);
-			expect(messages(withRelays({ ...relay, token_sha256: [a, a] }))).toContain(
-				"Two relays share a token: mint a token for each.",
-			);
+		});
+
+		it("rejects a hash repeated inside one list, for a relay and a heartbeat", () => {
+			const a = "a".repeat(64);
+			const dup = "token_sha256 lists the same hash twice: list the current token and its replacement.";
+			expect(messages(withRelays({ ...relay, token_sha256: [a, a] }))).toEqual([dup]);
+			const beat = { id: "b", type: "heartbeat", name: "B", every: "1h", grace: "5m", token_sha256: [a, a] };
+			expect(messages(instance(beat))).toContain(dup);
 		});
 
 		it("limits grace to 7 days", () => {

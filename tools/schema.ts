@@ -147,7 +147,11 @@ const tokenHashes = z.preprocess(
 	z
 		.array(tokenHash)
 		.min(1, "list at least one hash.")
-		.max(2, "list at most 2 hashes: the current token and its replacement."),
+		.max(2, "list at most 2 hashes: the current token and its replacement.")
+		.refine(
+			(hs) => new Set(hs).size === hs.length,
+			"token_sha256 lists the same hash twice: list the current token and its replacement.",
+		),
 );
 
 const heartbeat = z.strictObject({
@@ -237,7 +241,7 @@ export const instanceSchema = z
 				});
 			}
 			seen.add(r.id);
-			if (r.token_sha256.some((h) => hashes.has(h)) || new Set(r.token_sha256).size < r.token_sha256.length) {
+			if (r.token_sha256.some((h) => hashes.has(h))) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["relays", i, "token_sha256"],
