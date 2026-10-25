@@ -61,10 +61,10 @@ describe("resource names", () => {
 		expect(prober.version_metadata).toEqual({ binding: "VERSION" });
 	});
 
-	it("carries the minute cron, EMAIL and TOWER into the staged page", () => {
+	it("carries the minute cron and TOWER into the staged page", () => {
 		const { page } = stageNamed("tower");
 		expect(page.triggers.crons).toEqual(["* * * * *"]);
-		expect(page.send_email).toEqual([{ name: "EMAIL" }]);
+		expect(page.send_email).toBeUndefined();
 		expect(page.services[0].binding).toBe("TOWER");
 	});
 
@@ -114,13 +114,10 @@ describe("look", () => {
 		expect(readFileSync(join(plain, "theme.css"), "utf8")).toBe("");
 	});
 
-	it("hands the page the title and the alert addresses", () => {
+	it("hands the page the title", () => {
 		const out = mkdtempSync(join(tmpdir(), "tower-page-"));
-		const staged = stage(join(import.meta.dirname, "../example"), out);
-		expect(JSON.parse(readFileSync(join(out, "page.json"), "utf8"))).toEqual({
-			title: "Example Status",
-			alert: staged.alert,
-		});
+		stage(join(import.meta.dirname, "../example"), out);
+		expect(JSON.parse(readFileSync(join(out, "page.json"), "utf8"))).toEqual({ title: "Example Status" });
 	});
 });
 

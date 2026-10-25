@@ -46,7 +46,7 @@ npm run deploy -- path/to/instance
 
 Authenticate wrangler with `npx wrangler login` or `CLOUDFLARE_API_TOKEN`. An API token needs Account Workers Scripts Edit and D1 Edit, and Zone Workers Routes Edit on the zone.
 
-The command validates the instance, applies D1 migrations, deploys the prober, builds the page and deploys it on the instance `domain`. On the first deploy the prober creates the D1 database and the migrations follow. A `SELF-CHECK FAILING: database writes` mail in that minute is spurious. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round. The page Worker also carries a minute cron and the `send_email` binding.
+The command validates the instance, applies D1 migrations, deploys the prober, builds the page and deploys it on the instance `domain`. On the first deploy the prober creates the D1 database and the migrations follow. A `SELF-CHECK FAILING: database writes` mail in that minute is spurious. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round. The page Worker also carries a minute cron.
 
 The `domain/*` route needs a proxied DNS record in the zone to receive traffic. If the hostname has no record, add a placeholder such as `AAAA` `100::` with the proxy on.
 
@@ -124,7 +124,7 @@ In HyperDX add a webhook with service `incident.io`, URL `https://<domain>/relay
 
 Two conditions mail when they start and again every 3 hours while they hold. Recovery never mails, and tower never mails `DEPLOYED` or `OK`. These mails go to `alert.to`, even for a check or relay with its own `to`, and the `DIGEST` lists each while it holds.
 
-- `SELF-CHECK FAILING: probing stalled`: no run has written results for three of the shortest `every` plus a minute. The page Worker's minute cron asks the prober, so a dead prober cron is caught, and the digest due while the cron is stalled is still queued and lists it. When the prober does not answer the page Worker, the page Worker mails the same subject instead. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
+- `SELF-CHECK FAILING: probing stalled`: no run has written results for three of the shortest `every` plus a minute. The page Worker's minute cron asks the prober, so a dead prober cron is caught, and the digest due while the cron is stalled is still queued and lists it. A prober that does not answer shows as `unavailable` at `/healthz`, which only `outside` mails. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
 - `SELF-CHECK FAILING: database writes`: D1 rejected a run's writes.
 
 Three more appear in the `DIGEST` only:

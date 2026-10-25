@@ -1,5 +1,3 @@
-import { type Latch, REPEAT_HOURS, REPEAT_MS, selfAlert } from '../../prober/src/latch.ts';
-import { sendMail } from '../../prober/src/mail.ts';
 import type { StatusResponse } from './lib.ts';
 
 const CACHE_SECONDS = 30;
@@ -118,45 +116,4 @@ export async function relay(request: Request, env: { TOWER: Pick<Tower, 'inciden
     console.error('tower-page: relay unavailable:', e);
     return new Response(null, { status: 503 });
   }
-}
-
-export async function watch(
-  env: { TOWER: Pick<Tower, 'watch'>; EMAIL: Pick<SendEmail, 'send'> },
-  alert: { from: string; to: string },
-  t: number,
-  latch: Latch,
-): Promise<void> {
-  try {
-    await env.TOWER.watch(t);
-  } catch (e) {
-    console.error('tower-page: prober did not answer:', e);
-    await selfAlert(
-      latch,
-      'prober',
-      t,
-      async () =>
-        (await sendMail(
-          env.EMAIL,
-          alert,
-          'SELF-CHECK FAILING: probing stalled',
-          `The prober did not answer, ${new Date(t).toISOString()}. This repeats every ${REPEAT_HOURS} hours until it answers.\n`,
-        )) === 'sent',
-    );
-  }
-}
-
-export function cacheLatch(): Latch {
-  const keyFor = (key: string) => new Request(new URL(`/latch/${key}`, 'https://tower.invalid'));
-  return {
-    claim: async (key, t) => {
-      const cache = await caches.open('tower');
-      const hit = await cache.match(keyFor(key));
-      if (hit && t - Number(await hit.text()) < REPEAT_MS) return false;
-      await cache.put(keyFor(key), new Response(String(t), { headers: { 'Cache-Control': `max-age=${REPEAT_MS / 1000}` } }));
-      return true;
-    },
-    release: async (key) => {
-      await (await caches.open('tower')).delete(keyFor(key));
-    },
-  };
 }

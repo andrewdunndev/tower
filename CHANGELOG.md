@@ -2,7 +2,7 @@
 
 ## 0.7.0 (2026-10-25)
 
-- Self-failures mail at onset and every 3 hours while they hold, nothing on recovery: `probing stalled` (from the prober, or from the page Worker when the prober does not answer) and the new `database writes`. A bad Cloudflare API token, `results for <check>` and a full relay are digest-only; the `SELF-CHECK` mail for them is gone; they appear in the daily digest. The page Worker's hourly mail and the exact-minute digest window are gone.
+- Self-failures mail at onset and every 3 hours while they hold, nothing on recovery: `probing stalled` (from the prober) and the new `database writes`. A bad Cloudflare API token, `results for <check>` and a full relay are digest-only; the `SELF-CHECK` mail for them is gone; they appear in the daily digest. The page Worker's hourly mail and the exact-minute digest window are gone.
 - `digest` defaults to `12:00` UTC: an instance that never set it now receives a daily mail. `digest_only` no longer needs it.
 - New optional `outside` Worker (`"outside": true`) polls `GET /healthz` every minute from its own Worker and database and mails `OUTSIDE CHECK FAILING` after two failing minutes, every 3 hours while it fails, and `OUTSIDE CHECK RECOVERED` once. Turning `outside` off leaves the deployed Worker running: `wrangler delete` it and its database.
 - Mail is retried with backoff, 1 minute doubling to 15, and goes dead after 24 hours instead of 10 tries. A rejected recipient or sender goes dead after 3 tries. A `DOWN` whose check is still down is never dead.
@@ -55,7 +55,7 @@
 ## 0.3.0 (2026-10-11)
 
 - Self-checks mail `SELF-CHECK FAILING: results for <check>` when a check has no conclusive result for three of its intervals, and an OK when it recovers. `/api/status` `self` and the page banner list a stuck public check.
-- The page Worker has its own minute cron and `send_email` binding. It asks the prober to `watch` its last run and mails `SELF-CHECK FAILING: probing stalled` once, so the alert survives a dead prober cron.
+- The page Worker has its own minute cron that asks the prober to `watch` its last run, so a stall alert survives a dead prober cron. A prober that does not answer reads `unavailable` at `/healthz`, which the optional `outside` Worker mails.
 - No migration. Roll back both Workers together: 0.2.0 mails a pending stuck row as `DOWN`.
 
 ## 0.2.0 (2026-10-11)

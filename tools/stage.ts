@@ -116,7 +116,7 @@ export function stage(instance: string, out = join(root, ".tower")): Omit<Instan
 		const url = `https://${parsed.data.domain}/healthz`;
 		writeFileSync(join(out, "outside.json"), `${JSON.stringify({ url, alert: parsed.data.alert })}\n`);
 	}
-	writeFileSync(join(out, "page.json"), `${JSON.stringify({ title: parsed.data.title, alert: parsed.data.alert })}\n`);
+	writeFileSync(join(out, "page.json"), `${JSON.stringify({ title: parsed.data.title })}\n`);
 	const own = (file: string) => (existsSync(join(instance, file)) ? join(instance, file) : null);
 	cpSync(own("favicon.svg") ?? join(root, "favicon.svg"), join(out, "favicon.svg"));
 	if (own("theme.css")) cpSync(join(instance, "theme.css"), join(out, "theme.css"));

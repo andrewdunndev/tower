@@ -1,7 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
-import { memoryLatch } from '../../prober/src/latch.ts';
-import { beat, cached, cacheKey, cacheLatch, healthResponse, kept, refuse, relay, watch } from "../src/server.ts";
+import { beat, cached, cacheKey, healthResponse, kept, refuse, relay } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
 	new Request(`https://status.example.com${path}`, { method, headers });
@@ -210,86 +209,6 @@ describe("methods", () => {
 			expect(refuse(request(method, path))?.status).toBe(405);
 		}
 	});
-});
-
-describe('watch', () => {
-  const alert = { from: 'tower@example.com', to: 'oncall@example.com' };
-  const HOUR = 3_600_000;
-  const setup = (answers: boolean) => {
-    const calls = { watched: [] as number[], subjects: [] as string[] };
-    const env = {
-      TOWER: {
-        watch: async (now: number) => {
-          calls.watched.push(now);
-          if (!answers) throw new Error('prober unavailable');
-        },
-      },
-      EMAIL: {
-        send: async (message: unknown) => {
-          calls.subjects.push(/^Subject: (.*)$/m.exec(String((message as Record<string, unknown>)['EmailMessage::raw']))?.[1] ?? '');
-          return { messageId: 'test' };
-        },
-      },
-    };
-    return { calls, env };
-  };
-
-  it('asks the prober with the scheduled time and sends no mail when it answers', async () => {
-    const { calls, env } = setup(true);
-    await watch(env, alert, HOUR, memoryLatch());
-    expect(calls.watched).toEqual([HOUR]);
-    expect(calls.subjects).toEqual([]);
-  });
-
-  it('mails at the first call, not a minute later, and again after 3 hours', async () => {
-    const { calls, env } = setup(false);
-    const latch = memoryLatch();
-    const onset = 5 * HOUR;
-    await watch(env, alert, onset, latch);
-    expect(calls.subjects).toEqual(['SELF-CHECK FAILING: probing stalled']);
-    for (let k = 1; k < 180; k += 1) await watch(env, alert, onset + k * 60_000, latch);
-    expect(calls.subjects).toHaveLength(1);
-    await watch(env, alert, onset + 3 * HOUR, latch);
-    expect(calls.subjects).toHaveLength(2);
-  });
-
-  it('does not mail again within 3 hours after the prober has answered once', async () => {
-    const down = setup(false);
-    const up = setup(true);
-    const latch = memoryLatch();
-    await watch(down.env, alert, 5 * HOUR, latch);
-    await watch(up.env, alert, 5 * HOUR + 60_000, latch);
-    await watch(down.env, alert, 5 * HOUR + 120_000, latch);
-    expect(down.calls.subjects).toHaveLength(1);
-  });
-
-  it('retries a mail that failed to send on the next call', async () => {
-    const { calls, env } = setup(false);
-    const send = env.EMAIL.send;
-    env.EMAIL.send = async (m: unknown) => {
-      await send(m);
-      if (calls.subjects.length === 1) throw new Error('send failed');
-      return { messageId: 'test' };
-    };
-    const latch = memoryLatch();
-    await watch(env, alert, 5 * HOUR, latch);
-    await watch(env, alert, 5 * HOUR + 60_000, latch);
-    expect(calls.subjects).toHaveLength(2);
-    await watch(env, alert, 5 * HOUR + 120_000, latch);
-    expect(calls.subjects).toHaveLength(2);
-  });
-});
-
-describe('cacheLatch', () => {
-  const HOUR = 3_600_000;
-  it('claims once per 3 hours and again at once after a release', async () => {
-    const latch = cacheLatch();
-    expect(await latch.claim('probe', 5 * HOUR)).toBe(true);
-    expect(await latch.claim('probe', 5 * HOUR + 60_000)).toBe(false);
-    expect(await latch.claim('probe', 8 * HOUR)).toBe(true);
-    await latch.release('probe', 8 * HOUR);
-    expect(await latch.claim('probe', 8 * HOUR + 60_000)).toBe(true);
-  });
 });
 
 describe('healthResponse', () => {
