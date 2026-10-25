@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 (2026-10-25)
+
+- Self-failures mail at onset and every 3 hours while they hold, nothing on recovery: `probing stalled` (from the prober, or from the page Worker when the prober does not answer) and the new `database writes`. A bad Cloudflare API token, `results for <check>` and a full relay are digest-only, with or without `digest`; the `SELF-CHECK` mail for them is gone, so set `digest` to see them. The page Worker's hourly mail and the exact-minute digest window are gone.
+- Mail is retried with backoff, 1 minute doubling to 15, and goes dead after 24 hours instead of 10 tries. A rejected recipient or sender goes dead after 3 tries. A `DOWN` whose check is still down is never dead.
+- `GET /healthz` answers `200 ok` while the prober's last run is recent and no mail is dead, otherwise `503` with `stale`, `dead` or `unavailable`.
+- A relay with 200 mails waiting answers `503` to a new key, so senders retry; `rejected` now means 100 open keys.
+- A config whose probes cannot finish inside the shortest interval at `timeout_ms` fails validation. A config that no longer parses must be fixed before deploy.
+- History of a check id missing from the config is kept for 7 days.
+- `token_sha256` takes a list of up to 2 hashes, so a token rotates without a gap.
+- Migration `0005_outbox_retry` adds `outbox.next_at` and drops queued legacy mail. Rolling back to 0.6.0 ignores the column, retries by attempt count again and deletes absent check ids at once.
+
 ## 0.6.0 (2026-10-24)
 
 - Relay mail is verbatim. The subject is the sender's `title` and the body its `description`, with no label, relay name or key; the mail transport reduces the text to printable ASCII. A resolve mails under the title the key last fired with. A blank title answers `400`; titles clip at 900 characters. `STOPPED REPORTING` and `ALERTS` keep their own format.
