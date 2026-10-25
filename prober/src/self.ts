@@ -1,5 +1,5 @@
 import type { Instance } from "../../tools/schema.ts";
-import { d1Latch, selfAlert } from "./latch.ts";
+import { d1Latch, type Latch, memoryLatch, REPEAT_HOURS, selfAlert } from "./latch.ts";
 import type { Attention } from "./mail.ts";
 import { MAX_KEYS } from "./relay.ts";
 import { allowance, DEPLOY_GRACE_MS, interval, STUCK_PREFIX, selfName } from "./status.ts";
@@ -14,13 +14,6 @@ const lastRun = `(SELECT MAX(last_run) FROM state)`;
 const newest = (t: string) => `${t} >= (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'tick')`;
 const staleWindow = (config: Instance) => allowance(Math.min(...config.checks.map(interval)));
 const stallCutoff = (config: Instance, t: number) => t - staleWindow(config);
-
-const queue = (db: D1Database, key: string, kind: string, t: number, guard: string, ...binds: unknown[]) =>
-	db
-		.prepare(
-			`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', ?1, ?2, ?3, NULL, NULL WHERE ${guard}`,
-		)
-		.bind(key, t, kind, ...binds);
 
 export function inDeployGrace(version: Version, t: number): boolean {
 	const deployed = Date.parse(version.timestamp ?? "");
@@ -45,7 +38,7 @@ export async function raiseStall(
 	await selfAlert(d1Latch(db), "stall", t, () =>
 		send(
 			"SELF-CHECK FAILING: probing stalled",
-			`No probe run has written results since ${new Date(row.run).toISOString()}; detected ${new Date(t).toISOString()}. The prober's cron trigger or its runs are failing; its Worker log says which. This repeats every 3 hours until probing resumes.\n`,
+			`No probe run has written results since ${new Date(row.run).toISOString()}; detected ${new Date(t).toISOString()}. The prober's cron trigger or its runs are failing; its Worker log says which. This repeats every ${REPEAT_HOURS} hours until probing resumes.\n`,
 		),
 	);
 	return true;
@@ -65,13 +58,22 @@ export async function health(
 	return fresh || inDeployGrace(version, t) ? "ok" : "stale";
 }
 
+const fallback = memoryLatch();
+
 export async function reportWriteFailure(db: D1Database, send: Send, t: number): Promise<void> {
-	await selfAlert(d1Latch(db), "self:writes", t, () =>
-		send(
-			"SELF-CHECK FAILING: database writes",
-			`Database writes failed, ${new Date(t).toISOString()}. This repeats every 3 hours until a run writes.\n`,
-		),
-	);
+	const alert = (latch: Latch) =>
+		selfAlert(latch, "writes", t, () =>
+			send(
+				"SELF-CHECK FAILING: database writes",
+				`Database writes failed, ${new Date(t).toISOString()}. This repeats every ${REPEAT_HOURS} hours until a run writes.\n`,
+			),
+		);
+	try {
+		await alert(d1Latch(db));
+	} catch (e) {
+		console.error("tower: write-failure latch unavailable:", e);
+		await alert(fallback);
+	}
 }
 
 export function digestWrites(db: D1Database, config: Instance, t: number, guard = "1"): D1PreparedStatement[] {
@@ -79,15 +81,11 @@ export function digestWrites(db: D1Database, config: Instance, t: number, guard 
 	const day = new Date(t).toISOString().slice(0, 10);
 	const due = Date.parse(`${day}T${config.digest}:00Z`);
 	return [
-		queue(
-			db,
-			"digest",
-			"digest",
-			t,
-			`?4 <= ?2 AND COALESCE((SELECT value FROM meta WHERE key = 'digest'), '') <> ?5 AND ${guard}`,
-			due,
-			day,
-		),
+		db
+			.prepare(
+				`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', 'digest', ?1, 'digest', NULL, NULL WHERE ?2 <= ?1 AND COALESCE((SELECT value FROM meta WHERE key = 'digest'), '') <> ?3 AND ${guard}`,
+			)
+			.bind(t, due, day),
 		db
 			.prepare(`INSERT OR REPLACE INTO meta (key, value) SELECT 'digest', ?1 WHERE ?2 <= ?3 AND ${guard}`)
 			.bind(day, due, t),
@@ -110,7 +108,7 @@ export function selfWrites(
 			.prepare(`DELETE FROM meta WHERE key = 'stall' AND ${lastRun} >= ?1 AND ${newest("?2")}`)
 			.bind(stallCutoff(config, t), t),
 		set("version", version.id),
-		db.prepare(`DELETE FROM meta WHERE key = 'self:writes'`),
+		db.prepare(`DELETE FROM meta WHERE key = 'writes'`),
 	);
 
 	writes.push(...digestWrites(db, config, t));
@@ -160,7 +158,9 @@ export async function attention(db: D1Database, config: Instance): Promise<Atten
 		db.prepare(
 			`SELECT COALESCE(SUM(dead = 0), 0) AS unsent, COALESCE(SUM(dead), 0) AS dead FROM outbox WHERE kind <> 'digest' AND (dead = 1 OR attempts > 0)`,
 		),
-		db.prepare(`SELECT key FROM meta WHERE key LIKE 'self:%' OR key LIKE 'full:%' OR key = 'stall' ORDER BY key`),
+		db.prepare(
+			`SELECT key FROM meta WHERE key LIKE 'self:%' OR key LIKE 'full:%' OR key IN ('stall', 'writes') ORDER BY key`,
+		),
 		db.prepare(`SELECT COALESCE(CAST((SELECT value FROM meta WHERE key = 'sent') AS INTEGER), 0) AS n`),
 	]);
 	const names = new Map<string, string>([

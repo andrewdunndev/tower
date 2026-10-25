@@ -1,9 +1,8 @@
 import { handle } from '@astrojs/cloudflare/handler';
 import page from '../../.tower/page.json';
-import { memoryLatch } from '../../prober/src/latch.ts';
-import { watch } from './server.ts';
+import { cacheLatch, watch } from './server.ts';
 
-const latch = memoryLatch();
+const latch = cacheLatch();
 
 export default {
   fetch: handle,

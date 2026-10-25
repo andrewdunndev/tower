@@ -26,6 +26,16 @@ describe("status", () => {
 		});
 	});
 
+	it("lists a failing token flag but not the mail-latched self-checks", async () => {
+		await env.DB.batch(
+			["self:token", "stall", "writes"].map((key) =>
+				env.DB.prepare(`INSERT INTO meta (key, value) VALUES (?1, ?2)`).bind(key, String(T0)),
+			),
+		);
+		const s = await status(env.DB, makeConfig(), T0);
+		expect(s.self.map((f) => f.name)).toEqual(["Cloudflare API token"]);
+	});
+
 	it("reports uptime, latency and an incident from recorded runs", async () => {
 		const { runEnv } = mailbox();
 		const config = makeConfig([{ ...web, down_after: 1, up_after: 1 }]);

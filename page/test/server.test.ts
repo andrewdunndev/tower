@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
 import { memoryLatch } from '../../prober/src/latch.ts';
-import { beat, cached, cacheKey, healthResponse, kept, refuse, relay, watch } from "../src/server.ts";
+import { beat, cached, cacheKey, cacheLatch, healthResponse, kept, refuse, relay, watch } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
 	new Request(`https://status.example.com${path}`, { method, headers });
@@ -253,15 +253,14 @@ describe('watch', () => {
     expect(calls.subjects).toHaveLength(2);
   });
 
-  it('mails again at once after the prober has answered once', async () => {
+  it('does not mail again within 3 hours after the prober has answered once', async () => {
     const down = setup(false);
     const up = setup(true);
     const latch = memoryLatch();
     await watch(down.env, alert, 5 * HOUR, latch);
     await watch(up.env, alert, 5 * HOUR + 60_000, latch);
-    expect(up.calls.subjects).toEqual([]);
     await watch(down.env, alert, 5 * HOUR + 120_000, latch);
-    expect(down.calls.subjects).toHaveLength(2);
+    expect(down.calls.subjects).toHaveLength(1);
   });
 
   it('retries a mail that failed to send on the next call', async () => {
@@ -278,6 +277,18 @@ describe('watch', () => {
     expect(calls.subjects).toHaveLength(2);
     await watch(env, alert, 5 * HOUR + 120_000, latch);
     expect(calls.subjects).toHaveLength(2);
+  });
+});
+
+describe('cacheLatch', () => {
+  const HOUR = 3_600_000;
+  it('claims once per 3 hours and again at once after a release', async () => {
+    const latch = cacheLatch();
+    expect(await latch.claim('probe', 5 * HOUR)).toBe(true);
+    expect(await latch.claim('probe', 5 * HOUR + 60_000)).toBe(false);
+    expect(await latch.claim('probe', 8 * HOUR)).toBe(true);
+    await latch.release('probe', 8 * HOUR);
+    expect(await latch.claim('probe', 8 * HOUR + 60_000)).toBe(true);
   });
 });
 

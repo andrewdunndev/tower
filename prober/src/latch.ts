@@ -1,4 +1,5 @@
-export const REPEAT_MS = 3 * 3_600_000;
+export const REPEAT_HOURS = 3;
+export const REPEAT_MS = REPEAT_HOURS * 3_600_000;
 
 export interface Latch {
 	claim(key: string, t: number): Promise<boolean>;

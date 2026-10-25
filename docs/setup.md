@@ -46,7 +46,7 @@ npm run deploy -- path/to/instance
 
 Authenticate wrangler with `npx wrangler login` or `CLOUDFLARE_API_TOKEN`. An API token needs Account Workers Scripts Edit and D1 Edit, and Zone Workers Routes Edit on the zone.
 
-The command validates the instance, applies D1 migrations, deploys the prober, builds the page and deploys it on the instance `domain`. On the first deploy the prober creates the D1 database and the migrations follow, so a `SELF-CHECK FAILING: database writes` mail in that minute is spurious. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round. The page Worker also carries a minute cron and the `send_email` binding.
+The command validates the instance, applies D1 migrations, deploys the prober, builds the page and deploys it on the instance `domain`. On the first deploy the prober creates the D1 database and the migrations follow. A `SELF-CHECK FAILING: database writes` mail in that minute is spurious. `--dry-run` validates, builds and bundles without deploying, and needs no account id or credentials. Services show as unknown until the first cron round. The page Worker also carries a minute cron and the `send_email` binding.
 
 The `domain/*` route needs a proxied DNS record in the zone to receive traffic. If the hostname has no record, add a placeholder such as `AAAA` `100::` with the proxy on.
 
@@ -147,7 +147,7 @@ D1 time travel also restores the database to any minute inside your plan's reten
 
 tower reports a stalled prober and failing database writes itself, so polling is optional. If both Workers are dead, an account or platform failure, nothing can mail: set `digest` and treat a missing digest as the alarm, or poll from outside.
 
-`GET https://<domain>/healthz` answers `200` with body `ok` only when the prober's last run is within `max(5 min, 3 x shortest interval + 1 min)` (ignored for 15 minutes after a deploy) and no outbox row is dead. Otherwise it answers `503` with `stale`, `dead` or `unavailable`. It sends `Cache-Control: no-store`, never redirects and carries no data. A dead row keeps it `503` for the 24 hours dead rows are kept.
+`GET https://<domain>/healthz` answers `200` with body `ok` only when the prober's last run is within `max(5 min, 3 x shortest interval + 1 min)` (ignored for 15 minutes after a deploy) and no outbox row is dead. Otherwise it answers `503` with `stale`, `dead` or `unavailable`. It sends `Cache-Control: no-store`, never redirects and carries no data. Each request reads D1, so include it in the zone's WAF rate limiting. A dead row keeps it `503` for the 24 hours dead rows are kept.
 
 A Cloudflare Health Check on it: GET, port 443, `expected_codes` 200, `expected_body` `ok`, `follow_redirects` off, two or three regions, `consecutive_fails` 2 or 3. Health Checks need a Pro zone or above (Free has none); any external poller works. The check runs on Cloudflare's edge, so a Cloudflare-wide outage is not caught.
 
@@ -159,7 +159,7 @@ A Cloudflare Health Check on it: GET, port 443, `expected_codes` 200, `expected_
 - `outbox_oldest_unsent_at` is when the oldest unsent mail was queued, or null.
 - `dead_outbox` counts mails that gave up in the last 24 h, one per address.
 - `stuck` counts public checks with no conclusive run inside three intervals plus a minute.
-- `self` lists failing self-checks by name with a time: when the flag was set, or for `probing stalled` and `database writes` the last mail attempt.
+- `self` lists failing self-checks by name with the time the flag was set. `probing stalled` and `database writes` are mail-only and never listed.
 
 ## Upgrade
 

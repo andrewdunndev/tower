@@ -129,7 +129,9 @@ export async function tick(
 ) {
 	const now = clockAt(startedAt);
 	const fail = async (e: unknown): Promise<never> => {
-		await reportWriteFailure(env.DB, mailer(env, config), t);
+		await reportWriteFailure(env.DB, mailer(env, config), t).catch((x) =>
+			console.error("tower: write-failure mail failed:", x),
+		);
 		throw e;
 	};
 	let claimed: Awaited<ReturnType<typeof claim>>;
@@ -279,9 +281,13 @@ const mailer = (env: RunEnv, config: Instance) => async (subject: string, text: 
 
 export async function watch(env: RunEnv, config: Instance, now: number) {
 	if (!(await raiseStall(env.DB, config, now, env.VERSION, mailer(env, config)))) return;
-	const queued = digestWrites(env.DB, config, now, `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`);
-	if (queued.length > 0) await env.DB.batch(queued);
-	await drain(env, config, { now: clockAt(now) });
+	try {
+		const queued = digestWrites(env.DB, config, now, `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`);
+		if (queued.length > 0) await env.DB.batch(queued);
+		await drain(env, config, { now: clockAt(now) });
+	} catch (e) {
+		console.error("tower: stall digest failed:", e);
+	}
 }
 
 function expire(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {

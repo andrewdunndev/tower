@@ -110,6 +110,7 @@ describe("sendMail", () => {
 			E_RATE_LIMIT_EXCEEDED: "retry",
 			E_DAILY_LIMIT_EXCEEDED: "retry",
 			E_INTERNAL_SERVER_ERROR: "retry",
+			E_DELIVERY_FAILED: "retry",
 			E_RECIPIENT_NOT_ALLOWED: "permanent",
 			E_SENDER_NOT_VERIFIED: "permanent",
 			E_UNKNOWN: "permanent",

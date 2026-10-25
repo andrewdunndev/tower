@@ -322,7 +322,7 @@ describe("write self-check", () => {
 		"a failed main batch after a good claim": `CREATE TRIGGER boom BEFORE INSERT ON daily BEGIN SELECT RAISE(ABORT, 'boom'); END`,
 	};
 	const failed = (subjects: string[]) => subjects.filter((s) => s === "SELF-CHECK FAILING: database writes");
-	const writes = () => all("SELECT key FROM meta WHERE key = 'self:writes'");
+	const writes = () => all("SELECT key FROM meta WHERE key = 'writes'");
 
 	describe.each(Object.entries(triggers))("%s", (_, trigger) => {
 		const setup = async (extra: object = {}) => {
@@ -366,6 +366,15 @@ describe("write self-check", () => {
 			await fail(1);
 			expect(await attentionOf(config)).toEqual(["SELF-CHECK: database writes"]);
 		});
+	});
+
+	it("still mails, and rethrows the original error, when meta is unwritable", async () => {
+		const mail = mailbox();
+		const config = makeConfig([web]);
+		await tick(mail.runEnv, config, T0, T0, respond(200));
+		await env.DB.prepare(`CREATE TRIGGER boom BEFORE INSERT ON meta BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
+		await expect(tick(mail.runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(200))).rejects.toThrow("boom");
+		expect(failed(mail.box.subjects)).toHaveLength(1);
 	});
 
 	it("sends nothing for a cron that merely skips runs", async () => {
@@ -552,6 +561,14 @@ describe("stalled prober", () => {
 
 describe("stalled prober with a digest", () => {
 	const quiet = makeConfig([web], { digest: "12:00" });
+
+	it("mails the stall once when the digest queue fails after the stall mail", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, quiet, T0 - 30 * MINUTE, T0 - 30 * MINUTE, respond(200));
+		await env.DB.prepare(`CREATE TRIGGER boom BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
+		await watch(runEnv, quiet, T0 + 20 * MINUTE);
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
+	});
 
 	it("mails one digest listing a stalled prober when only watch() runs through the digest time", async () => {
 		const { runEnv, box } = mailbox();

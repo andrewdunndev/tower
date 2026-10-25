@@ -49,7 +49,7 @@ An instance is a directory holding `tower.json`, optional `notes/*.md` for maint
 - Checks run from one Cloudflare location per cron run. There is no multi-location confirmation, so a failure near that location can read as down.
 - A maintenance relay keeps only the keys firing now; resolved history is not kept.
 - Mail the Email Service refuses as permanent goes dead after 3 tries; a mail still unsent after 24 hours goes dead unless it is a DOWN for a check still down.
-- The page Worker's "prober not answering" mail is deduplicated in memory, so an isolate restart can repeat it early.
+- The page Worker's "prober not answering" mail is deduplicated in the page Worker's colo cache, so it can repeat every minute where that cache is unavailable, such as on workers.dev.
 
 ## Contributing
 

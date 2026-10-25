@@ -155,9 +155,14 @@ export function mime(from: string, to: string, subject: string, text: string): s
 	].join("\r\n");
 }
 
-export type Sent = "sent" | "retry" | "permanent";
+type Sent = "sent" | "retry" | "permanent";
 
-const TRANSIENT = new Set(["E_RATE_LIMIT_EXCEEDED", "E_DAILY_LIMIT_EXCEEDED", "E_INTERNAL_SERVER_ERROR"]);
+const TRANSIENT = new Set([
+	"E_RATE_LIMIT_EXCEEDED",
+	"E_DAILY_LIMIT_EXCEEDED",
+	"E_INTERNAL_SERVER_ERROR",
+	"E_DELIVERY_FAILED",
+]);
 
 export async function sendMail(
 	email: Pick<SendEmail, "send">,
