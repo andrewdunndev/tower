@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { compose, message, mime } from "../src/mail.ts";
+import { describe, expect, it, vi } from "vitest";
+import { compose, message, mime, sendMail } from "../src/mail.ts";
 import { MINUTE, makeConfig, T0, web } from "./util.ts";
 
 describe("mime", () => {
@@ -93,5 +93,39 @@ describe("relay mail", () => {
 
 	it("skips an owner that is neither a check, a relay nor tower", () => {
 		expect(compose(config, [row("k", "firing", "x", "ghost")])).toBeNull();
+	});
+});
+
+describe("sendMail", () => {
+	const alert = { from: "tower@example.com", to: "oncall@example.com" };
+	const failing = (code?: string) => ({
+		send: async () => {
+			throw Object.assign(new Error("boom"), { code });
+		},
+	});
+
+	it("maps a thrown error to retry or permanent by its code, and logs the code", async () => {
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		const expected = {
+			E_RATE_LIMIT_EXCEEDED: "retry",
+			E_DAILY_LIMIT_EXCEEDED: "retry",
+			E_INTERNAL_SERVER_ERROR: "retry",
+			E_DELIVERY_FAILED: "retry",
+			E_RECIPIENT_NOT_ALLOWED: "permanent",
+			E_SENDER_NOT_VERIFIED: "permanent",
+			E_UNKNOWN: "permanent",
+		};
+		for (const [code, result] of Object.entries(expected)) {
+			expect(await sendMail(failing(code), alert, "s", "t")).toBe(result);
+			expect(log.mock.calls.at(-1)?.join(" ")).toContain(code);
+		}
+		log.mockRestore();
+	});
+
+	it("retries an error without a code and reports a good send", async () => {
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		expect(await sendMail(failing(), alert, "s", "t")).toBe("retry");
+		log.mockRestore();
+		expect(await sendMail({ send: async () => ({ messageId: "x" }) }, alert, "s", "t")).toBe("sent");
 	});
 });

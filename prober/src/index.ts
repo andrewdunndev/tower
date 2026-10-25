@@ -5,6 +5,7 @@ import type { Instance } from "../../tools/schema.ts";
 import { recordBeat } from "./heartbeat.ts";
 import { incident, kept } from "./relay.ts";
 import { tick, watch } from "./run.ts";
+import { health } from "./self.ts";
 import { status } from "./status.ts";
 
 const instance = config as Instance;
@@ -17,6 +18,10 @@ export class Tower extends WorkerEntrypoint<Env> {
 			console.error("tower: status failed:", e);
 			throw new Error("status unavailable");
 		}
+	}
+
+	async health() {
+		return health(this.env.DB, instance, Date.now(), this.env.VERSION);
 	}
 
 	async beat(id: string, token: string, ok: boolean) {

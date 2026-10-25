@@ -112,7 +112,7 @@ describe("instance", () => {
 			expect(messages(withRelays({ ...relay, digest_only: "yes" })).length).toBeGreaterThan(0);
 		});
 
-		it("defaults maintenance to false and takes a boolean, with or without a digest", () => {
+		it("defaults maintenance to false and takes a boolean", () => {
 			expect(instanceSchema.parse(withRelays(relay)).relays[0].maintenance).toBe(false);
 			expect(instanceSchema.parse(withRelays({ ...relay, maintenance: true })).relays[0].maintenance).toBe(true);
 			expect(messages(withRelays({ ...relay, maintenance: "yes" })).length).toBeGreaterThan(0);
@@ -123,10 +123,8 @@ describe("instance", () => {
 			expect(messages(both)).toEqual(["A relay is either digest_only or maintenance, not both."]);
 		});
 
-		it("rejects digest_only on an instance without a digest", () => {
-			expect(messages({ ...withRelays({ ...relay, digest_only: true }), digest: undefined }).join()).toContain(
-				"digest_only needs",
-			);
+		it("takes digest_only on an instance that never set a digest", () => {
+			expect(messages(withRelays({ ...relay, digest_only: true }))).toEqual([]);
 		});
 
 		it("rejects an unknown relay key", () => {
@@ -144,9 +142,48 @@ describe("instance", () => {
 			);
 		});
 
+		it("reads a string and a list of hashes as the same list, at most two", () => {
+			const parsed = (hash: unknown) => {
+				const r = instanceSchema.parse(withRelays({ ...relay, token_sha256: hash }));
+				return r.relays[0].token_sha256;
+			};
+			expect(parsed("a".repeat(64))).toEqual(["a".repeat(64)]);
+			expect(parsed(["a".repeat(64), "b".repeat(64)])).toEqual(["a".repeat(64), "b".repeat(64)]);
+			const hashes = (...h: string[]) => messages(withRelays({ ...relay, token_sha256: h.map((c) => c.repeat(64)) }));
+			expect(hashes("a", "b", "c")).toContain("list at most 2 hashes: the current token and its replacement.");
+			expect(hashes()).toContain("list at least one hash.");
+		});
+
+		it("rejects a hash repeated across relays", () => {
+			const a = "a".repeat(64);
+			const b = "b".repeat(64);
+			const other = { ...relay, id: "other", token_sha256: [b, a] };
+			expect(messages(withRelays({ ...relay, token_sha256: [a] }, other))).toContain(
+				"Two relays share a token: mint a token for each.",
+			);
+		});
+
+		it("rejects a hash repeated inside one list, for a relay and a heartbeat", () => {
+			const a = "a".repeat(64);
+			const dup = "token_sha256 lists the same hash twice: list the current token and its replacement.";
+			expect(messages(withRelays({ ...relay, token_sha256: [a, a] }))).toEqual([dup]);
+			const beat = { id: "b", type: "heartbeat", name: "B", every: "1h", grace: "5m", token_sha256: [a, a] };
+			expect(messages(instance(beat))).toContain(dup);
+		});
+
 		it("limits grace to 7 days", () => {
 			expect(messages(withRelays({ ...relay, grace: "7d" }))).toEqual([]);
 			expect(messages(withRelays({ ...relay, grace: "8d" }))).toContain("use at most 7 days.");
+		});
+
+		it("defaults digest to 12:00 UTC", () => {
+			expect(instanceSchema.parse({ ...example, digest: undefined }).digest).toBe("12:00");
+		});
+
+		it("defaults outside to false and takes a boolean", () => {
+			expect(instanceSchema.parse({ ...example, outside: undefined }).outside).toBe(false);
+			expect(instanceSchema.parse({ ...example, outside: true }).outside).toBe(true);
+			expect(messages({ ...example, outside: "yes" }).length).toBeGreaterThan(0);
 		});
 
 		it("takes digest as a UTC time of day", () => {
@@ -247,6 +284,38 @@ describe("note", () => {
 		expect(notes({ ...maintenance, start: "2026-10-09T05:00:00" })).toContain(
 			"Use an ISO 8601 time with an offset such as 2026-11-01T02:00:00Z.",
 		);
+	});
+});
+
+describe("run budget", () => {
+	const many = (n: number, extra: Json = {}) =>
+		Array.from({ length: n }, (_, i) => ({ ...http, id: `web${i}`, ...extra }));
+	const budget = (checks: Json[], timeout_ms?: number) => messages({ ...instance(...checks), timeout_ms });
+	const overrun = (m: string[]) => m.find((x) => x.includes("can need"));
+
+	it("passes 30 checks at the default timeout and refuses 31", () => {
+		expect(budget(many(30))).toEqual([]);
+		expect(overrun(budget(many(31)))).toBe(
+			"31 probes at a 10 s timeout can need 60 s, more than the 53 s the shortest interval (60 s) leaves: lower timeout_ms, drop checks, or lengthen every.",
+		);
+	});
+
+	it("passes 6 checks at a 30 s timeout and refuses 7", () => {
+		expect(budget(many(6), 30000)).toEqual([]);
+		expect(overrun(budget(many(7), 30000))).toContain("7 probes at a 30 s timeout can need 60 s");
+	});
+
+	it("budgets against the shortest interval", () => {
+		expect(budget(many(31, { every: "5m" }), 30000)).toEqual([]);
+		expect(overrun(budget([...many(31, { every: "5m" }), { ...http, id: "fast" }], 30000))).toContain(
+			"the shortest interval (60 s)",
+		);
+	});
+
+	it("counts a heartbeat toward the shortest interval but not the probes", () => {
+		const beat = { id: "b", type: "heartbeat", name: "B", every: "1d", grace: "5m", token_sha256: "a".repeat(64) };
+		expect(budget([...many(30, { every: "1h" }), beat])).toEqual([]);
+		expect(overrun(budget([...many(31, { every: "1h" }), beat]))).toContain("the shortest interval (60 s)");
 	});
 });
 

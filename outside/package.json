@@ -1,0 +1,8 @@
+{
+	"name": "tower-outside",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"typecheck": "wrangler types -c ../.tower/outside.wrangler.json && tsc"
+	}
+}

@@ -6,7 +6,7 @@
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![built with GitLab](https://img.shields.io/badge/built_with-GitLab-FC6D26?logo=gitlab)](https://gitlab.com/dunn.dev)
 
-tower is a status page that runs on Cloudflare Workers. A prober Worker checks each service from outside on a cron, keeps the history in D1 and mails one alert per change. A page Worker renders the status page and `/api/status` through Workers RPC. It needs no server, only a Cloudflare account.
+tower is a status page that runs on Cloudflare Workers. A prober Worker checks each service from outside on a cron, keeps the history in D1 and mails one alert per change. A page Worker renders the status page and `/api/status` through Workers RPC. An optional third Worker, `outside`, mails when `/healthz` stops answering. It needs no server, only a Cloudflare account.
 
 A relay turns an incident.io-format webhook, such as HyperDX's, into one mail per transition.
 
@@ -47,7 +47,10 @@ An instance is a directory holding `tower.json`, optional `notes/*.md` for maint
 - A tcp check is up when the connection opens and down on a connect error or at the timeout. It sends no data, so a service that accepts and then fails reads as up.
 - A tls check covers the edge certificates Cloudflare serves. An origin certificate failure shows as http 526.
 - Checks run from one Cloudflare location per cron run. There is no multi-location confirmation, so a failure near that location can read as down.
+- Without `outside`, a prober that does not answer mails nothing; `/healthz` reads `unavailable`.
+- The outside watcher runs on Cloudflare, so a Cloudflare-wide outage silences it too.
 - A maintenance relay keeps only the keys firing now; resolved history is not kept.
+- Mail the Email Service refuses as permanent goes dead after 3 tries; a mail still unsent after 24 hours goes dead unless it is a DOWN for a check still down.
 
 ## Contributing
 

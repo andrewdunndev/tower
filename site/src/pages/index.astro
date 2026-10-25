@@ -69,11 +69,11 @@ const rows = [
       <div class="tile">
         <p class="tile-eyebrow">3 · watch</p>
         <h3 class="tile-headline">Watches itself</h3>
-        <p class="tile-prose">tower mails when a check stops producing results or probing stalls. A daily digest covers the day both Workers are down: a missing digest is the alarm.</p>
+        <p class="tile-prose">tower mails when probing stalls or database writes fail, and again every three hours until they recover. A check that stops producing results shows in the daily digest, and a missing digest is the alarm when both Workers are down.</p>
       </div>
     </div>
     <Split>
-      <p>A probed check changes state only after several runs in a row agree, and each change queues one mail that is retried on each run.</p>
+      <p>A probed check changes state only after several runs in a row agree, and each change queues one mail that is retried with backoff.</p>
       <div class="figure-pair" slot="aside"><Check /></div>
     </Split>
   </section>

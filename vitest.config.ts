@@ -26,14 +26,12 @@ export default defineConfig({
 									name: "page",
 									modules: pageModules,
 									compatibilityDate,
-									email: { send_email: [{ name: "EMAIL" }] },
 									serviceBindings: { TOWER: { name: "stub", entrypoint: "Tower" } },
 								},
 								{
 									name: "page-real",
 									modules: pageModules,
 									compatibilityDate,
-									email: { send_email: [{ name: "EMAIL" }] },
 									serviceBindings: { TOWER: { name: "vitest-plugin-runner-workers", entrypoint: "Tower" } },
 								},
 								{ name: "stub", modules: true, scriptPath: "page/test/tower-stub.mjs", compatibilityDate },
@@ -43,7 +41,7 @@ export default defineConfig({
 				],
 				test: {
 					name: "workers",
-					include: ["prober/test/**/*.test.ts", "page/test/**/*.test.ts"],
+					include: ["prober/test/**/*.test.ts", "page/test/**/*.test.ts", "outside/test/**/*.test.ts"],
 					globalSetup: ["./prober/test/listener.ts"],
 					setupFiles: ["./prober/test/setup.ts"],
 				},

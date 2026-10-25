@@ -39,6 +39,22 @@ describe("incident", () => {
 		expect(await keys()).toEqual([{ relay: "alerts", key: "evt-1", title: "Alert for Errors - 12 exceeds 10" }]);
 	});
 
+	it("accepts either token of a rotating pair on incident and kept, and refuses the dropped one", async () => {
+		const { runEnv } = mailbox();
+		const next = await sha256("next-secret");
+		const pair = (hashes: string[]) =>
+			makeConfig([web], { relays: [{ id: "alerts", name: "Alerts", token_sha256: hashes, maintenance: true }] });
+		const rotating = pair([hash, next]);
+		for (const token of [TOKEN, "next-secret"]) {
+			expect((await incident(runEnv, rotating, token, payload({}), T0)).status).toBe(202);
+			expect((await kept(runEnv, rotating, token)).status).toBe(200);
+		}
+		const dropped = pair([next]);
+		expect((await incident(runEnv, dropped, TOKEN, payload({}), T0)).status).toBe(404);
+		expect((await kept(runEnv, dropped, TOKEN)).status).toBe(404);
+		expect((await kept(runEnv, dropped, "next-secret")).status).toBe(200);
+	});
+
 	it("mails a resolved once and answers duplicate for a repeat or an unknown key", async () => {
 		const { runEnv, box } = mailbox();
 		await send(runEnv, hyperdx("ALERT"));
@@ -108,7 +124,7 @@ describe("incident", () => {
 		expect((await keys()).map((k) => k.relay)).toEqual(["alerts", "other"]);
 	});
 
-	it("rejects the 101st key, mails one FAILING and then stays quiet", async () => {
+	it("rejects the 101st key and flags the relay full without mail", async () => {
 		const { runEnv, box } = mailbox();
 		await env.DB.prepare(
 			`WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 99)
@@ -118,13 +134,61 @@ describe("incident", () => {
 			.run();
 		expect(await result(await send(runEnv, payload({ deduplication_key: "extra" }), T0 + 200))).toBe("rejected");
 		expect(box.sends).toBe(0);
-		await drain(runEnv, config);
-		expect(box.sends).toBe(1);
+		expect(await all("SELECT key FROM meta WHERE key = 'full:alerts'")).toHaveLength(1);
 		expect(await result(await send(runEnv, payload({ deduplication_key: "extra2" }), T0 + 202))).toBe("rejected");
 		expect(await result(await send(runEnv, payload({ deduplication_key: "k5" }), T0 + 203))).toBe("duplicate");
 		await drain(runEnv, config);
-		expect(box.sends).toBe(1);
+		expect(box.sends).toBe(0);
 		expect(await all("SELECT count(*) AS n FROM relay_keys")).toEqual([{ n: 100 }]);
+	});
+
+	describe("a relay with 200 mails waiting", () => {
+		const backlog = () =>
+			env.DB.prepare(
+				`WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 199)
+				 INSERT INTO outbox ("check", "key", at, kind, reason, "to") SELECT 'alerts', 'p' || i, ?1, 'firing', '{"title":"t"}', '' FROM n`,
+			)
+				.bind(T0)
+				.run();
+		const openKeys = (n: number) =>
+			env.DB.prepare(
+				`WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < ?2)
+				 INSERT INTO relay_keys (relay, "key", title, since, seen) SELECT 'alerts', 'k' || i, 't', ?1, ?1 FROM n`,
+			)
+				.bind(T0, n - 1)
+				.run();
+
+		it("answers 503 for a new key and stores nothing", async () => {
+			const { runEnv } = mailbox();
+			await backlog();
+			const res = await send(runEnv, payload({ deduplication_key: "new" }), T0 + 1);
+			expect(res.status).toBe(503);
+			expect(await keys()).toEqual([]);
+		});
+
+		it("still answers duplicate for a key already open", async () => {
+			const { runEnv } = mailbox();
+			await openKeys(1);
+			await backlog();
+			expect(await result(await send(runEnv, payload({ deduplication_key: "k0" }), T0 + 1))).toBe("duplicate");
+		});
+
+		it("answers rejected, not 503, for 100 open keys with a low backlog or a full one", async () => {
+			const { runEnv } = mailbox();
+			await openKeys(100);
+			const extra = payload({ deduplication_key: "extra" });
+			expect(await result(await send(runEnv, extra, T0 + 1))).toBe("rejected");
+			await backlog();
+			expect(await result(await send(runEnv, extra, T0 + 2))).toBe("rejected");
+		});
+
+		it("accepts the same key once the backlog drains", async () => {
+			const { runEnv } = mailbox();
+			await backlog();
+			expect((await send(runEnv, payload({ deduplication_key: "new" }), T0 + 1)).status).toBe(503);
+			await env.DB.prepare(`DELETE FROM outbox`).run();
+			expect(await result(await send(runEnv, payload({ deduplication_key: "new" }), T0 + 2))).toBe("transition");
+		});
 	});
 
 	it("mails one transition for concurrent firings of one key", async () => {
@@ -253,12 +317,12 @@ describe("burst", () => {
 	it("bounds a relay's pending mail while the mailer is down", async () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
-		let last = "";
+		let last = 0;
 		for (let i = 0; i < 300; i++) {
-			last = await result(await fire(runEnv, i, T0));
+			last = (await fire(runEnv, i, T0)).status;
 			await send(runEnv, payload({ deduplication_key: `k${i}`, status: "resolved" }), T0);
 		}
-		expect(last).toBe("rejected");
+		expect(last).toBe(503);
 		const [{ n }] = await all<{ n: number }>("SELECT count(*) AS n FROM outbox");
 		expect(n).toBeLessThanOrEqual(400);
 	});
@@ -367,11 +431,12 @@ describe("routing", () => {
 		box.failing = true;
 		const results: string[] = [];
 		for (let i = 0; i < 120; i++) {
-			results.push(await result(await post(runEnv, { deduplication_key: `k${i}` }, T0)));
+			const res = await post(runEnv, { deduplication_key: `k${i}` }, T0);
+			results.push(res.status === 503 ? "busy" : await result(res));
 			await post(runEnv, { deduplication_key: `k${i}`, status: "resolved" }, T0);
 		}
 		expect(results.filter((r) => r === "transition")).toHaveLength(100);
-		expect(results.at(-1)).toBe("rejected");
+		expect(results.at(-1)).toBe("busy");
 		expect(await all("SELECT count(*) AS n FROM outbox")).toEqual([{ n: 400 }]);
 	});
 });
@@ -589,22 +654,15 @@ describe("maintenance relay", () => {
 		expect(((await read()).body as { description: string }[])[0].description).toBe("15 errors");
 	});
 
-	it("rejects a key past 100 without mail or a full flag, with or without a digest", async () => {
+	it("rejects a key past 100 without mail or a full flag", async () => {
 		const { runEnv, box } = mailbox();
-		const withDigest = makeConfig([web], {
-			digest: "12:00",
-			relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, maintenance: true }],
-		});
-		for (const c of [kind, withDigest]) {
-			await env.DB.prepare(`DELETE FROM relay_keys`).run();
-			for (let i = 0; i < 100; i++) await incident(runEnv, c, TOKEN, payload({ deduplication_key: `k${i}` }), T0);
-			const res = await incident(runEnv, c, TOKEN, payload({ deduplication_key: "over" }), T0);
-			expect(await result(res)).toBe("rejected");
-		}
+		for (let i = 0; i < 100; i++) await incident(runEnv, kind, TOKEN, payload({ deduplication_key: `k${i}` }), T0);
+		const res = await incident(runEnv, kind, TOKEN, payload({ deduplication_key: "over" }), T0);
+		expect(await result(res)).toBe("rejected");
 		expect(box.sends).toBe(0);
 		expect(await outbox()).toEqual([]);
 		expect(await all("SELECT key FROM meta WHERE key LIKE 'full:%'")).toEqual([]);
-		expect((await attention(env.DB, withDigest)).lines).toEqual([]);
+		expect((await attention(env.DB, kind)).lines).toEqual([]);
 	});
 
 	it("answers 404 for a relay that is not maintenance", async () => {

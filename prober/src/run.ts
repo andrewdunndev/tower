@@ -1,4 +1,5 @@
 import { connect } from "cloudflare:sockets";
+import { CONCURRENCY, DB_MARGIN_MS, SKEW_MS } from "../../tools/budget.ts";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { compose, NONE, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
@@ -32,15 +33,17 @@ interface StateRow {
 
 const TIMED = new Set<Check["type"]>(["http", "tcp", "dns"]);
 
-const SKEW_MS = 2000;
 const DAY_MS = 86_400_000;
 const FIRED_DAYS = 7;
-const CONCURRENCY = 6;
-const MAX_ATTEMPTS = 10;
+const ABSENT_DAYS = 7;
+const GIVE_UP_MS = DAY_MS;
+const RETRY_CAP_MS = 15 * 60_000;
+const BACKOFF_MS = 60_000;
+const PERMANENT_ATTEMPTS = 3;
 const LEASE_MS = 50_000;
-const DB_MARGIN_MS = 5_000;
 const MIN_BUDGET_MS = 20_000;
 const RECENT_SAMPLES = 5;
+const GONE_PREFIX = "gone:";
 const OWNED_TABLES = ["state", "samples", "daily", "beats", "events"];
 
 export function step(
@@ -75,6 +78,11 @@ function pool<T, R>(items: T[], size: number, open: () => boolean, fn: (item: T)
 }
 
 const OUTLIVED: Outcome = { verdict: "inconclusive", reason: "probe outlived the run" };
+
+export function clockAt(t: number): () => number {
+	const offset = t - Date.now();
+	return () => Date.now() + offset;
+}
 
 export const route = (o: { to?: string[] }) => JSON.stringify(o.to ?? [""]);
 
@@ -119,14 +127,18 @@ export async function tick(
 	doFetch: typeof fetch = fetch,
 	doConnect: typeof connect = connect,
 ) {
-	const offset = startedAt - Date.now();
-	const now = () => Date.now() + offset;
+	const now = clockAt(startedAt);
+	const fail = async (e: unknown): Promise<never> => {
+		await reportWriteFailure(env.DB, mailer(env, config), t).catch((x) =>
+			console.error("tower: write-failure mail failed:", x),
+		);
+		throw e;
+	};
 	let claimed: Awaited<ReturnType<typeof claim>>;
 	try {
 		claimed = await claim(env.DB, config, t);
 	} catch (e) {
-		await reportWriteFailure(env.DB, config, (subject, text) => sendMail(env.EMAIL, config.alert, subject, text), t);
-		throw e;
+		return fail(e);
 	}
 
 	const deadline = Math.max(
@@ -255,16 +267,27 @@ export async function tick(
 		...prune(env.DB, config, t),
 		...selfWrites(env.DB, config, t, env.VERSION, token),
 	);
-	await env.DB.batch(writes);
+	try {
+		await env.DB.batch(writes);
+	} catch (e) {
+		return fail(e);
+	}
 
-	await drain(env, config);
+	await drain(env, config, { now });
 }
 
+const mailer = (env: RunEnv, config: Instance) => async (subject: string, text: string) =>
+	(await sendMail(env.EMAIL, config.alert, subject, text)) === "sent";
+
 export async function watch(env: RunEnv, config: Instance, now: number) {
-	if (!(await raiseStall(env.DB, config, now, env.VERSION))) return;
-	const queued = digestWrites(env.DB, config, now, `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`);
-	if (queued.length > 0) await env.DB.batch(queued);
-	await drain(env, config);
+	if (!(await raiseStall(env.DB, config, now, env.VERSION, mailer(env, config)))) return;
+	try {
+		const queued = digestWrites(env.DB, config, now, `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`);
+		if (queued.length > 0) await env.DB.batch(queued);
+		await drain(env, config, { now: clockAt(now) });
+	} catch (e) {
+		console.error("tower: stall digest failed:", e);
+	}
 }
 
 function expire(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
@@ -286,15 +309,31 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 		Object.fromEntries([...config.checks, ...config.relays].map((o) => [o.id, o.to ?? [""]])),
 	);
 	const cutoff = t - DAYS * DAY_MS;
+	const absentCutoff = t - ABSENT_DAYS * DAY_MS;
+	const lapsed = `key LIKE '${GONE_PREFIX}%' AND CAST(value AS INTEGER) < ?1`;
 	return [
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
 		db.prepare(`DELETE FROM daily WHERE day < ?1`).bind(new Date(cutoff).toISOString().slice(0, 10)),
 		db.prepare(`DELETE FROM events WHERE at < ?1`).bind(cutoff),
-		db.prepare(`DELETE FROM outbox WHERE dead = 1 AND at < ?1`).bind(t - DAY_MS),
-		db.prepare(`DELETE FROM outbox WHERE kind IN ('deployed', 'resumed', 'self-ok')`),
+		db.prepare(`DELETE FROM outbox WHERE dead = 1 AND next_at < ?1`).bind(t - DAY_MS),
+		db
+			.prepare(
+				`INSERT OR IGNORE INTO meta (key, value) SELECT '${GONE_PREFIX}' || "check", ?2 FROM state WHERE "check" NOT IN (SELECT value FROM json_each(?1))`,
+			)
+			.bind(ids, String(t)),
+		db
+			.prepare(
+				`DELETE FROM meta WHERE key LIKE '${GONE_PREFIX}%' AND substr(key, ${GONE_PREFIX.length + 1}) IN (SELECT value FROM json_each(?1))`,
+			)
+			.bind(ids),
 		...OWNED_TABLES.map((table) =>
-			db.prepare(`DELETE FROM ${table} WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(ids),
+			db
+				.prepare(
+					`DELETE FROM ${table} WHERE "check" IN (SELECT substr(key, ${GONE_PREFIX.length + 1}) FROM meta WHERE ${lapsed})`,
+				)
+				.bind(absentCutoff),
 		),
+		db.prepare(`DELETE FROM meta WHERE ${lapsed}`).bind(absentCutoff),
 		db.prepare(`DELETE FROM outbox WHERE "check" NOT IN (SELECT value FROM json_each(?1))`).bind(owners),
 		db
 			.prepare(
@@ -342,11 +381,11 @@ export async function drain(
 	}
 }
 
-type Row = Pending & { rowid: number; check: string; to: string };
+type Row = Pending & { rowid: number; check: string; to: string; next_at: number };
 
 async function send(env: RunEnv, config: Instance, until: number, now: () => number, only: string | null) {
 	const { results } = await env.DB.prepare(
-		`SELECT rowid, "check", "key", at, kind, since, reason, "to" FROM outbox WHERE dead = 0 AND (?1 IS NULL OR "check" = ?1) ORDER BY at, rowid`,
+		`SELECT rowid, "check", "key", at, kind, since, reason, "to", next_at FROM outbox WHERE dead = 0 AND (?1 IS NULL OR "check" = ?1) ORDER BY at, rowid`,
 	)
 		.bind(only)
 		.all<Row>();
@@ -362,6 +401,7 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 			: JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, addr(r)]),
 	);
 	for (const rows of groups.values()) {
+		if (rows.every((r) => r.next_at > now() + SKEW_MS)) continue;
 		const digest = rows[0].kind === "digest";
 		const cut = digest ? now() : 0;
 		const composed = compose(config, rows, digest ? await attention(env.DB, config) : NONE);
@@ -373,10 +413,17 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 			.run();
 		const [subject, text] = composed;
 		const sent = await sendMail(env.EMAIL, { from: config.alert.from, to: addr(rows[0]) }, subject, text);
-		if (!sent) {
-			await env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?2 WHERE rowid IN (SELECT value FROM json_each(?1))`)
-				.bind(rowids, MAX_ATTEMPTS)
-				.run();
+		if (sent !== "sent") {
+			const t = now();
+			const mine = `rowid IN (SELECT value FROM json_each(?1))`;
+			await env.DB.batch([
+				env.DB.prepare(
+					`UPDATE outbox SET next_at = ?2 + MIN(?3, ${BACKOFF_MS} * (1 << MIN(attempts - 1, 10))) WHERE ${mine}`,
+				).bind(rowids, t, RETRY_CAP_MS),
+				env.DB.prepare(
+					`UPDATE outbox SET dead = 1, next_at = ?2 WHERE ${mine} AND (?3 AND attempts >= ?4 OR ?2 - at >= ?5) AND NOT (kind = 'down' AND EXISTS (SELECT 1 FROM state s WHERE s."check" = outbox."check" AND s.avail = 0))`,
+				).bind(rowids, t, sent === "permanent" ? 1 : 0, PERMANENT_ATTEMPTS, GIVE_UP_MS),
+			]);
 			continue;
 		}
 		await env.DB.batch([

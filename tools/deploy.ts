@@ -28,8 +28,9 @@ function main() {
 
 	let domain: string;
 	let name: string;
+	let outside: boolean;
 	try {
-		({ domain, name } = stage(instance));
+		({ domain, name, outside } = stage(instance));
 	} catch (e) {
 		if (!(e instanceof StageError)) throw e;
 		console.error(e.message);
@@ -49,6 +50,7 @@ function main() {
 	}
 	run("npm", ["run", "build", "-w", "page"]);
 	wrangler("page", "deploy", "--route", `${domain}/*`, ...dry);
+	if (outside) wrangler("outside", "deploy", "-c", "../.tower/outside.wrangler.json", ...dry);
 }
 
 function databaseState(bin: string, name: string): DbState {

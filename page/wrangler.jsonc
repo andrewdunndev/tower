@@ -5,6 +5,5 @@
   "preview_urls": false,
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } },
   "triggers": { "crons": ["* * * * *"] },
-  "send_email": [{ "name": "EMAIL" }],
   "services": [{ "binding": "TOWER", "entrypoint": "Tower" }]
 }

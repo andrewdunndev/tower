@@ -4,6 +4,7 @@ import type { Outcome } from "./probe.ts";
 type HeartbeatCheck = Extract<Check, { type: "heartbeat" }>;
 
 const NOT_FOUND = () => new Response(null, { status: 404 });
+const NO_HASH = "0".repeat(64);
 const encoder = new TextEncoder();
 
 export async function sha256Hex(text: string): Promise<string> {
@@ -18,6 +19,12 @@ export function sameHex(a: string, b: string): boolean {
 	return diff === 0;
 }
 
+export function matches(hash: string, hashes: string[]): boolean {
+	let hit = false;
+	for (const h of hashes) if (sameHex(hash, h)) hit = true;
+	return hit;
+}
+
 export async function recordBeat(
 	db: D1Database,
 	checks: Check[],
@@ -27,8 +34,8 @@ export async function recordBeat(
 	now: number,
 ): Promise<Response> {
 	const check = checks.find((c): c is HeartbeatCheck => c.id === id && c.type === "heartbeat");
-	const matches = sameHex(await sha256Hex(token), check?.token_sha256 ?? "0".repeat(64));
-	if (!check || token === "" || !matches) return NOT_FOUND();
+	const known = matches(await sha256Hex(token), check?.token_sha256 ?? [NO_HASH]);
+	if (!check || token === "" || !known) return NOT_FOUND();
 	await db
 		.prepare(`INSERT OR REPLACE INTO beats ("check", at, ok) VALUES (?1, ?2, ?3)`)
 		.bind(id, now, ok ? 1 : 0)

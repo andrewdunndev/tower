@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
-import { compose, towerMessage } from "../src/mail.ts";
+import { compose } from "../src/mail.ts";
 import { incident, MAX_KEYS } from "../src/relay.ts";
 import { tick, watch } from "../src/run.ts";
 import { attention } from "../src/self.ts";
@@ -42,8 +42,6 @@ function cloudflare(packs: number | object[]) {
 		});
 	}) as typeof fetch;
 }
-
-const unsent = () => all<{ key: string; kind: string }>(`SELECT "key", kind FROM outbox`);
 
 describe("deploy", () => {
 	it("records the version id and sends no mail", async () => {
@@ -108,7 +106,7 @@ describe("digest", () => {
 		expect(await all("SELECT value FROM meta WHERE key = 'sent'")).toEqual([{ value: "0" }]);
 	});
 
-	it("lists only what needs attention, and sends nothing without a digest time", async () => {
+	it("lists only what needs attention, and sends nothing before the digest time", async () => {
 		const { runEnv, box } = mailbox();
 		const noisy = makeConfig([unhealthy], { digest: "07:30" });
 		await tick(runEnv, noisy, at(7, 30), at(7, 30), respond(500));
@@ -147,146 +145,30 @@ describe("digest", () => {
 			"MAIL: 1 unsent",
 			"MAIL: 1 dead",
 		]);
-		const row = { at: at(7, 30), key: "digest", kind: "digest", since: null, reason: null } as const;
-		expect(towerMessage(config, row, report)).toEqual([
+		const row = { check: "", at: at(7, 30), key: "digest", kind: "digest", since: null, reason: null } as const;
+		expect(compose(config, [row], report)).toEqual([
 			"DIGEST: Example 2026-10-08: 5 need attention",
 			`${report.lines.join("\n")}\nChecked 0/1 checks up. Relay keys fired and closed: 0. Mail: 2 sent, 1 dead.\n`,
 		]);
-		expect(towerMessage(config, row, { ...report, lines: [], need: 0, up: 1, sent: 0, dead: 0 })).toEqual([
+		expect(compose(config, [row], { ...report, lines: [], need: 0, up: 1, sent: 0, dead: 0 })).toEqual([
 			"DIGEST: Example 2026-10-08: all up",
 			"Checked 1/1 checks up. Relay keys fired and closed: 0. Mail: 0 sent, 0 dead.\n",
 		]);
 	});
 });
 
-describe("token", () => {
-	const config = makeConfig([cert]);
-	const failing = (box: { subjects: string[] }) => box.subjects.filter((s) => s.includes("Cloudflare API token"));
+const attentionOf = async (config: Parameters<typeof attention>[1]) => (await attention(env.DB, config)).lines;
+const flagKeys = async () =>
+	(await all<{ key: string }>("SELECT key FROM meta WHERE key LIKE 'self:%' OR key LIKE 'full:%' ORDER BY key")).map(
+		(r) => r.key,
+	);
 
-	it("raises once on a 401, holds on a 503, clears on an authenticated run", async () => {
-		const { runEnv, box } = mailbox();
-		const live = { ...runEnv, CF_API_TOKEN: "tok" };
-		await tick(live, config, T0, T0, cloudflare(401));
-		await tick(live, config, T0 + MINUTE, T0 + MINUTE, cloudflare(403));
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: Cloudflare API token"]);
-		expect((await status(env.DB, config, T0 + MINUTE)).self).toEqual([
-			{ name: "Cloudflare API token", since: new Date(T0).toISOString() },
-		]);
-		await tick(live, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, cloudflare(503));
-		expect((await status(env.DB, config, T0 + 2 * MINUTE)).self).toHaveLength(1);
-		expect(failing(box)).toHaveLength(1);
-		await tick(live, config, T0 + 3 * MINUTE, T0 + 3 * MINUTE, cloudflare([]));
-		expect(failing(box)).toEqual(["SELF-CHECK FAILING: Cloudflare API token"]);
-		expect((await status(env.DB, config, T0 + 3 * MINUTE)).self).toEqual([]);
-	});
-
-	it("raises when the secret is unset", async () => {
-		const { runEnv, box } = mailbox();
-		await tick(runEnv, config, T0, T0, cloudflare([]));
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: Cloudflare API token"]);
-	});
-
-	it("stays quiet when there is no tls check", async () => {
-		const { runEnv, box } = mailbox();
-		await tick(runEnv, makeConfig(), T0, T0, respond(200));
-		expect(box.sends).toBe(0);
-		expect(await all("SELECT * FROM meta WHERE key LIKE 'self:%'")).toEqual([]);
-	});
-});
-
-describe("write self-check", () => {
-	const boom = () =>
-		env.DB.prepare(`CREATE TRIGGER boom BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
-
-	const failFor = async (runs: number) => {
-		const { runEnv, box } = mailbox();
-		const config = makeConfig();
-		await tick(runEnv, config, T0, T0, respond(200));
-		await boom();
-		for (let k = 1; k <= runs; k++)
-			await expect(tick(runEnv, config, T0 + k * MINUTE, T0 + k * MINUTE, respond(200))).rejects.toThrow();
-		const failing = [...box.subjects];
-		await env.DB.prepare(`DROP TRIGGER boom`).run();
-		await tick(runEnv, config, T0 + (runs + 1) * MINUTE, T0 + (runs + 1) * MINUTE, respond(200));
-		return { failing, sent: box.subjects };
-	};
-
-	it("sends nothing for writes that fail for up to three runs", async () => {
-		for (const runs of [1, 2, 3]) {
-			await reset();
-			expect((await failFor(runs)).sent).toEqual([]);
-		}
-	});
-
-	it("sends one direct mail once writes fail for three intervals plus a minute, and nothing on recovery", async () => {
-		for (const runs of [4, 6]) {
-			await reset();
-			const { failing, sent } = await failFor(runs);
-			expect(failing).toEqual(["SELF-CHECK FAILING: database writes"]);
-			expect(sent).toEqual(["SELF-CHECK FAILING: database writes"]);
-		}
-	});
-
-	it("sends nothing for uneven or skipped cron ticks up to three intervals plus a minute apart", async () => {
-		const { runEnv, box } = mailbox();
-		const config = makeConfig();
-		const gaps = [2 * MINUTE, 182_000, 182_000, 4 * MINUTE];
-		let t = T0;
-		await tick(runEnv, config, t, t, respond(200));
-		for (const gap of gaps) {
-			t += gap;
-			await watch(runEnv, config, t);
-			await tick(runEnv, config, t, t, respond(200));
-		}
-		expect(box.sends).toBe(0);
-		expect(await all("SELECT key FROM meta WHERE key = 'stall' OR key LIKE 'self:%'")).toEqual([]);
-		await tick(runEnv, config, t + 4 * MINUTE + 1, t + 4 * MINUTE + 1, respond(200));
-		expect(box.sends).toBe(0);
-	});
-
-	it("sends no mail after a stalled cron resumes", async () => {
-		const { runEnv, box } = mailbox();
-		const config = makeConfig();
-		await tick(runEnv, config, T0, T0, respond(200));
-		await tick(runEnv, config, T0 + 10 * MINUTE, T0 + 10 * MINUTE, respond(200));
-		await tick(runEnv, config, T0 + 11 * MINUTE, T0 + 11 * MINUTE, respond(200));
-		expect(box.sends).toBe(0);
-		expect(await unsent()).toEqual([]);
-	});
-});
-
-describe("relay cap", () => {
-	it("clears the full flag without mail once the relay has room", async () => {
-		const { runEnv, box } = mailbox();
-		const token = "relay-secret";
-		const hash = await sha256(token);
-		const config = makeConfig([web], { relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, grace: "1h" }] });
-		const fire = (key: string, status = "firing") =>
-			incident(runEnv, config, token, JSON.stringify({ title: "t", deduplication_key: key, status }), T0);
-		for (let i = 0; i < MAX_KEYS; i++) await fire(`k${i}`);
-		await fire("overflow");
-		await steadyTick(runEnv, config, T0 + MINUTE, respond(200));
-		expect(box.subjects.filter((s) => s.startsWith("SELF-CHECK"))).toEqual([
-			"SELF-CHECK FAILING: relay Alerts is full",
-		]);
-		await fire("k0", "resolved");
-		await steadyTick(runEnv, config, T0 + 2 * MINUTE, respond(200));
-		await steadyTick(runEnv, config, T0 + 3 * MINUTE, respond(200));
-		expect(box.subjects.filter((s) => s.startsWith("SELF-CHECK"))).toEqual([
-			"SELF-CHECK FAILING: relay Alerts is full",
-		]);
-		expect(await all("SELECT key FROM meta WHERE key LIKE 'full:%'")).toEqual([]);
-	});
-});
-
-describe("stuck checks", () => {
+describe("digest-only flags", () => {
+	const base = T0 - 60 * MINUTE;
 	const live = () => {
 		const { runEnv, box } = mailbox();
 		return { box, env: { ...runEnv, CF_API_TOKEN: "tok" } };
 	};
-	const stuck = (box: { subjects: string[] }) => box.subjects.filter((s) => s.includes("results for"));
-	const config = makeConfig([web, cert]);
-	// The web check answers 200; the certificate check's Cloudflare API answers 503 or a valid pack.
 	const serve = (packs: number | object[]) =>
 		(async (input: RequestInfo | URL, init?: RequestInit) =>
 			String(input).includes("/zones")
@@ -294,119 +176,214 @@ describe("stuck checks", () => {
 				: new Response("", { status: 200 })) as typeof fetch;
 	const minutes = async (
 		runEnv: Parameters<typeof tick>[0],
-		cfg: typeof config,
+		cfg: Parameters<typeof tick>[1],
 		from: number,
 		to: number,
 		f: typeof fetch,
 	) => {
-		for (let k = from; k <= to; k++) await tick(runEnv, cfg, T0 + k * MINUTE, T0 + k * MINUTE, f);
+		for (let k = from; k <= to; k++) await tick(runEnv, cfg, base + k * MINUTE, base + k * MINUTE, f);
 	};
 
-	it("flags a check with no conclusive result at exactly three intervals plus a minute, and no other", async () => {
+	it("flags a 401 without mail, holds on a 503, clears on an authenticated run", async () => {
+		const config = makeConfig([cert]);
 		const { box, env: runEnv } = live();
-		await minutes(runEnv, config, 0, 3, serve(503));
-		expect(box.subjects).toEqual([]);
-		await minutes(runEnv, config, 4, 4, serve(503));
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
-		expect(await all("SELECT avail FROM state WHERE \"check\" = 'web'")).toEqual([{ avail: 1 }]);
-	});
-
-	it("keeps the flag when a superseded run sees a conclusive result", async () => {
-		const { box, env: runEnv } = live();
-		await minutes(runEnv, config, 0, 5, serve(503));
-		await env.DB.prepare(`UPDATE meta SET value = ?1 WHERE key = 'tick'`)
-			.bind(String(T0 + 9 * MINUTE))
-			.run();
-		await tick(runEnv, config, T0 + 6 * MINUTE, T0 + 6 * MINUTE, serve([]));
-		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
-		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toEqual([{ key: "self:stuck:cert" }]);
-	});
-
-	it("mails once, clears the flag on a conclusive result without mail, and for a check that was never flagged", async () => {
-		const { box, env: runEnv } = live();
-		await minutes(runEnv, config, 0, 5, serve(503));
-		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
-		await minutes(runEnv, config, 6, 8, serve([]));
-		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
-		expect(await all("SELECT * FROM meta WHERE key LIKE 'self:stuck:%'")).toEqual([]);
-
-		const quiet = live();
-		await minutes(quiet.env, config, 0, 1, serve(503));
-		await minutes(quiet.env, config, 2, 4, serve([]));
-		expect(stuck(quiet.box)).toEqual([]);
-	});
-
-	it("gives a check added later three intervals plus a minute from when it was added", async () => {
-		const { box, env: runEnv } = live();
-		await minutes(runEnv, makeConfig([web]), 0, 9, serve(503));
-		await minutes(runEnv, config, 10, 13, serve(503));
-		expect(box.subjects).toEqual([]);
-		await minutes(runEnv, config, 14, 14, serve(503));
-		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
-	});
-
-	it("counts a check by its own interval", async () => {
-		const { box, env: runEnv } = live();
-		const hourly = makeConfig([web, { ...cert, every: "1h" }]);
-		await minutes(runEnv, hourly, 0, 5, serve(503));
-		expect(stuck(box)).toEqual([]);
-		await tick(runEnv, hourly, T0 + 3 * 3_600_000 + MINUTE, T0 + 3 * 3_600_000 + MINUTE, serve(503));
-		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
-	});
-
-	it("flags a check whose token is unset, after the token mail", async () => {
-		const { runEnv, box } = mailbox();
-		await minutes(runEnv, config, 0, 4, serve([]));
-		expect(box.subjects).toEqual([
-			"SELF-CHECK FAILING: Cloudflare API token",
-			"SELF-CHECK FAILING: results for Certificate",
+		await minutes(runEnv, config, 0, 0, cloudflare(401));
+		expect(box.sends).toBe(0);
+		expect(await flagKeys()).toEqual(["self:token"]);
+		expect((await status(env.DB, config, base + MINUTE)).self).toEqual([
+			{ name: "Cloudflare API token", since: new Date(base).toISOString() },
 		]);
-	});
-
-	it("flags a check that never runs because its slot is ahead of the clock, and clears when it runs", async () => {
-		const { runEnv, box } = mailbox();
-		await tick(runEnv, makeConfig(), T0, T0, respond(200));
-		await env.DB.prepare(`UPDATE state SET slot = 9e15 WHERE "check" = 'web'`).run();
-		await minutes(runEnv, makeConfig(), 1, 4, respond(200));
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Web"]);
-		await env.DB.prepare(`UPDATE state SET slot = -1`).run();
-		await minutes(runEnv, makeConfig(), 5, 5, respond(200));
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Web"]);
-	});
-
-	it("sends no stuck mail when a stalled cron resumes with fresh results", async () => {
-		const { runEnv, box } = mailbox();
-		await tick(runEnv, makeConfig(), T0, T0, respond(200));
-		await tick(runEnv, makeConfig(), T0 + 10 * MINUTE, T0 + 10 * MINUTE, respond(200));
+		expect(await attentionOf(config)).toEqual(["SELF-CHECK: Cloudflare API token"]);
+		await minutes(runEnv, config, 1, 1, cloudflare(503));
+		expect(await flagKeys()).toEqual(["self:token"]);
+		await minutes(runEnv, config, 2, 2, cloudflare([]));
+		expect(await flagKeys()).toEqual([]);
 		expect(box.sends).toBe(0);
 	});
 
-	it("mails a private check but shows only a public one in status", async () => {
-		const { box, env: runEnv } = live();
-		const hidden = makeConfig([{ ...cert, public: false }]);
-		await minutes(runEnv, hidden, 0, 4, serve(503));
-		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
-		expect((await status(env.DB, hidden, T0 + 5 * MINUTE)).self).toEqual([]);
-		expect((await attention(env.DB, hidden)).lines).toContain("SELF-CHECK: results for Certificate");
-		expect((await status(env.DB, makeConfig([cert]), T0 + 5 * MINUTE)).self).toEqual([
-			{ name: "results for Certificate", since: new Date(T0 + 4 * MINUTE).toISOString() },
-		]);
+	it("flags an unset secret, and nothing without a tls check", async () => {
+		const { runEnv, box } = mailbox();
+		await minutes(runEnv, makeConfig([cert]), 0, 0, cloudflare([]));
+		expect(await flagKeys()).toEqual(["self:token"]);
+		await reset();
+		await minutes(runEnv, makeConfig([web]), 0, 0, respond(200));
+		expect(await flagKeys()).toEqual([]);
+		expect(box.sends).toBe(0);
 	});
 
-	it("drops the flag of a removed check", async () => {
-		const { env: runEnv } = live();
-		await minutes(runEnv, config, 0, 4, serve(503));
-		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toEqual([{ key: "self:stuck:cert" }]);
-		await minutes(runEnv, makeConfig([web]), 5, 5, serve(503));
-		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toEqual([]);
+	describe("stuck checks", () => {
+		const config = makeConfig([web, cert]);
+
+		it("flags a check with no conclusive result at exactly three intervals plus a minute, and no other", async () => {
+			const { box, env: runEnv } = live();
+			await minutes(runEnv, config, 0, 3, serve(503));
+			expect(await flagKeys()).toEqual([]);
+			await minutes(runEnv, config, 4, 4, serve(503));
+			expect(await flagKeys()).toEqual(["self:stuck:cert"]);
+			expect(await all("SELECT avail FROM state WHERE \"check\" = 'web'")).toEqual([{ avail: 1 }]);
+			expect(box.sends).toBe(0);
+			expect(await attentionOf(config)).toEqual(["SELF-CHECK: results for Certificate"]);
+		});
+
+		it("keeps the flag when a superseded run sees a conclusive result, clears it on a later one", async () => {
+			const { box, env: runEnv } = live();
+			await minutes(runEnv, config, 0, 5, serve(503));
+			await env.DB.prepare(`UPDATE meta SET value = ?1 WHERE key = 'tick'`)
+				.bind(String(base + 9 * MINUTE))
+				.run();
+			await minutes(runEnv, config, 6, 6, serve([]));
+			expect(await flagKeys()).toEqual(["self:stuck:cert"]);
+			await minutes(runEnv, config, 10, 12, serve([]));
+			expect(await flagKeys()).toEqual([]);
+			expect(box.sends).toBe(0);
+		});
+
+		it("gives a check added later three intervals plus a minute from when it was added", async () => {
+			const { env: runEnv } = live();
+			await minutes(runEnv, makeConfig([web]), 0, 9, serve(503));
+			await minutes(runEnv, config, 10, 13, serve(503));
+			expect(await flagKeys()).toEqual([]);
+			await minutes(runEnv, config, 14, 14, serve(503));
+			expect(await flagKeys()).toEqual(["self:stuck:cert"]);
+		});
+
+		it("counts a check by its own interval", async () => {
+			const { env: runEnv } = live();
+			const hourly = makeConfig([web, { ...cert, every: "1h" }]);
+			await minutes(runEnv, hourly, 0, 5, serve(503));
+			expect(await flagKeys()).toEqual([]);
+			await tick(runEnv, hourly, base + 3 * 3_600_000 + MINUTE, base + 3 * 3_600_000 + MINUTE, serve(503));
+			expect(await flagKeys()).toEqual(["self:stuck:cert"]);
+		});
+
+		it("flags a check that never runs because its slot is ahead of the clock, and clears when it runs", async () => {
+			const { runEnv, box } = mailbox();
+			const one = makeConfig([web]);
+			await minutes(runEnv, one, 0, 0, respond(200));
+			await env.DB.prepare(`UPDATE state SET slot = 9e15 WHERE "check" = 'web'`).run();
+			await minutes(runEnv, one, 1, 4, respond(200));
+			expect(await flagKeys()).toEqual(["self:stuck:web"]);
+			await env.DB.prepare(`UPDATE state SET slot = -1`).run();
+			await minutes(runEnv, one, 5, 5, respond(200));
+			expect(await flagKeys()).toEqual([]);
+			expect(box.sends).toBe(0);
+		});
+
+		it("flags a private check but shows only a public one in status", async () => {
+			const { env: runEnv } = live();
+			const hidden = makeConfig([{ ...cert, public: false }]);
+			await minutes(runEnv, hidden, 0, 4, serve(503));
+			expect((await status(env.DB, hidden, base + 5 * MINUTE)).self).toEqual([]);
+			expect(await attentionOf(hidden)).toContain("SELF-CHECK: results for Certificate");
+			expect((await status(env.DB, makeConfig([cert]), base + 5 * MINUTE)).self).toEqual([
+				{ name: "results for Certificate", since: new Date(base + 4 * MINUTE).toISOString() },
+			]);
+		});
+
+		it("drops the flag of a removed check", async () => {
+			const { env: runEnv } = live();
+			await minutes(runEnv, config, 0, 4, serve(503));
+			expect(await flagKeys()).toEqual(["self:stuck:cert"]);
+			await minutes(runEnv, makeConfig([web]), 5, 5, serve(503));
+			expect(await flagKeys()).toEqual([]);
+		});
 	});
 
-	it("writes the mail with the check's name, target and last reason", () => {
-		const row = { check: "cert", key: "stuck", at: T0 + 3 * MINUTE, since: T0, reason: "Cloudflare API 503" } as const;
-		expect(compose(config, [{ ...row, kind: "self-failing" }])).toEqual([
-			"SELF-CHECK FAILING: results for Certificate",
-			`Certificate (www.example.com) has had no fresh result since ${new Date(T0).toISOString()}, three of its intervals plus a minute; detected ${new Date(T0 + 3 * MINUTE).toISOString()}.\nLast reason: Cloudflare API 503.\n`,
-		]);
+	it("flags a full relay without mail and clears it once the relay has room", async () => {
+		const { runEnv, box } = mailbox();
+		const token = "relay-secret";
+		const config = makeConfig([web], {
+			relays: [{ id: "alerts", name: "Alerts", token_sha256: await sha256(token), grace: "1h" }],
+		});
+		const fire = (key: string, state = "firing") =>
+			incident(runEnv, config, token, JSON.stringify({ title: "t", deduplication_key: key, status: state }), base);
+		for (let i = 0; i < MAX_KEYS; i++) await fire(`k${i}`);
+		const queued = await all("SELECT count(*) AS n FROM outbox");
+		await fire("overflow");
+		expect(await all("SELECT count(*) AS n FROM outbox")).toEqual(queued);
+		await steadyTick(runEnv, config, base + MINUTE, respond(200));
+		expect(await flagKeys()).toContain("full:alerts");
+		expect(await attentionOf(config)).toContain("SELF-CHECK: relay Alerts is full");
+		expect(box.subjects.filter((s) => s.startsWith("SELF-CHECK"))).toEqual([]);
+		await fire("k0", "resolved");
+		await steadyTick(runEnv, config, base + 2 * MINUTE, respond(200));
+		expect(await flagKeys()).not.toContain("full:alerts");
+	});
+});
+
+describe("write self-check", () => {
+	const triggers = {
+		"a failed claim": `CREATE TRIGGER boom BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+		"a failed main batch after a good claim": `CREATE TRIGGER boom BEFORE INSERT ON daily BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+	};
+	const failed = (subjects: string[]) => subjects.filter((s) => s === "SELF-CHECK FAILING: database writes");
+	const writes = () => all("SELECT key FROM meta WHERE key = 'writes'");
+
+	describe.each(Object.entries(triggers))("%s", (_, trigger) => {
+		const setup = async (extra: object = {}) => {
+			const mail = mailbox();
+			const config = makeConfig([web], extra);
+			await tick(mail.runEnv, config, T0, T0, respond(200));
+			await env.DB.prepare(trigger).run();
+			const fail = (k: number) =>
+				expect(tick(mail.runEnv, config, T0 + k * MINUTE, T0 + k * MINUTE, respond(200))).rejects.toThrow();
+			return { ...mail, config, fail };
+		};
+
+		it("mails at the first failure, every 3 hours after, and nothing on recovery", async () => {
+			const { runEnv, box, config, fail } = await setup();
+			await fail(1);
+			expect(box.subjects).toEqual(["SELF-CHECK FAILING: database writes"]);
+			expect(box.bodies[0]).toContain("This repeats every 3 hours until a run writes.");
+			for (let k = 2; k <= 180; k++) await fail(k);
+			expect(failed(box.subjects)).toHaveLength(1);
+			await fail(181);
+			expect(failed(box.subjects)).toHaveLength(2);
+			expect(await writes()).toHaveLength(1);
+			await env.DB.prepare(`DROP TRIGGER boom`).run();
+			await tick(runEnv, config, T0 + 182 * MINUTE, T0 + 182 * MINUTE, respond(200));
+			expect(await writes()).toEqual([]);
+			expect(failed(box.subjects)).toHaveLength(2);
+		});
+
+		it("retries the mail on the next run when the first send fails", async () => {
+			const { box, fail } = await setup();
+			box.failing = true;
+			await fail(1);
+			box.failing = false;
+			await fail(2);
+			await fail(3);
+			expect(box.subjects).toEqual(Array(2).fill("SELF-CHECK FAILING: database writes"));
+		});
+
+		it("lists the failure in the digest while it holds", async () => {
+			const { config, fail } = await setup({ digest: "23:00" });
+			await fail(1);
+			expect(await attentionOf(config)).toEqual(["SELF-CHECK: database writes"]);
+		});
+	});
+
+	it("still mails, and rethrows the original error, when meta is unwritable", async () => {
+		const mail = mailbox();
+		const config = makeConfig([web]);
+		await tick(mail.runEnv, config, T0, T0, respond(200));
+		await env.DB.prepare(`CREATE TRIGGER boom BEFORE INSERT ON meta BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
+		await expect(tick(mail.runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(200))).rejects.toThrow("boom");
+		expect(failed(mail.box.subjects)).toHaveLength(1);
+	});
+
+	it("sends nothing for a cron that merely skips runs", async () => {
+		const { runEnv, box } = mailbox();
+		const config = makeConfig();
+		let t = T0;
+		await tick(runEnv, config, t, t, respond(200));
+		for (const gap of [2 * MINUTE, 182_000, 182_000, 4 * MINUTE]) {
+			t += gap;
+			await watch(runEnv, config, t);
+			await tick(runEnv, config, t, t, respond(200));
+		}
+		expect(box.sends).toBe(0);
+		expect(await all("SELECT key FROM meta WHERE key = 'stall' OR key LIKE 'self:%'")).toEqual([]);
 	});
 });
 
@@ -464,22 +441,13 @@ describe("deploy grace", () => {
 describe("stalled prober", () => {
 	const config = makeConfig();
 	const stalls = (box: { subjects: string[] }) => box.subjects.filter((s) => s.includes("stalled"));
+	const ONSET = T0 + 5 * MINUTE;
 
 	it("says nothing before the prober has ever run", async () => {
 		const { runEnv, box } = mailbox();
 		await watch(runEnv, config, T0);
 		expect(box.sends).toBe(0);
 		expect(await all("SELECT * FROM meta WHERE key = 'stall'")).toEqual([]);
-	});
-
-	it("mails once when no run has written results for more than three intervals plus a minute", async () => {
-		const { runEnv, box } = mailbox();
-		await tick(runEnv, config, T0, T0, respond(200));
-		await watch(runEnv, config, T0 + 4 * MINUTE);
-		expect(box.sends).toBe(0);
-		await watch(runEnv, config, T0 + 4 * MINUTE + 1);
-		await watch(runEnv, config, T0 + 5 * MINUTE);
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
 	});
 
 	it("waits three of the shortest interval plus a minute", async () => {
@@ -492,124 +460,118 @@ describe("stalled prober", () => {
 		expect(stalls(box)).toHaveLength(1);
 	});
 
-	it("is cleared by the next committed run without mail", async () => {
+	it("words the mail with the last run, the detection time and the repeat", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, config, T0, T0, respond(200));
-		await watch(runEnv, config, T0 + 5 * MINUTE);
-		await tick(runEnv, config, T0 + 6 * MINUTE, T0 + 6 * MINUTE, respond(200));
-		await tick(runEnv, config, T0 + 7 * MINUTE, T0 + 7 * MINUTE, respond(200));
+		await watch(runEnv, config, ONSET);
 		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
-		expect(await all("SELECT * FROM meta WHERE key = 'stall'")).toEqual([]);
+		expect(box.bodies[0]).toBe(
+			`No probe run has written results since ${new Date(T0).toISOString()}; detected ${new Date(ONSET).toISOString()}. The prober's cron trigger or its runs are failing; its Worker log says which. This repeats every 3 hours until probing resumes.\r\n`,
+		);
+	});
+
+	describe("stall", () => {
+		const stalled = makeConfig([web]);
+		const start = async () => {
+			const mail = mailbox();
+			await tick(mail.runEnv, stalled, T0 - 60 * MINUTE, T0 - 60 * MINUTE, respond(200));
+			return mail;
+		};
+		const onset = T0 - 55 * MINUTE;
+
+		it("mails at onset, not again for 179 minutes, and again at 180", async () => {
+			const { runEnv, box } = await start();
+			await watch(runEnv, stalled, onset);
+			expect(stalls(box)).toHaveLength(1);
+			for (let k = 1; k < 180; k++) await watch(runEnv, stalled, onset + k * MINUTE);
+			expect(stalls(box)).toHaveLength(1);
+			await watch(runEnv, stalled, onset + 180 * MINUTE);
+			expect(stalls(box)).toHaveLength(2);
+		});
+
+		it("mails on whichever call first lands after 180 minutes, however many minutes were skipped", async () => {
+			const { runEnv, box } = await start();
+			await watch(runEnv, stalled, onset);
+			await watch(runEnv, stalled, onset + 180 * MINUTE + 7 * MINUTE);
+			expect(stalls(box)).toHaveLength(2);
+		});
+
+		it("clears on a fresh run without mail, and the next stall mails at once", async () => {
+			const { runEnv, box } = await start();
+			await watch(runEnv, stalled, onset);
+			await tick(runEnv, stalled, onset + MINUTE, onset + MINUTE, respond(200));
+			await tick(runEnv, stalled, onset + 2 * MINUTE, onset + 2 * MINUTE, respond(200));
+			expect(await all("SELECT * FROM meta WHERE key = 'stall'")).toEqual([]);
+			expect(stalls(box)).toHaveLength(1);
+			await watch(runEnv, stalled, onset + 10 * MINUTE);
+			expect(stalls(box)).toHaveLength(2);
+		});
+
+		it("retries a mail that failed to send on the next watch", async () => {
+			const { runEnv, box } = await start();
+			box.failing = true;
+			await watch(runEnv, stalled, onset);
+			box.failing = false;
+			await watch(runEnv, stalled, onset + MINUTE);
+			await watch(runEnv, stalled, onset + 2 * MINUTE);
+			expect(stalls(box)).toHaveLength(2);
+		});
 	});
 
 	it("stays raised when a superseded run commits fresh results", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, config, T0, T0, respond(200));
-		await watch(runEnv, config, T0 + 5 * MINUTE);
+		await watch(runEnv, config, ONSET);
 		await env.DB.prepare(`UPDATE meta SET value = ?1 WHERE key = 'tick'`)
 			.bind(String(T0 + 9 * MINUTE))
 			.run();
 		await tick(runEnv, config, T0 + 6 * MINUTE, T0 + 6 * MINUTE, respond(200));
-		expect(box.subjects.filter((s) => s.includes("probing"))).toEqual(["SELF-CHECK FAILING: probing stalled"]);
+		expect(stalls(box)).toHaveLength(1);
 		expect(await all("SELECT key FROM meta WHERE key = 'stall'")).toEqual([{ key: "stall" }]);
 	});
 
 	it("stays raised while a committed run still writes no result", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, config, T0, T0, respond(200));
-		await watch(runEnv, config, T0 + 5 * MINUTE);
+		await watch(runEnv, config, ONSET);
 		await env.DB.prepare(`UPDATE state SET slot = 9e15`).run();
 		await tick(runEnv, config, T0 + 6 * MINUTE, T0 + 6 * MINUTE, respond(200));
 		await tick(runEnv, config, T0 + 7 * MINUTE, T0 + 7 * MINUTE, respond(200));
-		expect(box.subjects.filter((s) => s.includes("probing"))).toEqual(["SELF-CHECK FAILING: probing stalled"]);
+		expect(stalls(box)).toHaveLength(1);
 		expect(await all("SELECT key FROM meta WHERE key = 'stall'")).toEqual([{ key: "stall" }]);
 	});
 
-	it("words the mail with the last run and the detection time", () => {
-		const row = {
-			check: "",
-			key: "stall",
-			kind: "self-failing",
-			at: T0 + 5 * MINUTE,
-			since: T0,
-			reason: null,
-		} as const;
-		expect(compose(config, [row])).toEqual([
-			"SELF-CHECK FAILING: probing stalled",
-			`No probe run has written results since ${new Date(T0).toISOString()}; detected ${new Date(T0 + 5 * MINUTE).toISOString()}. The prober's cron trigger or its runs are failing; its Worker log says which.\n`,
-		]);
+	it("never sends OK, DEPLOYED or resumed", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, T0, T0, respond(200));
+		await watch(runEnv, config, ONSET);
+		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 6 * MINUTE, T0 + 6 * MINUTE, respond(200));
+		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 7 * MINUTE, T0 + 7 * MINUTE, respond(200));
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
 	});
 });
 
-describe("self-checks with a digest", () => {
+describe("stalled prober with a digest", () => {
 	const quiet = makeConfig([web], { digest: "12:00" });
-	const certs = makeConfig([cert], { digest: "12:00" });
-	const live = () => {
+
+	it("mails the stall once when the digest queue fails after the stall mail", async () => {
 		const { runEnv, box } = mailbox();
-		return { box, env: { ...runEnv, CF_API_TOKEN: "tok" } };
-	};
+		await tick(runEnv, quiet, T0 - 30 * MINUTE, T0 - 30 * MINUTE, respond(200));
+		await env.DB.prepare(`CREATE TRIGGER boom BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
+		await watch(runEnv, quiet, T0 + 20 * MINUTE);
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
+	});
 
 	it("mails one digest listing a stalled prober when only watch() runs through the digest time", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, quiet, T0 - 30 * MINUTE, T0 - 30 * MINUTE, respond(200));
 		for (let m = -20; m <= 25 * 60; m += 5) await watch(runEnv, quiet, T0 + m * MINUTE);
 		const digests = box.subjects.filter((s) => s.startsWith("DIGEST"));
-		expect(box.subjects).toEqual(digests);
+		expect(box.subjects.filter((s) => !s.startsWith("DIGEST"))).toEqual(
+			Array(box.subjects.length - digests.length).fill("SELF-CHECK FAILING: probing stalled"),
+		);
 		expect(digests).toHaveLength(2);
-		expect(box.bodies.filter((b) => b.includes("probing stalled"))).toHaveLength(2);
-		expect(box.bodies[0]).toContain("SELF-CHECK: probing stalled");
+		expect(box.bodies.filter((b) => b.includes("SELF-CHECK: probing stalled"))).toHaveLength(2);
 		expect((await attention(env.DB, quiet)).lines).toEqual(["SELF-CHECK: probing stalled"]);
-	});
-
-	it("lists a bad token and a stuck check from their flags and mails nothing", async () => {
-		const { box, env: runEnv } = live();
-		for (let k = 0; k <= 4; k++) {
-			const t = T0 - 30 * MINUTE + k * MINUTE;
-			await tick(runEnv, certs, t, t, cloudflare(401));
-		}
-		expect(box.sends).toBe(0);
-		expect(await unsent()).toEqual([]);
-		expect((await attention(env.DB, certs)).lines).toEqual([
-			"SELF-CHECK: results for Certificate",
-			"SELF-CHECK: Cloudflare API token",
-		]);
-	});
-
-	it("lists a full relay and mails nothing", async () => {
-		const { runEnv, box } = mailbox();
-		const hash = await sha256("relay-secret");
-		const config = makeConfig([web], {
-			digest: "12:00",
-			relays: [{ id: "alerts", name: "Alerts", token_sha256: hash }],
-		});
-		for (let i = 0; i <= MAX_KEYS; i++) {
-			const body = JSON.stringify({ title: "t", deduplication_key: `k${i}`, status: "firing" });
-			await incident(runEnv, config, "relay-secret", body, T0 - 30 * MINUTE);
-		}
-		await steadyTick(runEnv, config, T0 - 20 * MINUTE, respond(200));
-		expect(box.subjects.filter((s) => s.startsWith("SELF-CHECK"))).toEqual([]);
-		expect((await attention(env.DB, config)).lines).toContain("SELF-CHECK: relay Alerts is full");
-	});
-
-	it("mails one direct note at the digest time when writes fail, not before or after", async () => {
-		const { runEnv, box } = mailbox();
-		await tick(runEnv, quiet, T0 - 5 * MINUTE, T0 - 5 * MINUTE, respond(200));
-		await env.DB.prepare(`CREATE TRIGGER boom BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
-		for (const k of [-4, -3, -2, -1, 0, 1, 2, 3, 4]) {
-			await expect(tick(runEnv, quiet, T0 + k * MINUTE, T0 + k * MINUTE, respond(200))).rejects.toThrow();
-		}
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: database writes"]);
-	});
-});
-
-describe("self-checks without a digest", () => {
-	it("keeps FAILING mail as push and never sends OK, DEPLOYED or resumed", async () => {
-		const { runEnv, box } = mailbox();
-		const config = makeConfig();
-		await tick(runEnv, config, T0, T0, respond(200));
-		await watch(runEnv, config, T0 + 5 * MINUTE);
-		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 6 * MINUTE, T0 + 6 * MINUTE, respond(200));
-		await tick({ ...runEnv, VERSION: { id: "v2" } }, config, T0 + 7 * MINUTE, T0 + 7 * MINUTE, respond(200));
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
 	});
 });

@@ -197,7 +197,8 @@ describe("run deadline", () => {
 		for (let k = 0; k <= 3; k++) await hung(T0 + k * MINUTE);
 		expect(box.subjects).toEqual([]);
 		await hung(T0 + 4 * MINUTE);
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Slow"]);
+		expect(box.subjects).toEqual([]);
+		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toHaveLength(1);
 		expect(await all("SELECT avail, last_conclusive FROM state WHERE \"check\" = 'web'")).toEqual([
 			{ avail: 1, last_conclusive: T0 + 4 * MINUTE },
 		]);
@@ -412,27 +413,104 @@ describe("outbox", () => {
 		expect(await all("SELECT value FROM meta WHERE key = 'drain'")).toEqual([{ value: "999" }]);
 	});
 
-	it("retries a failed send and marks the row dead after 10 attempts", async () => {
-		const { runEnv, box } = mailbox();
-		box.failing = true;
-		const config = makeConfig();
-		await tick(runEnv, config, T0, T0, respond(200));
-		await env.DB.prepare(
-			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', ${T0}, 'down', 0, 'x')`,
-		).run();
-		for (let i = 1; i <= 9; i++) await tick(runEnv, config, T0 + i * MINUTE, T0 + i * MINUTE, respond(200));
-		expect(await all("SELECT attempts, dead FROM outbox")).toEqual([{ attempts: 9, dead: 0 }]);
-		const alive = await status(env.DB, config, T0 + 9 * MINUTE);
-		expect(alive).toMatchObject({ outbox_oldest_unsent_at: new Date(T0).toISOString(), dead_outbox: 0 });
-		await tick(runEnv, config, T0 + 10 * MINUTE, T0 + 10 * MINUTE, respond(200));
-		expect(await all("SELECT attempts, dead FROM outbox")).toEqual([{ attempts: 10, dead: 1 }]);
-		const dead = await status(env.DB, config, T0 + 10 * MINUTE);
-		expect(dead).toMatchObject({ outbox_oldest_unsent_at: null, dead_outbox: 1 });
-		await tick(runEnv, config, T0 + 11 * MINUTE, T0 + 11 * MINUTE, respond(200));
-		expect(box.sends).toBe(10);
-		expect(await status(env.DB, config, T0 + 11 * MINUTE)).toMatchObject({ dead_outbox: 1 });
-		await tick(runEnv, config, T0 + 24 * 60 * MINUTE + MINUTE, T0 + 24 * 60 * MINUTE + MINUTE, respond(200));
-		expect(await status(env.DB, config, T0 + 24 * 60 * MINUTE + MINUTE)).toMatchObject({ dead_outbox: 0 });
+	describe("delivery that keeps failing", () => {
+		const DAY = 24 * 60 * MINUTE;
+		const downWeb = makeConfig([{ ...web, down_after: 1 }]);
+		const queueUp = () =>
+			env.DB.prepare(`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', ?1, 'up', NULL, NULL)`)
+				.bind(T0)
+				.run();
+		const row = async () =>
+			(await all<{ attempts: number; dead: number; next_at: number }>("SELECT attempts, dead, next_at FROM outbox"))[0];
+
+		it("delivers a DOWN once the mailer recovers, after 15 failed minutes", async () => {
+			const { runEnv, box } = mailbox();
+			box.failing = true;
+			const at = (i: number) => T0 + i * MINUTE;
+			for (let i = 0; i < 15; i++) await tick(runEnv, downWeb, at(i), at(i), respond(500));
+			box.failing = false;
+			const failed = box.sends;
+			for (let i = 15; i <= 31; i++) await tick(runEnv, downWeb, at(i), at(i), respond(500));
+			expect(box.subjects.slice(failed)).toEqual(["DOWN: Web"]);
+			expect(await all("SELECT * FROM outbox")).toEqual([]);
+			expect(await status(env.DB, downWeb, at(31))).toMatchObject({ dead_outbox: 0 });
+		});
+
+		it("never kills the DOWN of a check that is still down", async () => {
+			const { runEnv, box } = mailbox();
+			box.failing = true;
+			for (let i = 0; i <= 60; i++)
+				await tick(runEnv, downWeb, T0 + i * 30 * MINUTE, T0 + i * 30 * MINUTE, respond(500));
+			const kept = await row();
+			expect(kept.dead).toBe(0);
+			expect(kept.attempts).toBeGreaterThan(1);
+			box.failing = false;
+			const end = T0 + 61 * 30 * MINUTE;
+			await tick(runEnv, downWeb, end, end, respond(500));
+			expect(box.subjects.at(-1)).toBe("DOWN: Web");
+			expect(await all("SELECT * FROM outbox")).toEqual([]);
+		});
+
+		it("kills an UP after 24 hours, counts it dead, and prunes it 24 hours later", async () => {
+			const { runEnv, box } = mailbox();
+			box.failing = true;
+			const config = makeConfig();
+			await tick(runEnv, config, T0, T0, respond(200));
+			await queueUp();
+			for (let i = 1; i <= 50; i++)
+				await tick(runEnv, config, T0 + i * 30 * MINUTE, T0 + i * 30 * MINUTE, respond(200));
+			const dead = await row();
+			expect(dead.dead).toBe(1);
+			expect(dead.next_at - (T0 + DAY)).toBeLessThan(MINUTE);
+			expect(dead.next_at).toBeGreaterThanOrEqual(T0 + DAY);
+			expect(await status(env.DB, config, T0 + 25 * 60 * MINUTE)).toMatchObject({ dead_outbox: 1 });
+			const later = T0 + 2 * DAY + 2 * MINUTE;
+			await tick(runEnv, config, later, later, respond(200));
+			expect(await all("SELECT * FROM outbox")).toEqual([]);
+		});
+
+		it("kills an UP on a refused recipient at the third attempt, never a DOWN of a down check", async () => {
+			const { runEnv, box } = mailbox();
+			box.failing = true;
+			box.code = "E_RECIPIENT_NOT_ALLOWED";
+			await tick(runEnv, makeConfig(), T0, T0, respond(200));
+			await queueUp();
+			for (let i = 1; i <= 6; i++) await drain(runEnv, makeConfig(), { now: () => T0 + i * MINUTE });
+			expect(await row()).toMatchObject({ attempts: 3, dead: 1 });
+			await reset();
+			await tick(runEnv, downWeb, T0, T0, respond(500));
+			for (let i = 1; i <= 6; i++) await drain(runEnv, downWeb, { now: () => T0 + i * 4 * MINUTE });
+			expect(await row()).toMatchObject({ dead: 0 });
+		});
+
+		it("keeps retrying a rate limit", async () => {
+			const { runEnv, box } = mailbox();
+			box.failing = true;
+			box.code = "E_RATE_LIMIT_EXCEEDED";
+			await tick(runEnv, makeConfig(), T0, T0, respond(200));
+			await queueUp();
+			for (let i = 1; i <= 12; i++) await drain(runEnv, makeConfig(), { now: () => T0 + i * 16 * MINUTE });
+			expect(await row()).toMatchObject({ attempts: 12, dead: 0 });
+		});
+
+		it("backs off 1, 2, 4, 8, 15 and 15 minutes", async () => {
+			const { runEnv, box } = mailbox();
+			box.failing = true;
+			await tick(runEnv, makeConfig(), T0, T0, respond(200));
+			await queueUp();
+			let t = T0;
+			const gaps: number[] = [];
+			for (let i = 0; i < 6; i++) {
+				await drain(runEnv, makeConfig(), { now: () => t });
+				const { next_at } = await row();
+				gaps.push((next_at - t) / MINUTE);
+				const sent = box.sends;
+				await drain(runEnv, makeConfig(), { now: () => next_at - 30_000 });
+				expect(box.sends).toBe(sent);
+				t = next_at;
+			}
+			expect(gaps).toEqual([1, 2, 4, 8, 15, 15]);
+		});
 	});
 });
 
@@ -504,27 +582,18 @@ describe("routing", () => {
 		]);
 		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
 		box.failFor.clear();
-		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(500));
+		await tick(runEnv, config, T0 + 3 * MINUTE, T0 + 3 * MINUTE, respond(500));
 		expect(box.to).toEqual([...team, "b@example.com", "b@example.com"]);
 		expect(await rows()).toEqual([]);
 	});
 
-	it("keeps self-check, stuck and stall mail on alert.to", async () => {
+	it("keeps stall mail on alert.to", async () => {
 		const { runEnv, box } = mailbox();
-		await env.DB.prepare(`DELETE FROM meta WHERE key = 'version'`).run();
-		const cert = { id: "cert", type: "tls", name: "Certificate", host: "www.example.com", zone: "example.com" };
-		const config = makeConfig([
-			{ ...routed, down_after: 3 },
-			{ ...cert, every: "1m", to: team },
-		]);
+		const config = makeConfig([{ ...routed, down_after: 3 }]);
 		for (let k = 0; k <= 4; k++) await tick(runEnv, config, T0 + k * MINUTE, T0 + k * MINUTE, respond(200));
 		await watch(runEnv, config, T0 + 10 * MINUTE);
-		expect(box.subjects).toEqual([
-			"SELF-CHECK FAILING: Cloudflare API token",
-			"SELF-CHECK FAILING: results for Certificate",
-			"SELF-CHECK FAILING: probing stalled",
-		]);
-		expect(box.to).toEqual(Array(3).fill("oncall@example.com"));
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
+		expect(box.to).toEqual(["oncall@example.com"]);
 	});
 
 	it("moves pending mail from a corrected address to the new one", async () => {
@@ -565,16 +634,13 @@ describe("routing", () => {
 
 	it("keeps dead mail to a removed address as dead", async () => {
 		const { runEnv, box } = mailbox();
-		box.failFor.add("opz@example.com");
-		const typo = makeConfig([{ ...routed, to: ["opz@example.com"] }]);
-		for (let k = 0; k < 10; k++) await tick(runEnv, typo, T0 + k * MINUTE, T0 + k * MINUTE, respond(500));
-		await tick(
-			runEnv,
-			makeConfig([{ ...routed, to: ["ops@example.com"] }]),
-			T0 + 10 * MINUTE,
-			T0 + 10 * MINUTE,
-			respond(500),
-		);
+		await tick(runEnv, makeConfig([routed]), T0, T0, respond(200));
+		await env.DB.prepare(
+			`INSERT INTO outbox ("check", at, kind, since, reason, "to", dead, next_at) VALUES ('web', ?1, 'up', 0, 'x', 'opz@example.com', 1, ?1)`,
+		)
+			.bind(T0)
+			.run();
+		await tick(runEnv, makeConfig([{ ...routed, to: ["ops@example.com"] }]), T0 + MINUTE, T0 + MINUTE, respond(200));
 		expect(box.to).not.toContain("ops@example.com");
 		expect(await all(`SELECT "to", dead FROM outbox`)).toEqual([{ to: "opz@example.com", dead: 1 }]);
 	});
@@ -609,31 +675,57 @@ describe("pruning", () => {
 		expect(await all(`SELECT relay FROM relay_keys`)).toEqual([{ relay: "alerts" }]);
 	});
 
-	it("drops queued deployed, resumed and self-ok rows", async () => {
-		const { runEnv, box } = mailbox();
-		await env.DB.prepare(
-			`INSERT INTO outbox ("check", "key", at, kind) VALUES ('', 'deployed', 1, 'deployed'), ('', 'resumed', 1, 'resumed'), ('', 'stall', 1, 'self-ok')`,
-		).run();
-		await tick(runEnv, makeConfig(), T0, T0, respond(200));
-		expect(await all(`SELECT * FROM outbox`)).toEqual([]);
-		expect(box.sends).toBe(0);
-	});
-
-	it("drops every row of a check removed from the config", async () => {
-		const { runEnv } = mailbox();
+	describe("a check absent from the config", () => {
+		const DAY = 24 * 60 * MINUTE;
 		const gone = { ...web, id: "gone", name: "Gone", down_after: 1 };
-		await tick(runEnv, makeConfig([web, gone]), T0, T0, respond(500));
-		for (const table of ["state", "samples", "daily"]) {
-			expect(await all(`SELECT * FROM ${table} WHERE "check" = 'gone'`)).toHaveLength(1);
-		}
-		await env.DB.prepare(
-			`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('gone', 1, 'down', 0, 'x')`,
-		).run();
-		await tick(runEnv, makeConfig([web]), T0 + MINUTE, T0 + MINUTE, respond(200));
-		for (const table of ["state", "samples", "daily", "events", "outbox"]) {
-			expect(await all(`SELECT * FROM ${table} WHERE "check" = 'gone'`)).toEqual([]);
-		}
-		expect(await all(`SELECT "check" FROM state`)).toEqual([{ check: "web" }]);
+		const both = makeConfig([web, gone]);
+		const only = makeConfig([web]);
+		const tables = ["state", "daily", "events"];
+		const rows = async () => {
+			const out: Record<string, number> = {};
+			for (const table of tables) out[table] = (await all(`SELECT * FROM ${table} WHERE "check" = 'gone'`)).length;
+			return out;
+		};
+		const marker = () => all(`SELECT key FROM meta WHERE key = 'gone:gone'`);
+
+		it("keeps its history for 7 days, then drops it with the marker", async () => {
+			const { runEnv } = mailbox();
+			await tick(runEnv, both, T0, T0, respond(500));
+			const full = await rows();
+			expect(full).toEqual({ state: 1, daily: 1, events: 1 });
+			await tick(runEnv, only, T0 + MINUTE, T0 + MINUTE, respond(200));
+			expect(await marker()).toHaveLength(1);
+			await tick(runEnv, only, T0 + 7 * DAY - MINUTE, T0 + 7 * DAY - MINUTE, respond(200));
+			expect(await rows()).toEqual(full);
+			await tick(runEnv, only, T0 + 7 * DAY + 2 * MINUTE, T0 + 7 * DAY + 2 * MINUTE, respond(200));
+			expect(await rows()).toEqual({ state: 0, daily: 0, events: 0 });
+			expect(await marker()).toEqual([]);
+		});
+
+		it("clears the marker when the id comes back, and restarts the 7 days when it leaves again", async () => {
+			const { runEnv } = mailbox();
+			await tick(runEnv, both, T0, T0, respond(500));
+			await tick(runEnv, only, T0 + MINUTE, T0 + MINUTE, respond(200));
+			await tick(runEnv, both, T0 + 3 * DAY, T0 + 3 * DAY, respond(500));
+			expect(await marker()).toEqual([]);
+			await tick(runEnv, only, T0 + 3 * DAY + MINUTE, T0 + 3 * DAY + MINUTE, respond(200));
+			const at = T0 + 7 * DAY + 2 * MINUTE;
+			await tick(runEnv, only, at, at, respond(200));
+			expect((await rows()).state).toBe(1);
+			const later = T0 + 10 * DAY + 2 * MINUTE;
+			await tick(runEnv, only, later, later, respond(200));
+			expect((await rows()).state).toBe(0);
+		});
+
+		it("drops its queued mail and stuck flag at once", async () => {
+			const { runEnv } = mailbox();
+			await tick(runEnv, both, T0, T0, respond(500));
+			await env.DB.prepare(
+				`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('gone', 1, 'down', 0, 'x')`,
+			).run();
+			await tick(runEnv, only, T0 + MINUTE, T0 + MINUTE, respond(200));
+			expect(await all(`SELECT * FROM outbox WHERE "check" = 'gone'`)).toEqual([]);
+		});
 	});
 
 	it("keeps samples for 24 hours and daily rows and events for 90 days", async () => {

@@ -105,6 +105,14 @@ describe("beat()", () => {
 		expect(await beats()).toEqual([]);
 	});
 
+	it("accepts either of two listed tokens and refuses a third", async () => {
+		const rotating = makeConfig([{ ...backup, token_sha256: [await sha256(TOKEN), await sha256("next-token")] }]);
+		expect((await beat(TOKEN, true, T0, "backup", rotating)).status).toBe(204);
+		expect((await beat("next-token", true, T0 + 1, "backup", rotating)).status).toBe(204);
+		expect((await beat("third-token", true, T0 + 2, "backup", rotating)).status).toBe(404);
+		expect(await beats()).toEqual([{ at: T0 + 1, ok: 1 }]);
+	});
+
 	it("does not accept an empty token even if the configured hash is of the empty string", async () => {
 		const empty = makeConfig([{ ...backup, token_sha256: await sha256("") }]);
 		expect((await beat("", true, T0, "backup", empty)).status).toBe(404);

@@ -1,12 +1,11 @@
 import { EmailMessage } from "cloudflare:email";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { hint } from "./http.ts";
-import { SELF_NAMES } from "./status.ts";
 
 export interface Pending {
 	at: number;
 	key: string;
-	kind: "down" | "up" | "firing" | "resolved" | "stale" | "digest" | "self-failing";
+	kind: "down" | "up" | "firing" | "resolved" | "stale" | "digest";
 	since: number | null;
 	reason: string | null;
 }
@@ -64,17 +63,6 @@ function transitions(items: [Check, Pending][]): [subject: string, text: string]
 	return [clip(`${up ? "UP" : "DOWN"}: ${items.length} checks: ${names.join(", ")}`), `${lines.join("\n")}\n`];
 }
 
-function stuckMessage(check: Check, p: Pending): [subject: string, text: string] {
-	const name = clip(check.name);
-	const at = new Date(p.at).toISOString();
-	const since = new Date(p.since ?? p.at).toISOString();
-	const last = p.reason ? `Last reason: ${clip(p.reason)}.\n` : "";
-	return [
-		`SELF-CHECK FAILING: results for ${name}`,
-		`${name}${target(check)} has had no fresh result since ${since}, three of its intervals plus a minute; detected ${at}.\n${last}`,
-	];
-}
-
 type Relay = Instance["relays"][number];
 
 const LABEL = { firing: "FIRING", resolved: "RESOLVED", stale: "STOPPED REPORTING" } as const;
@@ -128,31 +116,6 @@ function digest(config: Instance, p: Pending, a: Attention): [string, string] {
 	];
 }
 
-export function towerMessage(config: Instance, p: Pending, report = NONE): [subject: string, text: string] {
-	const at = new Date(p.at).toISOString();
-	if (p.kind === "digest") return digest(config, p, report);
-	if (p.key === "stall") {
-		const since = new Date(p.since ?? p.at).toISOString();
-		return [
-			"SELF-CHECK FAILING: probing stalled",
-			`No probe run has written results since ${since}; detected ${at}. The prober's cron trigger or its runs are failing; its Worker log says which.\n`,
-		];
-	}
-	const relay = config.relays.find((r) => `full:${r.id}` === p.key);
-	if (relay) {
-		const name = clip(relay.name);
-		return [
-			`SELF-CHECK FAILING: relay ${name} is full`,
-			`Relay ${name} is at its limit of open keys and refused a new one, ${at}.\nIt closes keys that resolve or stop reporting.\n`,
-		];
-	}
-	const what = SELF_NAMES[p.key] ?? clip(p.key);
-	return [
-		`SELF-CHECK FAILING: ${what}`,
-		`${what} is failing, ${at}.\nThe token needs Zone Read and SSL and Certificates Read, and CF_API_TOKEN must be set.\n`,
-	];
-}
-
 export function compose(
 	config: Instance,
 	rows: (Pending & { check: string })[],
@@ -161,7 +124,6 @@ export function compose(
 	const latest = rows[rows.length - 1];
 	const check = config.checks.find((c) => c.id === latest.check);
 	if (check) {
-		if (latest.key === "stuck") return stuckMessage(check, latest);
 		const newest = new Map(rows.map((r) => [r.check, r]));
 		return transitions(
 			[...newest.values()].flatMap((r) => {
@@ -172,7 +134,7 @@ export function compose(
 	}
 	const relay = config.relays.find((r) => r.id === latest.check);
 	if (relay) return rows.length > 1 ? relaySummary(relay, rows) : relayMessage(relay, latest);
-	return latest.check === "" ? towerMessage(config, latest, report) : null;
+	return latest.check === "" && latest.kind === "digest" ? digest(config, latest, report) : null;
 }
 
 export function mime(from: string, to: string, subject: string, text: string): string {
@@ -193,12 +155,21 @@ export function mime(from: string, to: string, subject: string, text: string): s
 	].join("\r\n");
 }
 
+type Sent = "sent" | "retry" | "permanent";
+
+const TRANSIENT = new Set([
+	"E_RATE_LIMIT_EXCEEDED",
+	"E_DAILY_LIMIT_EXCEEDED",
+	"E_INTERNAL_SERVER_ERROR",
+	"E_DELIVERY_FAILED",
+]);
+
 export async function sendMail(
 	email: Pick<SendEmail, "send">,
 	alert: { from: string; to: string },
 	subject: string,
 	text: string,
-): Promise<boolean> {
+): Promise<Sent> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const limit = new Promise<never>((_, reject) => {
 		timer = setTimeout(() => reject(new Error("send timed out")), SEND_TIMEOUT_MS);
@@ -208,10 +179,11 @@ export async function sendMail(
 			email.send(new EmailMessage(alert.from, alert.to, mime(alert.from, alert.to, subject, text))),
 			limit,
 		]);
-		return true;
+		return "sent";
 	} catch (e) {
-		console.error("tower: mail failed, will retry:", (e as Error).message);
-		return false;
+		const { code, message } = e as { code?: string; message: string };
+		console.error("tower: mail failed:", code, message);
+		return code === undefined || TRANSIENT.has(code) ? "retry" : "permanent";
 	} finally {
 		clearTimeout(timer);
 	}

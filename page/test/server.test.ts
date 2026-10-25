@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
-import { beat, cached, cacheKey, kept, refuse, relay, watch } from "../src/server.ts";
+import { beat, cached, cacheKey, healthResponse, kept, refuse, relay } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
 	new Request(`https://status.example.com${path}`, { method, headers });
@@ -211,49 +211,36 @@ describe("methods", () => {
 	});
 });
 
-describe('watch', () => {
-  const alert = { from: 'tower@example.com', to: 'oncall@example.com' };
-  const HOUR = 3_600_000;
-  const setup = (answers: boolean) => {
-    const calls = { watched: [] as number[], subjects: [] as string[] };
-    const env = {
-      TOWER: {
-        watch: async (now: number) => {
-          calls.watched.push(now);
-          if (!answers) throw new Error('prober unavailable');
-        },
-      },
-      EMAIL: {
-        send: async (message: unknown) => {
-          calls.subjects.push(/^Subject: (.*)$/m.exec(String((message as Record<string, unknown>)['EmailMessage::raw']))?.[1] ?? '');
-          return { messageId: 'test' };
-        },
-      },
-    };
-    return { calls, env };
-  };
+describe('healthResponse', () => {
+  const answering = (state: 'ok' | 'stale' | 'dead') => ({ health: async () => state });
 
-  it('asks the prober with the scheduled time and sends no mail when it answers', async () => {
-    const { calls, env } = setup(true);
-    await watch(env, alert, HOUR);
-    expect(calls.watched).toEqual([HOUR]);
-    expect(calls.subjects).toEqual([]);
+  it('answers 200 ok only for a healthy prober', async () => {
+    const res = await healthResponse(answering('ok'));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
   });
 
-  it('mails in the first minute of an hour when the prober does not answer, and not after', async () => {
-    const { calls, env } = setup(false);
-    await watch(env, alert, 5 * HOUR);
-    await watch(env, alert, 5 * HOUR + 60_000);
-    await watch(env, alert, 5 * HOUR + 1800_000);
-    expect(calls.subjects).toEqual(['SELF-CHECK FAILING: probing stalled']);
+  it('answers 503 with a body that never contains ok for every other state', async () => {
+    const down = { health: async () => Promise.reject(new Error('prober unavailable')) };
+    for (const [tower, body] of [[answering('stale'), 'stale'], [answering('dead'), 'dead'], [down, 'unavailable']] as const) {
+      const res = await healthResponse(tower);
+      expect(res.status).toBe(503);
+      expect(await res.text()).toBe(body);
+      expect(body).not.toMatch(/ok/i);
+    }
   });
 
-  it('with a digest time mails once a day at that time and not hourly', async () => {
-    const { calls, env } = setup(false);
-    const noon = 5 * 24 * HOUR + 12 * HOUR;
-    for (let k = 0; k < 24 * 60; k += 1) await watch(env, alert, 5 * 24 * HOUR + k * 60_000, '12:00');
-    expect(calls.subjects).toEqual(['SELF-CHECK FAILING: probing stalled']);
-    await watch(env, alert, noon + 24 * HOUR, '12:00');
-    expect(calls.subjects).toHaveLength(2);
+  it('is never cached, never a redirect, and plain text', async () => {
+    for (const tower of [answering('ok'), answering('dead')]) {
+      const res = await healthResponse(tower);
+      expect(res.headers.get('Cache-Control')).toBe('no-store');
+      expect(res.headers.get('Content-Type')).toBe('text/plain');
+      expect(res.redirected).toBe(false);
+      expect(res.headers.get('Location')).toBeNull();
+    }
+  });
+
+  it('is not one of the cached routes', () => {
+    expect(cacheKey('/healthz', 'https://status.example.com')).toBeNull();
   });
 });

@@ -1,15 +1,13 @@
-import { sendMail } from '../../prober/src/mail.ts';
 import type { StatusResponse } from './lib.ts';
 
 const CACHE_SECONDS = 30;
 const CACHED_ROUTES = ['/', '/api/status'];
 const MAX_BODY = 64 * 1024;
-const HOUR_MS = 3_600_000;
-const MINUTE_MS = 60_000;
 const BEAT_PATH = /^\/beat\/([^/]+)(\/fail)?$/;
 
 type Tower = {
   status(): Promise<StatusResponse>;
+  health(): Promise<'ok' | 'stale' | 'dead'>;
   beat(id: string, token: string, ok: boolean): Promise<Response>;
   watch(now: number): Promise<void>;
   incident(token: string, body: string): Promise<Response>;
@@ -28,6 +26,20 @@ export async function load(tower: Pick<Tower, 'status'>): Promise<StatusResponse
 export async function statusResponse(tower: Pick<Tower, 'status'>): Promise<Response> {
   const data = await load(tower);
   return data ? Response.json(data) : Response.json({ error: 'status unavailable' }, { status: 503 });
+}
+
+export async function healthResponse(tower: Pick<Tower, 'health'>): Promise<Response> {
+  let state: string;
+  try {
+    state = await tower.health();
+  } catch (e) {
+    console.error('tower-page: health unavailable:', e);
+    state = 'unavailable';
+  }
+  return new Response(state, {
+    status: state === 'ok' ? 200 : 503,
+    headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' },
+  });
 }
 
 export function refuse(request: Request): Response | null {
@@ -103,30 +115,5 @@ export async function relay(request: Request, env: { TOWER: Pick<Tower, 'inciden
   } catch (e) {
     console.error('tower-page: relay unavailable:', e);
     return new Response(null, { status: 503 });
-  }
-}
-
-export async function watch(
-  env: { TOWER: Pick<Tower, 'watch'>; EMAIL: Pick<SendEmail, 'send'> },
-  alert: { from: string; to: string },
-  t: number,
-  digest?: string,
-): Promise<void> {
-  try {
-    await env.TOWER.watch(t);
-  } catch (e) {
-    console.error('tower-page: prober did not answer:', e);
-    const at = digest ? Date.parse(`${new Date(t).toISOString().slice(0, 10)}T${digest}:00Z`) : null;
-    const due = at === null ? t % HOUR_MS < MINUTE_MS : t >= at && t - at < MINUTE_MS;
-    if (due) {
-      await sendMail(
-        env.EMAIL,
-        alert,
-        'SELF-CHECK FAILING: probing stalled',
-        at === null
-          ? `The prober did not answer, ${new Date(t).toISOString()}. This repeats hourly until it answers.\n`
-          : `The prober did not answer at the digest time, ${new Date(t).toISOString()}, so there is no digest today.\n`,
-      );
-    }
   }
 }

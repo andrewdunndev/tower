@@ -1,0 +1,10 @@
+{
+	"compilerOptions": {
+		"moduleResolution": "bundler",
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": true
+	},
+	"include": ["worker-configuration.d.ts", "src"]
+}

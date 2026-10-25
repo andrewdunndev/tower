@@ -20,6 +20,7 @@ export function makeConfig(
 			domain: "status.example.com",
 			alert: { from: "tower@example.com", to: "oncall@example.com" },
 			checks,
+			digest: "23:59",
 			...extra,
 		}),
 		maintenance,
@@ -34,6 +35,7 @@ export function mailbox() {
 	const box = {
 		sends: 0,
 		failing: false,
+		code: undefined as string | undefined,
 		failFor: new Set<string>(),
 		subjects: [] as string[],
 		bodies: [] as string[],
@@ -50,7 +52,7 @@ export function mailbox() {
 				box.subjects.push(/^Subject: (.*)$/m.exec(raw)?.[1] ?? "");
 				box.bodies.push(raw.split("\r\n\r\n")[1] ?? "");
 				box.to.push(/^To: (.*)$/m.exec(raw)?.[1] === to ? to : `mismatch: ${to}`);
-				if (box.failing || box.failFor.has(to)) throw new Error("send failed");
+				if (box.failing || box.failFor.has(to)) throw Object.assign(new Error("send failed"), { code: box.code });
 				return { messageId: "test" };
 			},
 		},

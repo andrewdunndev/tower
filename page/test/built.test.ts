@@ -18,6 +18,10 @@ describe("the built page", () => {
 		const res = await get("/", "unavailable");
 		expect(res.status).toBe(503);
 		expect(await res.text()).toContain("status unavailable");
+		const health = await get("/healthz", "unavailable");
+		expect(health.status).toBe(503);
+		expect(await health.text()).toBe("unavailable");
+		expect(health.headers.get("cache-control")).toBe("no-store");
 		const api = await get("/api/status", "unavailable");
 		expect(api.status).toBe(503);
 		expect(await api.json()).toEqual({ error: "status unavailable" });
@@ -102,6 +106,16 @@ describe("the built page", () => {
 				expect(JSON.stringify(data)).not.toContain(leak);
 				expect(html).not.toContain(leak);
 			}
+		});
+
+		it("serves /healthz as 200 ok with no-store and no redirect", async () => {
+			await answer("{}");
+			const res = await pages.PAGE.fetch("https://health.example.com/healthz", { redirect: "manual" });
+			expect(res.status).toBe(200);
+			expect(await res.text()).toBe("ok");
+			expect(res.headers.get("cache-control")).toBe("no-store");
+			expect(res.headers.get("location")).toBeNull();
+			expect((await pages.PAGE.fetch("https://health.example.com/healthz", { method: "POST" })).status).toBe(405);
 		});
 
 		it("serves /api/status with names only", async () => {

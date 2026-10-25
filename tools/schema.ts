@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CONCURRENCY, DB_MARGIN_MS, fits, SKEW_MS } from "./budget.ts";
 
 z.config({
 	customError: (iss) => {
@@ -141,12 +142,24 @@ const tokenHash = z
 	.string()
 	.regex(/^[0-9a-f]{64}$/, "token_sha256: use the lowercase hex sha256 of the token (64 characters).");
 
+const tokenHashes = z.preprocess(
+	(v) => (typeof v === "string" ? [v] : v),
+	z
+		.array(tokenHash)
+		.min(1, "list at least one hash.")
+		.max(2, "list at most 2 hashes: the current token and its replacement.")
+		.refine(
+			(hs) => new Set(hs).size === hs.length,
+			"token_sha256 lists the same hash twice: list the current token and its replacement.",
+		),
+);
+
 const heartbeat = z.strictObject({
 	...common,
 	type: z.literal("heartbeat"),
 	every: duration,
 	grace: duration,
-	token_sha256: tokenHash,
+	token_sha256: tokenHashes,
 });
 
 const WEEK_MS = 7 * 86400_000;
@@ -154,7 +167,7 @@ const WEEK_MS = 7 * 86400_000;
 const relay = z.strictObject({
 	id,
 	name: z.string().min(1, "required."),
-	token_sha256: tokenHash,
+	token_sha256: tokenHashes,
 	grace: duration.refine((ms) => ms <= WEEK_MS, "use at most 7 days.").default(900_000),
 	to,
 	digest_only: z.boolean().default(false),
@@ -189,10 +202,11 @@ export const instanceSchema = z
 		timeout_ms: z.number().int().min(1000).max(30000).default(10000),
 		checks: z.array(check).min(1, "list at least one check."),
 		relays: z.array(relay).default([]),
+		outside: z.boolean().default(false),
 		digest: z
 			.string()
 			.regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use a UTC time of day such as "07:30".')
-			.optional(),
+			.default("12:00"),
 	})
 	.superRefine((inst, ctx) => {
 		const seen = new Set<string>();
@@ -206,6 +220,17 @@ export const instanceSchema = z
 			}
 			seen.add(c.id);
 		}
+		const probes = inst.checks.filter((c) => c.type !== "heartbeat").length;
+		const shortest = Math.min(...inst.checks.map((c) => (c.type === "heartbeat" ? 60_000 : c.every)));
+		if (!fits(probes, inst.timeout_ms, shortest)) {
+			const need = Math.ceil(probes / CONCURRENCY) * inst.timeout_ms;
+			const budget = shortest - SKEW_MS - DB_MARGIN_MS;
+			ctx.addIssue({
+				code: "custom",
+				path: ["timeout_ms"],
+				message: `${probes} probes at a ${inst.timeout_ms / 1000} s timeout can need ${need / 1000} s, more than the ${budget / 1000} s the shortest interval (${shortest / 1000} s) leaves: lower timeout_ms, drop checks, or lengthen every.`,
+			});
+		}
 		const hashes = new Set<string>();
 		for (const [i, r] of inst.relays.entries()) {
 			if (seen.has(r.id)) {
@@ -216,26 +241,19 @@ export const instanceSchema = z
 				});
 			}
 			seen.add(r.id);
-			if (hashes.has(r.token_sha256)) {
+			if (r.token_sha256.some((h) => hashes.has(h))) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["relays", i, "token_sha256"],
 					message: "Two relays share a token: mint a token for each.",
 				});
 			}
-			hashes.add(r.token_sha256);
+			for (const h of r.token_sha256) hashes.add(h);
 			if (r.digest_only && r.maintenance) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["relays", i, "maintenance"],
 					message: "A relay is either digest_only or maintenance, not both.",
-				});
-			}
-			if (r.digest_only && !inst.digest) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["relays", i, "digest_only"],
-					message: 'digest_only needs "digest" set: without a digest its keys are never listed.',
 				});
 			}
 		}
