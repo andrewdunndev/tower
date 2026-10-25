@@ -54,16 +54,18 @@ describe("relay mail", () => {
 		reason: JSON.stringify({ title, description: "disk", source_url: "https://x.example/a" }),
 	});
 
-	it("labels one row by its transition and carries description, source and key", () => {
-		const [subject, text] = compose(config, [row("k1", "firing", "Disk full")]) ?? [];
-		expect(subject).toBe("FIRING: Alerts: Disk full");
-		expect(text).toContain("disk");
-		expect(text).toContain("Source: https://x.example/a");
-		expect(text).toContain("Key: k1");
-		expect(compose(config, [row("k1", "resolved", "Disk full")])?.[0]).toBe("RESOLVED: Alerts: Disk full");
+	it("mails a firing or resolved row as the sender's title and description, nothing added", () => {
+		expect(compose(config, [row("k1", "firing", "Disk full")])).toEqual(["Disk full", "disk"]);
+		expect(compose(config, [row("k1", "resolved", "Disk full")])).toEqual(["Disk full", "disk"]);
+		const bare = { ...row("k1", "firing", "Disk full"), reason: JSON.stringify({ title: "Disk full" }) };
+		expect(compose(config, [bare])).toEqual(["Disk full", ""]);
+	});
+
+	it("labels a stopped-reporting row with tower's own text", () => {
 		const [stale, body] = compose(config, [row("k1", "stale", "Disk full")]) ?? [];
 		expect(stale).toBe("STOPPED REPORTING: Alerts: Disk full");
 		expect(body).toContain("No report within 15 minutes");
+		expect(body).toContain("Key: k1");
 	});
 
 	it("sends one summary line per key when more than one row is pending", () => {
@@ -78,13 +80,12 @@ describe("relay mail", () => {
 		expect(text).toBe("RESOLVED: A is down\nFIRING: B is down\nSTOPPED REPORTING: C is quiet\n");
 	});
 
-	it("clips the title in the subject and keeps every line short", () => {
-		const long = "t".repeat(1000);
+	it("keeps every mime line under the header limit for a maximal title and description", () => {
+		const long = "t".repeat(900);
 		const [subject, text] =
 			compose(config, [
 				{ ...row("k", "firing", long), reason: JSON.stringify({ title: long, description: "d".repeat(4000) }) },
 			]) ?? [];
-		expect(subject?.length).toBeLessThan(260);
 		for (const l of mime("a@example.com", "b@example.com", subject ?? "", text ?? "").split("\r\n")) {
 			expect(l.length).toBeLessThanOrEqual(998);
 		}

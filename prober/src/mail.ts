@@ -19,17 +19,6 @@ const strip = (s: string, newlines: boolean) =>
 	s.normalize("NFKD").replace(newlines ? /[^\x20-\x7e\n]/g : /[^\x20-\x7e]/g, "");
 const ascii = (s: string) => strip(line(s), false);
 
-/** Printable ASCII only: accents keep their base letter, emoji and other non-ASCII drop. */
-export function plain(s: string, newlines = false): string {
-	const t = strip(newlines ? s.replace(/\r\n?/g, "\n").replace(/\t/g, " ") : s.replace(/\s+/g, " "), newlines);
-	return newlines
-		? t
-				.replace(/ +/g, " ")
-				.replace(/ ?\n ?/g, "\n")
-				.trim()
-		: t.replace(/ {2,}/g, " ").trim();
-}
-
 function target(c: Check): string {
 	switch (c.type) {
 		case "http":
@@ -100,17 +89,12 @@ function detail(reason: string | null): { title: string; description?: string; s
 }
 
 export function relayMessage(relay: Relay, p: Pending): [subject: string, text: string] {
-	const { title, description, source_url } = detail(p.reason);
+	const { title, description } = detail(p.reason);
+	if (p.kind !== "stale") return [line(title), description ?? ""];
 	const at = new Date(p.at).toISOString();
 	const since = p.since === null ? null : new Date(p.since).toISOString();
-	const label = LABEL[p.kind as keyof typeof LABEL];
-	let when: string;
-	if (p.kind === "resolved") when = since ? `Firing since ${since}, resolved ${at}.` : `Resolved ${at}.`;
-	else if (p.kind === "stale")
-		when = `No report within ${Math.round(relay.grace / 60_000)} minutes, closed ${at}.${since ? `\nFiring since ${since}.` : ""}`;
-	else when = `Firing, received ${at}.`;
-	const body = [title, when, description, source_url && `Source: ${source_url}`];
-	return [`${label}: ${clip(relay.name)}: ${clip(line(title))}`, `${body.filter(Boolean).join("\n")}\nKey: ${p.key}\n`];
+	const when = `No report within ${Math.round(relay.grace / 60_000)} minutes, closed ${at}.${since ? `\nFiring since ${since}.` : ""}`;
+	return [`${LABEL.stale}: ${clip(relay.name)}: ${clip(line(title))}`, `${title}\n${when}\nKey: ${p.key}\n`];
 }
 
 function relaySummary(relay: Relay, rows: Pending[]): [subject: string, text: string] {
@@ -122,16 +106,31 @@ function relaySummary(relay: Relay, rows: Pending[]): [subject: string, text: st
 	return [`ALERTS: ${clip(relay.name)}: ${latest.size} changed`, `${lines.join("\n")}\n`];
 }
 
-function digest(config: Instance, p: Pending, lines: string[]): [string, string] {
-	const day = new Date(p.at).toISOString().slice(0, 10);
-	const title = `DIGEST: ${clip(config.title)} ${day}`;
-	if (lines.length === 0) return [`${title}: all up`, ""];
-	return [`${title}: ${lines.length} need attention`, `${lines.map((l) => clip(line(l), 300)).join("\n")}\n`];
+export interface Attention {
+	lines: string[];
+	need: number;
+	up: number;
+	total: number;
+	resolved: number;
+	sent: number;
+	dead: number;
 }
 
-export function towerMessage(config: Instance, p: Pending, lines: string[] = []): [subject: string, text: string] {
+export const NONE: Attention = { lines: [], need: 0, up: 0, total: 0, resolved: 0, sent: 0, dead: 0 };
+
+function digest(config: Instance, p: Pending, a: Attention): [string, string] {
+	const day = new Date(p.at).toISOString().slice(0, 10);
+	const title = `DIGEST: ${clip(config.title)} ${day}`;
+	const summary = `Checked ${a.up}/${a.total} checks up. Relay keys fired and resolved: ${a.resolved}. Mail: ${a.sent} sent, ${a.dead} dead.`;
+	return [
+		`${title}: ${a.need === 0 ? "all up" : `${a.need} need attention`}`,
+		`${[...a.lines.map((l) => clip(line(l), 300)), summary].join("\n")}\n`,
+	];
+}
+
+export function towerMessage(config: Instance, p: Pending, report = NONE): [subject: string, text: string] {
 	const at = new Date(p.at).toISOString();
-	if (p.kind === "digest") return digest(config, p, lines);
+	if (p.kind === "digest") return digest(config, p, report);
 	if (p.key === "stall") {
 		const since = new Date(p.since ?? p.at).toISOString();
 		return [
@@ -157,7 +156,7 @@ export function towerMessage(config: Instance, p: Pending, lines: string[] = [])
 export function compose(
 	config: Instance,
 	rows: (Pending & { check: string })[],
-	lines: string[] = [],
+	report = NONE,
 ): [string, string] | null {
 	const latest = rows[rows.length - 1];
 	const check = config.checks.find((c) => c.id === latest.check);
@@ -173,7 +172,7 @@ export function compose(
 	}
 	const relay = config.relays.find((r) => r.id === latest.check);
 	if (relay) return rows.length > 1 ? relaySummary(relay, rows) : relayMessage(relay, latest);
-	return latest.check === "" ? towerMessage(config, latest, lines) : null;
+	return latest.check === "" ? towerMessage(config, latest, report) : null;
 }
 
 export function mime(from: string, to: string, subject: string, text: string): string {
