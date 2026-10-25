@@ -274,6 +274,38 @@ describe("note", () => {
 	});
 });
 
+describe("run budget", () => {
+	const many = (n: number, extra: Json = {}) =>
+		Array.from({ length: n }, (_, i) => ({ ...http, id: `web${i}`, ...extra }));
+	const budget = (checks: Json[], timeout_ms?: number) => messages({ ...instance(...checks), timeout_ms });
+	const overrun = (m: string[]) => m.find((x) => x.includes("can need"));
+
+	it("passes 30 checks at the default timeout and refuses 31", () => {
+		expect(budget(many(30))).toEqual([]);
+		expect(overrun(budget(many(31)))).toBe(
+			"31 probes at a 10 s timeout can need 60 s, more than the 53 s the shortest interval (60 s) leaves: lower timeout_ms, drop checks, or lengthen every.",
+		);
+	});
+
+	it("passes 6 checks at a 30 s timeout and refuses 7", () => {
+		expect(budget(many(6), 30000)).toEqual([]);
+		expect(overrun(budget(many(7), 30000))).toContain("7 probes at a 30 s timeout can need 60 s");
+	});
+
+	it("budgets against the shortest interval", () => {
+		expect(budget(many(31, { every: "5m" }), 30000)).toEqual([]);
+		expect(overrun(budget([...many(31, { every: "5m" }), { ...http, id: "fast" }], 30000))).toContain(
+			"the shortest interval (60 s)",
+		);
+	});
+
+	it("counts a heartbeat toward the shortest interval but not the probes", () => {
+		const beat = { id: "b", type: "heartbeat", name: "B", every: "1d", grace: "5m", token_sha256: "a".repeat(64) };
+		expect(budget([...many(30, { every: "1h" }), beat])).toEqual([]);
+		expect(overrun(budget([...many(31, { every: "1h" }), beat]))).toContain("the shortest interval (60 s)");
+	});
+});
+
 describe("unknown keys", () => {
 	it("names a typo at the top level", () => {
 		expect(messages({ ...example, titel: "x" })).toEqual(["unknown key titel."]);

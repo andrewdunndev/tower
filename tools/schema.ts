@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CONCURRENCY, DB_MARGIN_MS, fits, SKEW_MS } from "./budget.ts";
 
 z.config({
 	customError: (iss) => {
@@ -213,6 +214,17 @@ export const instanceSchema = z
 				});
 			}
 			seen.add(c.id);
+		}
+		const probes = inst.checks.filter((c) => c.type !== "heartbeat").length;
+		const shortest = Math.min(...inst.checks.map((c) => (c.type === "heartbeat" ? 60_000 : c.every)));
+		if (!fits(probes, inst.timeout_ms, shortest)) {
+			const need = Math.ceil(probes / CONCURRENCY) * inst.timeout_ms;
+			const budget = shortest - SKEW_MS - DB_MARGIN_MS;
+			ctx.addIssue({
+				code: "custom",
+				path: ["timeout_ms"],
+				message: `${probes} probes at a ${inst.timeout_ms / 1000} s timeout can need ${need / 1000} s, more than the ${budget / 1000} s the shortest interval (${shortest / 1000} s) leaves: lower timeout_ms, drop checks, or lengthen every.`,
+			});
 		}
 		const hashes = new Set<string>();
 		for (const [i, r] of inst.relays.entries()) {

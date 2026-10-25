@@ -1,4 +1,5 @@
 import { connect } from "cloudflare:sockets";
+import { CONCURRENCY, DB_MARGIN_MS, SKEW_MS } from "../../tools/budget.ts";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
 import { compose, NONE, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
@@ -32,13 +33,10 @@ interface StateRow {
 
 const TIMED = new Set<Check["type"]>(["http", "tcp", "dns"]);
 
-const SKEW_MS = 2000;
 const DAY_MS = 86_400_000;
 const FIRED_DAYS = 7;
-const CONCURRENCY = 6;
 const MAX_ATTEMPTS = 10;
 const LEASE_MS = 50_000;
-const DB_MARGIN_MS = 5_000;
 const MIN_BUDGET_MS = 20_000;
 const RECENT_SAMPLES = 5;
 const OWNED_TABLES = ["state", "samples", "daily", "beats", "events"];
