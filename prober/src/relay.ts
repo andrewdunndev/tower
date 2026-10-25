@@ -9,7 +9,6 @@ const BURST_WINDOW_MS = 60_000;
 
 const TITLE_MAX = 900;
 const DESCRIPTION_MAX = 4000;
-const SOURCE_URL_MAX = 2000;
 const KEY_MAX = 256;
 
 const reply = (status: number, body?: object) =>
@@ -21,7 +20,6 @@ const reply = (status: number, body?: object) =>
 interface Incident {
 	title: string;
 	description?: string;
-	source_url?: string;
 	key: string;
 	status: "firing" | "resolved";
 }
@@ -39,11 +37,11 @@ function parse(text: string): Incident | null {
 	const key = b.deduplication_key;
 	if (typeof key !== "string" || key.length < 1 || key.length > KEY_MAX) return null;
 	if (b.status !== "firing" && b.status !== "resolved") return null;
-	const optional = (v: unknown, n: number) => (typeof v === "string" && v !== "" ? v.slice(0, n) : undefined);
+	const clip = (v: string, n: number) => [...v].slice(0, n).join("");
 	return {
-		title: b.title.slice(0, TITLE_MAX),
-		description: optional(b.description, DESCRIPTION_MAX),
-		source_url: optional(b.source_url, SOURCE_URL_MAX),
+		title: clip(b.title, TITLE_MAX),
+		description:
+			typeof b.description === "string" && b.description !== "" ? clip(b.description, DESCRIPTION_MAX) : undefined,
 		key,
 		status: b.status,
 	};
@@ -83,7 +81,7 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 
 	const { id } = relay;
 	const { key } = body;
-	const detail = JSON.stringify({ title: body.title, description: body.description, source_url: body.source_url });
+	const detail = JSON.stringify({ title: body.title, description: body.description });
 	const absent = `NOT EXISTS (SELECT 1 FROM relay_keys WHERE relay = ?1 AND "key" = ?2)`;
 	const room = `(SELECT count(*) FROM relay_keys WHERE relay = ?1) < ${MAX_KEYS}`;
 	const full = `${absent} AND NOT ${room}`;
@@ -106,14 +104,21 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 			)
 			.bind(id, key, body.title, now);
 
-	const fullMail = (): D1PreparedStatement[] =>
-		config.digest
+	const fullFlag = (): D1PreparedStatement[] =>
+		relay.maintenance
 			? []
 			: [
+					...(config.digest
+						? []
+						: [
+								db
+									.prepare(
+										`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', ?4, ?3, 'self-failing', NULL, NULL WHERE ${full} AND NOT EXISTS (SELECT 1 FROM meta WHERE key = ?4)`,
+									)
+									.bind(id, key, now, `full:${id}`),
+							]),
 					db
-						.prepare(
-							`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', ?4, ?3, 'self-failing', NULL, NULL WHERE ${full} AND NOT EXISTS (SELECT 1 FROM meta WHERE key = ?4)`,
-						)
+						.prepare(`INSERT OR IGNORE INTO meta (key, value) SELECT ?4, ?3 WHERE ${full}`)
 						.bind(id, key, now, `full:${id}`),
 				];
 
@@ -122,18 +127,11 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 	if (relay.digest_only || relay.maintenance) {
 		const had = db.prepare(`SELECT 1 AS had FROM relay_keys WHERE relay = ?1 AND "key" = ?2`).bind(id, key);
 		if (body.status === "firing") {
-			const writes = [
-				had,
-				...(relay.digest_only ? [tally()] : []),
-				keep(),
-				...fullMail(),
-				db
-					.prepare(`INSERT OR IGNORE INTO meta (key, value) SELECT ?4, ?3 WHERE ${full}`)
-					.bind(id, key, now, `full:${id}`),
-			];
+			const write = keep();
+			const writes = [had, ...(relay.digest_only ? [tally()] : []), write, ...fullFlag()];
 			const rows = await db.batch<{ had: number } & { kept: number }>(writes);
 			const seen = rows[0];
-			const stored = rows[relay.digest_only ? 2 : 1];
+			const stored = rows[writes.indexOf(write)];
 			result = stored.results.length === 0 ? "rejected" : seen.results.length > 0 ? "duplicate" : "transition";
 		} else {
 			const [seen] = await db.batch<{ had: number }>([
@@ -153,10 +151,7 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 				.bind(id, key, now, detail, route(relay)),
 			db.prepare(BURST).bind(id, key, now),
 			keep(` AND (NOT ${absent} OR ${backlog})`),
-			...fullMail(),
-			db
-				.prepare(`INSERT OR IGNORE INTO meta (key, value) SELECT ?4, ?3 WHERE ${full}`)
-				.bind(id, key, now, `full:${id}`),
+			...fullFlag(),
 		]);
 		burst = counted.results[0]?.n;
 		result = burst !== undefined ? "transition" : stored.results.length > 0 ? "duplicate" : "rejected";

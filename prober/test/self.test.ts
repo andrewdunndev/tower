@@ -82,7 +82,7 @@ describe("digest", () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, config, at(7, 30), at(7, 30), respond(200));
 		expect(box.subjects).toEqual(["DIGEST: Example 2026-10-08: all up"]);
-		expect(box.bodies[0]).toBe("Checked 1/1 checks up. Relay keys fired and resolved: 0. Mail: 0 sent, 0 dead.\r\n");
+		expect(box.bodies[0]).toBe("Checked 1/1 checks up. Relay keys fired and closed: 0. Mail: 0 sent, 0 dead.\r\n");
 	});
 
 	it("lists a fired-and-resolved relay key by title, counts it, and resets the sent count", async () => {
@@ -103,7 +103,7 @@ describe("digest", () => {
 		const digest = box.bodies.at(-1)?.replaceAll("\r\n", "\n");
 		expect(box.subjects.at(-1)).toBe("DIGEST: Example 2026-10-08: 1 need attention");
 		expect(digest).toBe(
-			"OPEN: Push: Disk full\nDisk full: fired 1, first 10-08 06:00Z, last 10-08 06:00Z, resolved\nChecked 1/1 checks up. Relay keys fired and resolved: 1. Mail: 1 sent, 0 dead.\n",
+			"OPEN: Push: Disk full\nDisk full: fired 1, first 10-08 06:00Z, last 10-08 06:00Z, closed\nChecked 1/1 checks up. Relay keys fired and closed: 1. Mail: 1 sent, 0 dead.\n",
 		);
 		expect(await all("SELECT value FROM meta WHERE key = 'sent'")).toEqual([{ value: "0" }]);
 	});
@@ -150,11 +150,11 @@ describe("digest", () => {
 		const row = { at: at(7, 30), key: "digest", kind: "digest", since: null, reason: null } as const;
 		expect(towerMessage(config, row, report)).toEqual([
 			"DIGEST: Example 2026-10-08: 5 need attention",
-			`${report.lines.join("\n")}\nChecked 0/1 checks up. Relay keys fired and resolved: 0. Mail: 2 sent, 1 dead.\n`,
+			`${report.lines.join("\n")}\nChecked 0/1 checks up. Relay keys fired and closed: 0. Mail: 2 sent, 1 dead.\n`,
 		]);
 		expect(towerMessage(config, row, { ...report, lines: [], need: 0, up: 1, sent: 0, dead: 0 })).toEqual([
 			"DIGEST: Example 2026-10-08: all up",
-			"Checked 1/1 checks up. Relay keys fired and resolved: 0. Mail: 0 sent, 0 dead.\n",
+			"Checked 1/1 checks up. Relay keys fired and closed: 0. Mail: 0 sent, 0 dead.\n",
 		]);
 	});
 });

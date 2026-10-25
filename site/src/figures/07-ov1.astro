@@ -1,5 +1,5 @@
 ---
-const story = 'tower at a glance, in seven steps: 1, the operator deploys one JSON config to Cloudflare; 2, each minute the prober checks the watched services from outside over http, tcp, dns and tls; 3, it records the history in D1, which only the prober touches; 4, jobs post heartbeats to /beat and alert sources post incidents to /relay/incident on the page Worker; 5, the page Worker asks the prober over RPC, handing those over, reading status and, on its own cron, checking that the prober still runs; 6, the prober mails the inbox DOWN, UP, FIRING, RESOLVED and a daily digest through send_email, with the failure reason; 7, the page Worker serves visitors the page and /api/status with names and status only, never a host or a reason.';
+const story = 'tower at a glance, in seven steps: 1, the operator deploys one JSON config to Cloudflare; 2, each minute the prober checks the watched services from outside over http, tcp, dns and tls; 3, it records the history in D1, which only the prober touches; 4, jobs post heartbeats to /beat and alert sources post incidents to /relay/incident on the page Worker; 5, the page Worker asks the prober over RPC, handing those over, reading status and, on its own cron, checking that the prober still runs; 6, the prober mails the inbox DOWN, UP, relay firing and resolved mails and a daily digest through send_email, with the failure reason; 7, the page Worker serves visitors the page and /api/status with names and status only, never a host or a reason.';
 ---
 <svg class="figure-wide" viewBox="0 0 1320 420" role="img" aria-label={story} xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -92,7 +92,7 @@ const story = 'tower at a glance, in seven steps: 1, the operator deploys one JS
       <text x="1188" y="152">http · tcp · dns · tls</text>
       <text x="1188" y="260">via send_email</text>
       <text x="1188" y="294">DOWN · UP</text>
-      <text x="1188" y="314">FIRING · RESOLVED</text>
+      <text x="1188" y="314">firing · resolved</text>
     </g>
   </g>
 </svg>
@@ -187,7 +187,7 @@ const story = 'tower at a glance, in seven steps: 1, the operator deploys one JS
       <text x="88" y="576">http · tcp · dns · tls</text>
       <text x="250" y="574">via send_email</text>
       <text x="250" y="592">DOWN · UP</text>
-      <text x="250" y="606">FIRING · RESOLVED</text>
+      <text x="250" y="606">firing · resolved</text>
     </g>
   </g>
 </svg>

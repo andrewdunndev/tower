@@ -81,11 +81,11 @@ describe("incident", () => {
 		expect(box.sends).toBe(0);
 	});
 
-	it("clips a long title and description, ignores unknown keys, keeps source_url", async () => {
+	it("clips a long title and description on code points, and keeps only title and description", async () => {
 		const { runEnv, box } = mailbox();
 		box.failing = true;
 		const long = payload({
-			title: "t".repeat(5000),
+			title: `${"t".repeat(899)}\u{1F525}\u{1F525}`,
 			description: "d".repeat(9000),
 			source_url: "https://x.example/a",
 			extra: 1,
@@ -94,9 +94,10 @@ describe("incident", () => {
 		expect((await send(runEnv, long)).status).toBe(202);
 		const [row] = await all<{ reason: string }>(`SELECT reason FROM outbox`);
 		const stored = JSON.parse(row.reason);
-		expect(stored.title).toHaveLength(900);
+		expect([...stored.title]).toHaveLength(900);
+		expect(stored.title.isWellFormed()).toBe(true);
 		expect(stored.description).toHaveLength(4000);
-		expect(Object.keys(stored).sort()).toEqual(["description", "source_url", "title"]);
+		expect(Object.keys(stored).sort()).toEqual(["description", "title"]);
 	});
 
 	it("keeps a one-key-per-relay namespace: one key on two relays mails twice", async () => {
@@ -187,10 +188,10 @@ describe("verbatim mail", () => {
 
 	it("mails a resolve under the firing title, the latest one", async () => {
 		const { runEnv, box } = mailbox();
-		await send(runEnv, payload({ title: "GPU at 50 C on gpu-1" }));
-		await send(runEnv, payload({ title: "GPU at 52 C on gpu-1" }), T0 + MINUTE);
-		await send(runEnv, payload({ status: "resolved", title: "GPU at 50 C" }), T0 + 2 * MINUTE);
-		expect(box.subjects).toEqual(["GPU at 50 C on gpu-1", "GPU at 52 C on gpu-1"]);
+		await send(runEnv, payload({ title: "Disk at 50 C on host-1" }));
+		await send(runEnv, payload({ title: "Disk at 52 C on host-1" }), T0 + MINUTE);
+		await send(runEnv, payload({ status: "resolved", title: "Disk at 50 C" }), T0 + 2 * MINUTE);
+		expect(box.subjects).toEqual(["Disk at 50 C on host-1", "Disk at 52 C on host-1"]);
 	});
 });
 
@@ -380,6 +381,12 @@ describe("digest_only relay", () => {
 		digest: "12:00",
 		relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, digest_only: true }],
 	});
+	const patient = makeConfig([web], {
+		digest: "12:00",
+		relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, digest_only: true, grace: "7d" }],
+	});
+	const lasting = (runEnv: ReturnType<typeof mailbox>["runEnv"], o: object, t: number) =>
+		incident(runEnv, patient, TOKEN, payload(o), t);
 	const at = (h: number, m: number, day = 0) => Date.UTC(2026, 9, 8 + day, h, m);
 	const post = (runEnv: ReturnType<typeof mailbox>["runEnv"], o: object, t: number) =>
 		incident(runEnv, quiet, TOKEN, payload(o), t);
@@ -416,7 +423,7 @@ describe("digest_only relay", () => {
 		await tick(runEnv, quiet, at(12, 0), respond(200));
 		const [digest] = digests(box);
 		expect(box.subjects).toHaveLength(1);
-		expect(digest).toContain("Disk full: fired 2, first 10-08 09:00Z, last 10-08 09:30Z, resolved\n");
+		expect(digest).toContain("Disk full: fired 2, first 10-08 09:00Z, last 10-08 09:30Z, closed\n");
 		expect(await all("SELECT * FROM relay_fired")).toEqual([]);
 		await tick(runEnv, quiet, at(12, 0, 1), respond(200));
 		expect(digests(box)[1]).not.toContain("Disk full");
@@ -461,20 +468,64 @@ describe("digest_only relay", () => {
 
 	it("keeps the latest firing title, and a resolve with another title does not overwrite it", async () => {
 		const { runEnv, box } = mailbox();
-		await post(runEnv, { title: "GPU at 50 C on gpu-1" }, at(9, 0));
-		await post(runEnv, { title: "GPU at 52 C on gpu-1" }, at(9, 5));
-		await post(runEnv, { status: "resolved", title: "GPU at 50 C" }, at(9, 10));
+		await post(runEnv, { title: "Disk at 50 C on host-1" }, at(9, 0));
+		await post(runEnv, { title: "Disk at 52 C on host-1" }, at(9, 5));
+		await post(runEnv, { status: "resolved", title: "Disk at 50 C" }, at(9, 10));
 		await tick(runEnv, quiet, at(12, 0), respond(200));
-		expect(digests(box)[0]).toContain("GPU at 52 C on gpu-1: fired 1");
-		expect(digests(box)[0]).not.toContain("GPU at 50 C:");
+		expect(digests(box)[0]).toContain("Disk at 52 C on host-1: fired 1");
+		expect(digests(box)[0]).not.toContain("Disk at 50 C:");
 	});
 
 	it("starts the digest line with the title and never shows the description", async () => {
 		const { runEnv, box } = mailbox();
-		await post(runEnv, { title: "observe-hyperdx logged 165 warnings", description: "Group: x\nmore" }, at(9, 0));
+		await post(runEnv, { title: "logged 165 warnings", description: "Group: x\nmore" }, at(9, 0));
 		await tick(runEnv, quiet, at(12, 0), respond(200));
-		expect(digests(box)[0].startsWith("observe-hyperdx logged 165 warnings: fired 1")).toBe(true);
+		expect(digests(box)[0].startsWith("logged 165 warnings: fired 1")).toBe(true);
 		expect(digests(box)[0]).not.toContain("Group:");
+	});
+
+	it("keeps listing a key that stays open after its tally was sent, and reports it gone once closed", async () => {
+		const { runEnv, box } = mailbox();
+		await lasting(runEnv, {}, at(9, 0));
+		await tick(runEnv, patient, at(12, 0), respond(200));
+		await tick(runEnv, patient, at(12, 0, 1), respond(200));
+		expect(digests(box)[1]).toContain("OPEN: Alerts: Disk full\n");
+		expect(box.subjects[1]).toBe("DIGEST: Example 2026-10-09: 1 need attention");
+		await lasting(runEnv, { status: "resolved" }, at(13, 0, 1));
+		await tick(runEnv, patient, at(12, 0, 2), respond(200));
+		expect(box.subjects[2]).toBe("DIGEST: Example 2026-10-10: all up");
+	});
+
+	it("counts closed keys on the summary line", async () => {
+		const { runEnv, box } = mailbox();
+		await lasting(runEnv, {}, at(9, 0));
+		await lasting(runEnv, { deduplication_key: "k2", title: "Gone" }, at(9, 1));
+		await lasting(runEnv, { deduplication_key: "k2", title: "Gone", status: "resolved" }, at(9, 2));
+		await tick(runEnv, patient, at(12, 0), respond(200));
+		expect(digests(box)[0]).toContain("Relay keys fired and closed: 1.");
+	});
+
+	it("drops tally rows of a removed relay and rows idle for more than 7 days", async () => {
+		const { runEnv } = mailbox();
+		const seed = (relay: string, key: string, last: number) =>
+			env.DB.prepare(
+				`INSERT INTO relay_fired (relay, "key", title, n, first_at, last_at) VALUES (?1, ?2, 't', 1, ?3, ?3)`,
+			)
+				.bind(relay, key, last)
+				.run();
+		await seed("gone", "a", at(9, 0));
+		await seed("alerts", "old", at(9, 0) - 8 * 24 * 60 * MINUTE);
+		await seed("alerts", "fresh", at(9, 0) - 6 * 24 * 60 * MINUTE);
+		await tick(runEnv, quiet, at(9, 5), respond(200));
+		expect(await all("SELECT relay, key FROM relay_fired")).toEqual([{ relay: "alerts", key: "fresh" }]);
+	});
+
+	it("does not tally a key the relay rejected as full", async () => {
+		const { runEnv } = mailbox();
+		for (let i = 0; i < 100; i++) await post(runEnv, { deduplication_key: `k${i}` }, at(9, 0));
+		await env.DB.prepare(`DELETE FROM relay_fired`).run();
+		expect(await result(await post(runEnv, { deduplication_key: "over" }, at(9, 1)))).toBe("rejected");
+		expect(await all("SELECT * FROM relay_fired")).toEqual([]);
 	});
 
 	it("stops tallying new keys at the cap but still records them as open", async () => {
@@ -529,6 +580,31 @@ describe("maintenance relay", () => {
 		await post(runEnv, { status: "resolved" }, T0 + 2 * MINUTE);
 		await post(runEnv, { deduplication_key: "k2", status: "resolved" }, T0 + 2 * MINUTE);
 		expect((await read()).body).toEqual([]);
+	});
+
+	it("refreshes the description of a key that fires again", async () => {
+		const { runEnv } = mailbox();
+		await post(runEnv, { description: "12 errors" });
+		await post(runEnv, { description: "15 errors" }, T0 + MINUTE);
+		expect(((await read()).body as { description: string }[])[0].description).toBe("15 errors");
+	});
+
+	it("rejects a key past 100 without mail or a full flag, with or without a digest", async () => {
+		const { runEnv, box } = mailbox();
+		const withDigest = makeConfig([web], {
+			digest: "12:00",
+			relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, maintenance: true }],
+		});
+		for (const c of [kind, withDigest]) {
+			await env.DB.prepare(`DELETE FROM relay_keys`).run();
+			for (let i = 0; i < 100; i++) await incident(runEnv, c, TOKEN, payload({ deduplication_key: `k${i}` }), T0);
+			const res = await incident(runEnv, c, TOKEN, payload({ deduplication_key: "over" }), T0);
+			expect(await result(res)).toBe("rejected");
+		}
+		expect(box.sends).toBe(0);
+		expect(await outbox()).toEqual([]);
+		expect(await all("SELECT key FROM meta WHERE key LIKE 'full:%'")).toEqual([]);
+		expect((await attention(env.DB, withDigest)).lines).toEqual([]);
 	});
 
 	it("answers 404 for a relay that is not maintenance", async () => {

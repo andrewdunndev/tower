@@ -363,7 +363,7 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 	);
 	for (const rows of groups.values()) {
 		const digest = rows[0].kind === "digest";
-		const cut = now();
+		const cut = digest ? now() : 0;
 		const composed = compose(config, rows, digest ? await attention(env.DB, config) : NONE);
 		if (!composed) continue;
 		if (now() + SEND_TIMEOUT_MS + DB_MARGIN_MS > until) return;

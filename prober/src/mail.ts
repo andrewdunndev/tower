@@ -80,7 +80,7 @@ type Relay = Instance["relays"][number];
 const LABEL = { firing: "FIRING", resolved: "RESOLVED", stale: "STOPPED REPORTING" } as const;
 const SUMMARY_LINES = 50;
 
-function detail(reason: string | null): { title: string; description?: string; source_url?: string } {
+function detail(reason: string | null): { title: string; description?: string } {
 	try {
 		return { title: "", ...JSON.parse(reason ?? "") };
 	} catch {
@@ -111,17 +111,17 @@ export interface Attention {
 	need: number;
 	up: number;
 	total: number;
-	resolved: number;
+	closed: number;
 	sent: number;
 	dead: number;
 }
 
-export const NONE: Attention = { lines: [], need: 0, up: 0, total: 0, resolved: 0, sent: 0, dead: 0 };
+export const NONE: Attention = { lines: [], need: 0, up: 0, total: 0, closed: 0, sent: 0, dead: 0 };
 
 function digest(config: Instance, p: Pending, a: Attention): [string, string] {
 	const day = new Date(p.at).toISOString().slice(0, 10);
 	const title = `DIGEST: ${clip(config.title)} ${day}`;
-	const summary = `Checked ${a.up}/${a.total} checks up. Relay keys fired and resolved: ${a.resolved}. Mail: ${a.sent} sent, ${a.dead} dead.`;
+	const summary = `Checked ${a.up}/${a.total} checks up. Relay keys fired and closed: ${a.closed}. Mail: ${a.sent} sent, ${a.dead} dead.`;
 	return [
 		`${title}: ${a.need === 0 ? "all up" : `${a.need} need attention`}`,
 		`${[...a.lines.map((l) => clip(line(l), 300)), summary].join("\n")}\n`,

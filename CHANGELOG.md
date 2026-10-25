@@ -2,10 +2,10 @@
 
 ## 0.6.0 (2026-10-24)
 
-- Relay mail is verbatim. The subject is the sender's `title` and the body its `description`, with no label, relay name or key, and nothing dropped from the text; the mail transport still folds non-ASCII to ASCII. A resolve mails under the title the key last fired with. A blank title answers `400`; titles clip at 900 characters. `STOPPED REPORTING` and `ALERTS` keep their own format.
-- A `digest_only` relay tallies every key fired since the last digest, so a key that fired and resolved between digests is listed: `<title>: fired <n>, first ..., last ..., open|resolved`. Migration `0004_fired` adds the tally table and a `description` column.
+- Relay mail is verbatim. The subject is the sender's `title` and the body its `description`, with no label, relay name or key; the mail transport reduces the text to printable ASCII. A resolve mails under the title the key last fired with. A blank title answers `400`; titles clip at 900 characters. `STOPPED REPORTING` and `ALERTS` keep their own format.
+- A `digest_only` relay tallies every key fired since the last digest, so a key that fired and resolved between digests is listed: `<title>: fired <n>, first ..., last ..., open|closed`. Migration `0004_fired` adds the tally table and a `description` column.
 - A relay takes `maintenance`: keys are recorded, nothing is mailed or digested, and `GET /relay/kept` with the relay's token returns the keys firing now with their title and description.
-- The `DIGEST` body always ends with a summary line: checks up, relay keys fired and resolved, mail sent and dead. An all-up day is no longer blank.
+- The `DIGEST` body always ends with a summary line: checks up, relay keys fired and closed, mail sent and dead. An all-up day is no longer blank. Rolling back to 0.5.0 ignores migration `0004_fired` and leaves `relay_fired` unpruned.
 
 ## 0.5.0 (2026-10-17)
 
