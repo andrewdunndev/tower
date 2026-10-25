@@ -100,7 +100,7 @@ Add a WAF rate limiting rule on `/beat/*` for the zone: a request that reaches t
 
 ## Relays
 
-A relay accepts an incident.io alert-event body at `POST /relay/incident` and mails on transitions only: `FIRING` when a key opens, `RESOLVED` when it closes. [HyperDX](https://www.hyperdx.io) is the intended sender. Name the relay in `tower.json` and give it a token hash as for a heartbeat:
+A relay accepts an incident.io alert-event body at `POST /relay/incident` and mails on transitions only: when a key opens and when it closes. The mail is the sender's own: the subject is the `title` and the body is the `description`, as sent. A resolve mails under the title the key last fired with, so a firing mail and its resolve share one subject and only the sender's `description` tells them apart. [HyperDX](https://www.hyperdx.io) is the intended sender. Name the relay in `tower.json` and give it a token hash as for a heartbeat:
 
 ```json
 "relays": [{ "id": "alerts", "name": "Alerts", "token_sha256": "<hash>", "grace": "15m", "to": "oncall@example.com" }],
@@ -110,18 +110,19 @@ A relay accepts an incident.io alert-event body at `POST /relay/incident` and ma
 In HyperDX add a webhook with service `incident.io`, URL `https://<domain>/relay/incident`, header `Authorization: Bearer <token>` and an empty body template. tower reads `title`, `description`, `source_url`, `deduplication_key` and `status` (`firing` or `resolved`) and ignores the rest.
 
 - A request answers `202` with `{"result": "transition"}` (mailed), `"duplicate"` (the key was already in that state; a firing renews its lease) or `"rejected"` (the relay holds 100 open keys). A bad or missing token answers `404`, a body without a title, key or valid status `400`, another media type than `application/json` `415`, and a body over 64 KiB `413`.
-- Set `"digest_only": true` on a relay (it needs `digest`) to keep its keys out of the mail: transitions are recorded and the `DIGEST` lists open keys, but nothing is sent for a firing, a resolve or a key that stops reporting.
+- Set `"digest_only": true` on a relay (it needs `digest`) to keep its keys out of the mail: nothing is sent for a firing, a resolve or a key that stops reporting. The `DIGEST` instead lists every key that fired since the last digest, one line each: `<title>: fired <n>, first <MM-DD HH:MM>Z, last <MM-DD HH:MM>Z, open` (or `resolved`). `<title>` is the latest firing title, `fired` counts firings of a closed key (a repeat of an open key is not one), and a key still open counts toward the digest's "need attention". A relay tallies at most 100 keys per digest.
+- Set `"maintenance": true` for work an agent picks up rather than mail a person reads. It records like `digest_only`, mails nothing and never appears in the `DIGEST`, and it needs no `digest`. `GET https://<domain>/relay/kept` with the relay's bearer token answers `200` with `[{"key","title","description","since","seen"}]`, the keys firing now ordered by `since`, and `404` for a bad token or a relay that is not `maintenance`. A key that resolves or stops reporting leaves the list, and no history is kept. A relay is `digest_only` or `maintenance`, not both.
 - A key left open for `grace` without another firing closes with one `STOPPED REPORTING` mail, which also covers a lost resolved. A later firing of the key mails again. Set `grace` above the sender's re-notify gap, at most 7 days.
 - At most 5 transitions per relay per minute mail at once; the rest wait for the next cron run and, when more than one is waiting, arrive as one `ALERTS: <relay>: <n> changed` mail per address with a line per key. 100 open keys can therefore send up to 100 changes in a burst. A rejected key makes a `SELF-CHECK` flag (see Self-checks).
-- There are no silences or maintenance windows on relays.
+- There are no silences on relays.
 - `/relay/*` needs no rate limiting rule, because a bad token is refused before any write. Keep it out of any rule shared with `/beat/*`: a sender's burst would answer `429` to the beats, and senders do not retry `4xx`.
-- Titles, descriptions, URLs and keys reach the alert mail only, never the page or `/api/status`.
+- Titles, descriptions, URLs and keys reach the alert mail, and a maintenance relay's `/relay/kept`, never the page or `/api/status`.
 
 ## Self-checks
 
 With `digest` set, self-checks never mail when they fail and recover; the `DIGEST` lists each one while it is failing. tower never mails `DEPLOYED` or `OK`. Mail about tower itself goes to `alert.to`, even for a check or relay with its own `to`.
 
-- `DIGEST` once a day at `digest` (`HH:MM` UTC). A normal day is the subject `all up` with no body; otherwise the subject counts the items and the body lists down checks, open relay keys, unsent or dead mail and failing self-checks. A day missed to an outage is not backfilled.
+- `DIGEST` once a day at `digest` (`HH:MM` UTC). The body always ends with a summary line, `Checked <up>/<total> checks up. Relay keys fired and resolved: <n>. Mail: <sent> sent, <dead> dead.`; `sent` counts the mail sent since the last digest. A normal day is the subject `all up` and that line, preceded by a line for each `digest_only` key that fired and resolved. Otherwise the subject counts the items and the body lists down checks, open push-relay keys, `digest_only` keys that fired, unsent or dead mail and failing self-checks. A day missed to an outage is not backfilled.
 - Cloudflare API token: a tls check gets a `401` or `403`, or the secret is unset. A token that expires is not warned about ahead of time.
 - `results for <check>`: any check, public or not, with no conclusive result for three of its intervals plus a minute. A probe that stays inconclusive or misconfigured, such as a tls check with an unset token, counts as no result. A probe that has not answered shortly before the next run of the shortest interval, or never started, counts as no result for that run. A check added later gets the same from when it was added.
 - `probing stalled`: no run has written results for three of the shortest `every` plus a minute. The page Worker's minute cron asks the prober, so a dead prober cron is caught, and the digest due while the cron is stalled is still queued and lists it. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
