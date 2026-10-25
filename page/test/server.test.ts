@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
 import { memoryLatch } from '../../prober/src/latch.ts';
-import { beat, cached, cacheKey, kept, refuse, relay, watch } from "../src/server.ts";
+import { beat, cached, cacheKey, healthResponse, kept, refuse, relay, watch } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
 	new Request(`https://status.example.com${path}`, { method, headers });
@@ -278,5 +278,39 @@ describe('watch', () => {
     expect(calls.subjects).toHaveLength(2);
     await watch(env, alert, 5 * HOUR + 120_000, latch);
     expect(calls.subjects).toHaveLength(2);
+  });
+});
+
+describe('healthResponse', () => {
+  const answering = (state: 'ok' | 'stale' | 'dead') => ({ health: async () => state });
+
+  it('answers 200 ok only for a healthy prober', async () => {
+    const res = await healthResponse(answering('ok'));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
+  });
+
+  it('answers 503 with a body that never contains ok for every other state', async () => {
+    const down = { health: async () => Promise.reject(new Error('prober unavailable')) };
+    for (const [tower, body] of [[answering('stale'), 'stale'], [answering('dead'), 'dead'], [down, 'unavailable']] as const) {
+      const res = await healthResponse(tower);
+      expect(res.status).toBe(503);
+      expect(await res.text()).toBe(body);
+      expect(body).not.toMatch(/ok/i);
+    }
+  });
+
+  it('is never cached, never a redirect, and plain text', async () => {
+    for (const tower of [answering('ok'), answering('dead')]) {
+      const res = await healthResponse(tower);
+      expect(res.headers.get('Cache-Control')).toBe('no-store');
+      expect(res.headers.get('Content-Type')).toBe('text/plain');
+      expect(res.redirected).toBe(false);
+      expect(res.headers.get('Location')).toBeNull();
+    }
+  });
+
+  it('is not one of the cached routes', () => {
+    expect(cacheKey('/healthz', 'https://status.example.com')).toBeNull();
   });
 });

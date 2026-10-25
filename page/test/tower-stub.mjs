@@ -7,6 +7,11 @@ export class Tower extends WorkerEntrypoint {
 		if (reply === null) throw new Error("prober unavailable");
 		return JSON.parse(reply);
 	}
+
+	async health() {
+		if (reply === null) throw new Error("prober unavailable");
+		return "ok";
+	}
 }
 
 // POST a StatusResponse to answer with it; POST nothing to make status() throw.

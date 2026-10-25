@@ -4,6 +4,7 @@ import type { Attention } from "./mail.ts";
 import { MAX_KEYS } from "./relay.ts";
 import { allowance, DEPLOY_GRACE_MS, interval, STUCK_PREFIX, selfName } from "./status.ts";
 
+const HEALTH_FLOOR_MS = 5 * 60_000;
 const TALLY_LINES = 50;
 const TITLE_CLIP = 120;
 
@@ -48,6 +49,20 @@ export async function raiseStall(
 		),
 	);
 	return true;
+}
+
+export async function health(
+	db: D1Database,
+	config: Instance,
+	t: number,
+	version: Version,
+): Promise<"ok" | "stale" | "dead"> {
+	const row = await db
+		.prepare(`SELECT MAX(last_run) AS run, EXISTS (SELECT 1 FROM outbox WHERE dead = 1) AS dead FROM state`)
+		.first<{ run: number | null; dead: number }>();
+	if (row?.dead) return "dead";
+	const fresh = row?.run != null && row.run >= t - Math.max(HEALTH_FLOOR_MS, staleWindow(config));
+	return fresh || inDeployGrace(version, t) ? "ok" : "stale";
 }
 
 export async function reportWriteFailure(db: D1Database, send: Send, t: number): Promise<void> {

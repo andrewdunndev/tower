@@ -118,3 +118,20 @@ describe("the page's cron through the real prober", () => {
 		expect(await all("SELECT key FROM meta WHERE key = 'stall'")).toEqual([]);
 	});
 });
+
+describe("/healthz through the real prober", () => {
+	const healthz = () => page.fetch("https://status.example.com/healthz", { redirect: "manual" });
+
+	it("answers ok for a fresh run and 503 dead for a dead mail row", async () => {
+		await env.DB.prepare(
+			`INSERT INTO state ("check", avail, degraded, fails, passes, since, slot, last_run) VALUES ('any', 1, 0, 0, 0, 0, -1, ?1)`,
+		)
+			.bind(Date.now())
+			.run();
+		const ok = await healthz();
+		expect([ok.status, await ok.text()]).toEqual([200, "ok"]);
+		await env.DB.prepare(`INSERT INTO outbox ("check", at, kind, dead) VALUES ('any', ?1, 'up', 1)`).bind(Date.now()).run();
+		const dead = await healthz();
+		expect([dead.status, await dead.text()]).toEqual([503, "dead"]);
+	});
+});

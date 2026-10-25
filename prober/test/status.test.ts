@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import { tick } from "../src/run.ts";
-import { status } from "../src/status.ts";
-import { MINUTE, mailbox, makeConfig, reset, respond, T0, web } from "./util.ts";
+import { health } from "../src/self.ts";
+import { DEPLOY_GRACE_MS, status } from "../src/status.ts";
+import { MINUTE, mailbox, makeConfig, reset, respond, T0, VERSION, web } from "./util.ts";
 
 beforeEach(reset);
 
@@ -90,5 +91,49 @@ describe("status", () => {
 		expect(s.incidents.map((i) => i.checks[0])).toEqual([]);
 		expect(s.stuck).toBe(0);
 		expect(s.last_run).not.toBeNull();
+	});
+});
+
+describe("health", () => {
+	const lastRun = (at: number) =>
+		env.DB.prepare(
+			`INSERT INTO state ("check", avail, degraded, fails, passes, since, slot, last_run) VALUES ('web', 1, 0, 0, 0, 0, -1, ?1)`,
+		)
+			.bind(at)
+			.run();
+	const check = (
+		config: ReturnType<typeof makeConfig>,
+		at: number,
+		version: { id: string; timestamp?: string } = VERSION,
+	) => health(env.DB, config, at, version);
+
+	it("is ok up to 5 minutes after the last run and stale after", async () => {
+		await lastRun(T0);
+		const config = makeConfig();
+		expect(await check(config, T0 + 4 * MINUTE)).toBe("ok");
+		expect(await check(config, T0 + 5 * MINUTE)).toBe("ok");
+		expect(await check(config, T0 + 6 * MINUTE)).toBe("stale");
+	});
+
+	it("is stale with no run at all, unless the prober was just deployed", async () => {
+		const config = makeConfig();
+		expect(await check(config, T0)).toBe("stale");
+		const fresh = { id: "v2", timestamp: new Date(T0 - MINUTE).toISOString() };
+		expect(await check(config, T0, fresh)).toBe("ok");
+		expect(await check(config, T0 - MINUTE + DEPLOY_GRACE_MS, fresh)).toBe("stale");
+	});
+
+	it("is dead for a dead mail row even when the last run is fresh", async () => {
+		await lastRun(T0);
+		await env.DB.prepare(`INSERT INTO outbox ("check", at, kind, dead) VALUES ('web', ?1, 'up', 1)`).bind(T0).run();
+		expect(await check(makeConfig(), T0)).toBe("dead");
+	});
+
+	it("waits three of the shortest interval plus a minute for a slow fleet", async () => {
+		await lastRun(T0);
+		const slow = makeConfig([{ ...web, every: "5m" }]);
+		expect(await check(slow, T0 + 15 * MINUTE)).toBe("ok");
+		expect(await check(slow, T0 + 16 * MINUTE)).toBe("ok");
+		expect(await check(slow, T0 + 17 * MINUTE)).toBe("stale");
 	});
 });

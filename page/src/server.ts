@@ -9,6 +9,7 @@ const BEAT_PATH = /^\/beat\/([^/]+)(\/fail)?$/;
 
 type Tower = {
   status(): Promise<StatusResponse>;
+  health(): Promise<'ok' | 'stale' | 'dead'>;
   beat(id: string, token: string, ok: boolean): Promise<Response>;
   watch(now: number): Promise<void>;
   incident(token: string, body: string): Promise<Response>;
@@ -27,6 +28,20 @@ export async function load(tower: Pick<Tower, 'status'>): Promise<StatusResponse
 export async function statusResponse(tower: Pick<Tower, 'status'>): Promise<Response> {
   const data = await load(tower);
   return data ? Response.json(data) : Response.json({ error: 'status unavailable' }, { status: 503 });
+}
+
+export async function healthResponse(tower: Pick<Tower, 'health'>): Promise<Response> {
+  let state: string;
+  try {
+    state = await tower.health();
+  } catch (e) {
+    console.error('tower-page: health unavailable:', e);
+    state = 'unavailable';
+  }
+  return new Response(state, {
+    status: state === 'ok' ? 200 : 503,
+    headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' },
+  });
 }
 
 export function refuse(request: Request): Response | null {
