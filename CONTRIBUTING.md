@@ -9,7 +9,7 @@ npm ci
 npm run check
 ```
 
-`check` stages `test/fixture/`, lints, typechecks and runs the tests: unit tests for the schema, the prober and the page, and a test that no public response names a host, address, port or failure reason. Dependency versions are exact pins.
+`check` stages `test/fixture/`, lints, typechecks and runs the tests: unit tests for the schema, the prober, the outside watcher and the page, and a test that no public response names a host, address, port or failure reason. Dependency versions are exact pins.
 
 Keep instance details out of code, tests and docs; use `example.com`.
 

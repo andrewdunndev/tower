@@ -654,22 +654,15 @@ describe("maintenance relay", () => {
 		expect(((await read()).body as { description: string }[])[0].description).toBe("15 errors");
 	});
 
-	it("rejects a key past 100 without mail or a full flag, with or without a digest", async () => {
+	it("rejects a key past 100 without mail or a full flag", async () => {
 		const { runEnv, box } = mailbox();
-		const withDigest = makeConfig([web], {
-			digest: "12:00",
-			relays: [{ id: "alerts", name: "Alerts", token_sha256: hash, maintenance: true }],
-		});
-		for (const c of [kind, withDigest]) {
-			await env.DB.prepare(`DELETE FROM relay_keys`).run();
-			for (let i = 0; i < 100; i++) await incident(runEnv, c, TOKEN, payload({ deduplication_key: `k${i}` }), T0);
-			const res = await incident(runEnv, c, TOKEN, payload({ deduplication_key: "over" }), T0);
-			expect(await result(res)).toBe("rejected");
-		}
+		for (let i = 0; i < 100; i++) await incident(runEnv, kind, TOKEN, payload({ deduplication_key: `k${i}` }), T0);
+		const res = await incident(runEnv, kind, TOKEN, payload({ deduplication_key: "over" }), T0);
+		expect(await result(res)).toBe("rejected");
 		expect(box.sends).toBe(0);
 		expect(await outbox()).toEqual([]);
 		expect(await all("SELECT key FROM meta WHERE key LIKE 'full:%'")).toEqual([]);
-		expect((await attention(env.DB, withDigest)).lines).toEqual([]);
+		expect((await attention(env.DB, kind)).lines).toEqual([]);
 	});
 
 	it("answers 404 for a relay that is not maintenance", async () => {

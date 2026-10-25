@@ -2,7 +2,7 @@
 
 ## 0.7.0 (2026-10-25)
 
-- Self-failures mail at onset and every 3 hours while they hold, nothing on recovery: `probing stalled` (from the prober, or from the page Worker when the prober does not answer) and the new `database writes`. A bad Cloudflare API token, `results for <check>` and a full relay are digest-only, with or without `digest`; the `SELF-CHECK` mail for them is gone, so set `digest` to see them. The page Worker's hourly mail and the exact-minute digest window are gone.
+- Self-failures mail at onset and every 3 hours while they hold, nothing on recovery: `probing stalled` (from the prober, or from the page Worker when the prober does not answer) and the new `database writes`. A bad Cloudflare API token, `results for <check>` and a full relay are digest-only; the `SELF-CHECK` mail for them is gone; they appear in the daily digest. The page Worker's hourly mail and the exact-minute digest window are gone.
 - `digest` defaults to `12:00` UTC: an instance that never set it now receives a daily mail. `digest_only` no longer needs it.
 - New optional `outside` Worker (`"outside": true`) polls `GET /healthz` every minute from its own Worker and database and mails `OUTSIDE CHECK FAILING` after two failing minutes, every 3 hours while it fails, and `OUTSIDE CHECK RECOVERED` once. Turning `outside` off leaves the deployed Worker running: `wrangler delete` it and its database.
 - Mail is retried with backoff, 1 minute doubling to 15, and goes dead after 24 hours instead of 10 tries. A rejected recipient or sender goes dead after 3 tries. A `DOWN` whose check is still down is never dead.

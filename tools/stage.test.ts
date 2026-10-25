@@ -38,7 +38,7 @@ const stageNamed = (name: string, extra: object = {}) => {
 	const out = mkdtempSync(join(tmpdir(), "tower-out-"));
 	stage(dir, out);
 	const read = (f: string) => JSON.parse(readFileSync(join(out, f), "utf8"));
-	return { out, prober: read("prober.wrangler.json"), page: read("page.wrangler.json") };
+	return { out, read, prober: read("prober.wrangler.json"), page: read("page.wrangler.json") };
 };
 
 describe("resource names", () => {
@@ -77,11 +77,7 @@ describe("resource names", () => {
 });
 
 describe("outside", () => {
-	const staged = (outside: boolean) => {
-		const { out } = stageNamed("a", { outside });
-		const read = (f: string) => JSON.parse(readFileSync(join(out, f), "utf8"));
-		return { out, read };
-	};
+	const staged = (outside: boolean) => stageNamed("a", { outside });
 
 	it("stages its own config and the healthz URL with the alert addresses", () => {
 		const { out, read } = staged(true);

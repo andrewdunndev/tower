@@ -4,8 +4,7 @@
 		"strict": true,
 		"noEmit": true,
 		"skipLibCheck": true,
-		"allowImportingTsExtensions": true,
-		"types": ["@cloudflare/vitest-plugin/types"]
+		"allowImportingTsExtensions": true
 	},
 	"include": ["worker-configuration.d.ts", "src"]
 }

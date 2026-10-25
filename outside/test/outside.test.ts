@@ -97,7 +97,7 @@ describe("outside", () => {
 		expect(await rows()).toEqual([{ since: T0, mailed: T0 + 2 * MINUTE }]);
 	});
 
-	const hang: typeof fetch = async () => {
+	const timedOut: typeof fetch = async () => {
 		throw new DOMException("timed out", "TimeoutError");
 	};
 	const refuse: typeof fetch = async () => {
@@ -106,10 +106,10 @@ describe("outside", () => {
 
 	it.each([
 		["503 stale", down, "503 stale"],
-		["a redirect", respond(302, "", { location: "https://elsewhere.example/" }), "302 "],
+		["a redirect", respond(302, "", { location: "https://elsewhere.example/" }), "302"],
 		["a wrong body", respond(200, "nope"), "200 nope"],
 		["a long body, clipped", respond(503, "x".repeat(30)), `503 ${"x".repeat(20)}`],
-		["a timeout", hang, "no answer within 10 s"],
+		["a timeout", timedOut, "no answer within 10 s"],
 		["a network error", refuse, "network error"],
 	])("fails on %s with the reason", async (_, get, reason) => {
 		const m = mailbox();

@@ -19,7 +19,7 @@ async function failure(url: string, get: typeof fetch): Promise<string | null> {
 		const res = await get(url, { redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_S * 1000) });
 		const body = await res.text();
 		if (res.status === 200 && body === "ok") return null;
-		return `${res.status} ${body.replace(/[^\x20-\x7e]/g, "").slice(0, 20)}`;
+		return `${res.status} ${body.replace(/[^\x20-\x7e]/g, "").slice(0, 20)}`.trim();
 	} catch (e) {
 		const name = (e as Error).name;
 		return name === "TimeoutError" || name === "AbortError" ? `no answer within ${TIMEOUT_S} s` : "network error";
