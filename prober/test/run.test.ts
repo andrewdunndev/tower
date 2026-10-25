@@ -197,7 +197,8 @@ describe("run deadline", () => {
 		for (let k = 0; k <= 3; k++) await hung(T0 + k * MINUTE);
 		expect(box.subjects).toEqual([]);
 		await hung(T0 + 4 * MINUTE);
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for Slow"]);
+		expect(box.subjects).toEqual([]);
+		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toHaveLength(1);
 		expect(await all("SELECT avail, last_conclusive FROM state WHERE \"check\" = 'web'")).toEqual([
 			{ avail: 1, last_conclusive: T0 + 4 * MINUTE },
 		]);
@@ -586,22 +587,13 @@ describe("routing", () => {
 		expect(await rows()).toEqual([]);
 	});
 
-	it("keeps self-check, stuck and stall mail on alert.to", async () => {
+	it("keeps stall mail on alert.to", async () => {
 		const { runEnv, box } = mailbox();
-		await env.DB.prepare(`DELETE FROM meta WHERE key = 'version'`).run();
-		const cert = { id: "cert", type: "tls", name: "Certificate", host: "www.example.com", zone: "example.com" };
-		const config = makeConfig([
-			{ ...routed, down_after: 3 },
-			{ ...cert, every: "1m", to: team },
-		]);
+		const config = makeConfig([{ ...routed, down_after: 3 }]);
 		for (let k = 0; k <= 4; k++) await tick(runEnv, config, T0 + k * MINUTE, T0 + k * MINUTE, respond(200));
 		await watch(runEnv, config, T0 + 10 * MINUTE);
-		expect(box.subjects).toEqual([
-			"SELF-CHECK FAILING: Cloudflare API token",
-			"SELF-CHECK FAILING: results for Certificate",
-			"SELF-CHECK FAILING: probing stalled",
-		]);
-		expect(box.to).toEqual(Array(3).fill("oncall@example.com"));
+		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
+		expect(box.to).toEqual(["oncall@example.com"]);
 	});
 
 	it("moves pending mail from a corrected address to the new one", async () => {

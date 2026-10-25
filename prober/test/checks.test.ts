@@ -117,7 +117,8 @@ describe("dns", () => {
 		]);
 		expect(await all("SELECT * FROM samples")).toHaveLength(1);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
-		expect(box.subjects).toEqual(["SELF-CHECK FAILING: results for DNS"]);
+		expect(box.sends).toBe(0);
+		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toHaveLength(1);
 	});
 
 	it("checks the expected answer", async () => {
@@ -258,14 +259,15 @@ describe("tls", () => {
 		expect(box.sends).toBe(0);
 	});
 
-	it("treats a scope error as a config error and mails only the token self-check", async () => {
+	it("treats a scope error as a config error and flags only the token self-check", async () => {
 		for (const code of [401, 403]) {
 			const { runEnv, box } = mailbox();
 			await tick({ ...runEnv, CF_API_TOKEN: "tok" }, makeConfig([cert]), T0, T0, cloudflare(code).fetch);
 			expect(await all("SELECT avail, config_error, last_conclusive FROM state")).toEqual([
 				{ avail: 1, config_error: 1, last_conclusive: null },
 			]);
-			expect(box.subjects).toEqual(["SELF-CHECK FAILING: Cloudflare API token"]);
+			expect(box.sends).toBe(0);
+			expect(await all("SELECT key FROM meta WHERE key = 'self:token'")).toHaveLength(1);
 			await reset();
 		}
 	});

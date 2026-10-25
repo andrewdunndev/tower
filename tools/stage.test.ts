@@ -92,13 +92,12 @@ describe("look", () => {
 		expect(readFileSync(join(plain, "theme.css"), "utf8")).toBe("");
 	});
 
-	it("hands the page the title, the alert addresses and the digest time", () => {
+	it("hands the page the title and the alert addresses", () => {
 		const out = mkdtempSync(join(tmpdir(), "tower-page-"));
 		const staged = stage(join(import.meta.dirname, "../example"), out);
 		expect(JSON.parse(readFileSync(join(out, "page.json"), "utf8"))).toEqual({
 			title: "Example Status",
 			alert: staged.alert,
-			digest: staged.digest,
 		});
 	});
 });

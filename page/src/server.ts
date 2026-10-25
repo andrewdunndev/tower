@@ -1,11 +1,10 @@
+import { type Latch, selfAlert } from '../../prober/src/latch.ts';
 import { sendMail } from '../../prober/src/mail.ts';
 import type { StatusResponse } from './lib.ts';
 
 const CACHE_SECONDS = 30;
 const CACHED_ROUTES = ['/', '/api/status'];
 const MAX_BODY = 64 * 1024;
-const HOUR_MS = 3_600_000;
-const MINUTE_MS = 60_000;
 const BEAT_PATH = /^\/beat\/([^/]+)(\/fail)?$/;
 
 type Tower = {
@@ -110,23 +109,24 @@ export async function watch(
   env: { TOWER: Pick<Tower, 'watch'>; EMAIL: Pick<SendEmail, 'send'> },
   alert: { from: string; to: string },
   t: number,
-  digest?: string,
+  latch: Latch,
 ): Promise<void> {
   try {
     await env.TOWER.watch(t);
+    await latch.release('prober', t);
   } catch (e) {
     console.error('tower-page: prober did not answer:', e);
-    const at = digest ? Date.parse(`${new Date(t).toISOString().slice(0, 10)}T${digest}:00Z`) : null;
-    const due = at === null ? t % HOUR_MS < MINUTE_MS : t >= at && t - at < MINUTE_MS;
-    if (due) {
-      await sendMail(
-        env.EMAIL,
-        alert,
-        'SELF-CHECK FAILING: probing stalled',
-        at === null
-          ? `The prober did not answer, ${new Date(t).toISOString()}. This repeats hourly until it answers.\n`
-          : `The prober did not answer at the digest time, ${new Date(t).toISOString()}, so there is no digest today.\n`,
-      );
-    }
+    await selfAlert(
+      latch,
+      'prober',
+      t,
+      async () =>
+        (await sendMail(
+          env.EMAIL,
+          alert,
+          'SELF-CHECK FAILING: probing stalled',
+          `The prober did not answer, ${new Date(t).toISOString()}. This repeats every 3 hours until it answers.\n`,
+        )) === 'sent',
+    );
   }
 }

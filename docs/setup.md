@@ -115,27 +115,25 @@ In HyperDX add a webhook with service `incident.io`, URL `https://<domain>/relay
 - Set `"digest_only": true` on a relay (it needs `digest`) to keep its keys out of the mail: nothing is sent for a firing, a resolve or a key that stops reporting. The `DIGEST` instead lists every key that fired since the last digest, one line each: `<title>: fired <n>, first <MM-DD HH:MM>Z, last <MM-DD HH:MM>Z, open` (or `closed`: resolved, or expired without a resolve). `<title>` is the latest firing title, `fired` counts firings of a closed key (a repeat of an open key is not one), and a key still open counts toward the digest's "need attention". An open key whose tally was already sent is listed as `OPEN` until it closes. A relay tallies at most 100 keys per digest.
 - Set `"maintenance": true` for work an agent picks up rather than mail a person reads. It records like `digest_only`, mails nothing, even when full, never appears in the `DIGEST`, and it needs no `digest`. `GET https://<domain>/relay/kept` with the relay's bearer token answers `200` with `[{"key","title","description","since","seen"}]`, the keys firing now ordered by `since`, and `404` for a bad token or a relay that is not `maintenance`. A key that resolves or stops reporting leaves the list, and no history is kept. A relay is `digest_only` or `maintenance`, not both.
 - A key left open for `grace` without another firing closes with one `STOPPED REPORTING` mail, which also covers a lost resolved. A later firing of the key mails again. Set `grace` above the sender's re-notify gap, at most 7 days.
-- At most 5 transitions per relay per minute mail at once; the rest wait for the next cron run and, when more than one is waiting, arrive as one `ALERTS: <relay>: <n> changed` mail per address with a line per key. 100 open keys can therefore send up to 100 changes in a burst. A rejected key makes a `SELF-CHECK` flag (see Self-checks).
+- At most 5 transitions per relay per minute mail at once; the rest wait for the next cron run and, when more than one is waiting, arrive as one `ALERTS: <relay>: <n> changed` mail per address with a line per key. 100 open keys can therefore send up to 100 changes in a burst. A rejected key makes a digest flag (see Self-checks).
 - There are no silences on relays.
 - `/relay/*` needs no rate limiting rule, because a bad token is refused before any write. Keep it out of any rule shared with `/beat/*`: a sender's burst would answer `429` to the beats, and senders do not retry `4xx`.
 - Titles and descriptions reach the alert mail, keys reach `STOPPED REPORTING`, and a maintenance relay's `/relay/kept`, never the page or `/api/status`.
 
 ## Self-checks
 
-With `digest` set, self-checks never mail when they fail and recover; the `DIGEST` lists each one while it is failing. tower never mails `DEPLOYED` or `OK`. Mail about tower itself goes to `alert.to`, even for a check or relay with its own `to`.
+Two conditions mail when they start and again every 3 hours while they hold. Recovery never mails, and tower never mails `DEPLOYED` or `OK`. These mails go to `alert.to`, even for a check or relay with its own `to`, and the `DIGEST` lists each while it holds.
 
-- `DIGEST` once a day at `digest` (`HH:MM` UTC). The body always ends with a summary line, `Checked <up>/<total> checks up. Relay keys fired and closed: <n>. Mail: <sent> sent, <dead> dead.`. A normal day is the subject `all up` and that line, preceded by a line for each `digest_only` key that fired. Otherwise the subject counts the items and the body lists down checks, open relay keys, `digest_only` keys that fired, unsent or dead mail and failing self-checks. A day missed to an outage is not backfilled.
+- `SELF-CHECK FAILING: probing stalled`: no run has written results for three of the shortest `every` plus a minute. The page Worker's minute cron asks the prober, so a dead prober cron is caught, and the digest due while the cron is stalled is still queued and lists it. When the prober does not answer the page Worker, the page Worker mails the same subject instead. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
+- `SELF-CHECK FAILING: database writes`: D1 rejected a run's writes.
+
+Three more appear in the `DIGEST` only, so they need `digest`:
+
 - Cloudflare API token: a tls check gets a `401` or `403`, or the secret is unset. A token that expires is not warned about ahead of time.
 - `results for <check>`: any check, public or not, with no conclusive result for three of its intervals plus a minute. A probe that stays inconclusive or misconfigured, such as a tls check with an unset token, counts as no result. A probe that has not answered shortly before the next run of the shortest interval, or never started, counts as no result for that run. A check added later gets the same from when it was added.
-- `probing stalled`: no run has written results for three of the shortest `every` plus a minute. The page Worker's minute cron asks the prober, so a dead prober cron is caught, and the digest due while the cron is stalled is still queued and lists it. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
 - A relay at its limit of open keys, which refused a new one.
 
-Where the digest cannot be produced, one mail goes out at the digest time instead:
-
-- `SELF-CHECK FAILING: probing stalled` from the page Worker when the prober does not answer then.
-- `SELF-CHECK FAILING: database writes` from the prober when D1 rejects the run's writes then.
-
-Without `digest`, there is nowhere to list a failing self-check, so each of the above is mailed when it starts as `SELF-CHECK FAILING: <name>` (the page Worker's `probing stalled` repeats hourly while the prober does not answer). Recovery never mails.
+`DIGEST` once a day at `digest` (`HH:MM` UTC). The body always ends with a summary line, `Checked <up>/<total> checks up. Relay keys fired and closed: <n>. Mail: <sent> sent, <dead> dead.`. A normal day is the subject `all up` and that line, preceded by a line for each `digest_only` key that fired. Otherwise the subject counts the items and the body lists down checks, open relay keys, `digest_only` keys that fired, unsent or dead mail and failing self-checks. A day missed to an outage is not backfilled.
 
 ## Backup
 

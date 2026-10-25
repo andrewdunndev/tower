@@ -128,17 +128,15 @@ export async function tick(
 	doConnect: typeof connect = connect,
 ) {
 	const now = clockAt(startedAt);
+	const fail = async (e: unknown): Promise<never> => {
+		await reportWriteFailure(env.DB, mailer(env, config), t);
+		throw e;
+	};
 	let claimed: Awaited<ReturnType<typeof claim>>;
 	try {
 		claimed = await claim(env.DB, config, t);
 	} catch (e) {
-		await reportWriteFailure(
-			env.DB,
-			config,
-			async (subject, text) => (await sendMail(env.EMAIL, config.alert, subject, text)) === "sent",
-			t,
-		);
-		throw e;
+		return fail(e);
 	}
 
 	const deadline = Math.max(
@@ -267,13 +265,20 @@ export async function tick(
 		...prune(env.DB, config, t),
 		...selfWrites(env.DB, config, t, env.VERSION, token),
 	);
-	await env.DB.batch(writes);
+	try {
+		await env.DB.batch(writes);
+	} catch (e) {
+		return fail(e);
+	}
 
 	await drain(env, config, { now });
 }
 
+const mailer = (env: RunEnv, config: Instance) => async (subject: string, text: string) =>
+	(await sendMail(env.EMAIL, config.alert, subject, text)) === "sent";
+
 export async function watch(env: RunEnv, config: Instance, now: number) {
-	if (!(await raiseStall(env.DB, config, now, env.VERSION))) return;
+	if (!(await raiseStall(env.DB, config, now, env.VERSION, mailer(env, config)))) return;
 	const queued = digestWrites(env.DB, config, now, `EXISTS (SELECT 1 FROM meta WHERE key = 'stall')`);
 	if (queued.length > 0) await env.DB.batch(queued);
 	await drain(env, config, { now: clockAt(now) });

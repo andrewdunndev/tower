@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
+import { memoryLatch } from '../../prober/src/latch.ts';
 import { beat, cached, cacheKey, kept, refuse, relay, watch } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
@@ -235,25 +236,47 @@ describe('watch', () => {
 
   it('asks the prober with the scheduled time and sends no mail when it answers', async () => {
     const { calls, env } = setup(true);
-    await watch(env, alert, HOUR);
+    await watch(env, alert, HOUR, memoryLatch());
     expect(calls.watched).toEqual([HOUR]);
     expect(calls.subjects).toEqual([]);
   });
 
-  it('mails in the first minute of an hour when the prober does not answer, and not after', async () => {
+  it('mails at the first call, not a minute later, and again after 3 hours', async () => {
     const { calls, env } = setup(false);
-    await watch(env, alert, 5 * HOUR);
-    await watch(env, alert, 5 * HOUR + 60_000);
-    await watch(env, alert, 5 * HOUR + 1800_000);
+    const latch = memoryLatch();
+    const onset = 5 * HOUR;
+    await watch(env, alert, onset, latch);
     expect(calls.subjects).toEqual(['SELF-CHECK FAILING: probing stalled']);
+    for (let k = 1; k < 180; k += 1) await watch(env, alert, onset + k * 60_000, latch);
+    expect(calls.subjects).toHaveLength(1);
+    await watch(env, alert, onset + 3 * HOUR, latch);
+    expect(calls.subjects).toHaveLength(2);
   });
 
-  it('with a digest time mails once a day at that time and not hourly', async () => {
+  it('mails again at once after the prober has answered once', async () => {
+    const down = setup(false);
+    const up = setup(true);
+    const latch = memoryLatch();
+    await watch(down.env, alert, 5 * HOUR, latch);
+    await watch(up.env, alert, 5 * HOUR + 60_000, latch);
+    expect(up.calls.subjects).toEqual([]);
+    await watch(down.env, alert, 5 * HOUR + 120_000, latch);
+    expect(down.calls.subjects).toHaveLength(2);
+  });
+
+  it('retries a mail that failed to send on the next call', async () => {
     const { calls, env } = setup(false);
-    const noon = 5 * 24 * HOUR + 12 * HOUR;
-    for (let k = 0; k < 24 * 60; k += 1) await watch(env, alert, 5 * 24 * HOUR + k * 60_000, '12:00');
-    expect(calls.subjects).toEqual(['SELF-CHECK FAILING: probing stalled']);
-    await watch(env, alert, noon + 24 * HOUR, '12:00');
+    const send = env.EMAIL.send;
+    env.EMAIL.send = async (m: unknown) => {
+      await send(m);
+      if (calls.subjects.length === 1) throw new Error('send failed');
+      return { messageId: 'test' };
+    };
+    const latch = memoryLatch();
+    await watch(env, alert, 5 * HOUR, latch);
+    await watch(env, alert, 5 * HOUR + 60_000, latch);
+    expect(calls.subjects).toHaveLength(2);
+    await watch(env, alert, 5 * HOUR + 120_000, latch);
     expect(calls.subjects).toHaveLength(2);
   });
 });

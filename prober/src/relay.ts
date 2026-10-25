@@ -107,15 +107,6 @@ export async function incident(env: RunEnv, config: Instance, token: string, tex
 		relay.maintenance
 			? []
 			: [
-					...(config.digest
-						? []
-						: [
-								db
-									.prepare(
-										`INSERT INTO outbox ("check", "key", at, kind, since, reason) SELECT '', ?4, ?3, 'self-failing', NULL, NULL WHERE ${full} AND NOT EXISTS (SELECT 1 FROM meta WHERE key = ?4)`,
-									)
-									.bind(id, key, now, `full:${id}`),
-							]),
 					db
 						.prepare(`INSERT OR IGNORE INTO meta (key, value) SELECT ?4, ?3 WHERE ${full}`)
 						.bind(id, key, now, `full:${id}`),

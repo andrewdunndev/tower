@@ -124,7 +124,7 @@ describe("incident", () => {
 		expect((await keys()).map((k) => k.relay)).toEqual(["alerts", "other"]);
 	});
 
-	it("rejects the 101st key, mails one FAILING and then stays quiet", async () => {
+	it("rejects the 101st key and flags the relay full without mail", async () => {
 		const { runEnv, box } = mailbox();
 		await env.DB.prepare(
 			`WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 99)
@@ -134,12 +134,11 @@ describe("incident", () => {
 			.run();
 		expect(await result(await send(runEnv, payload({ deduplication_key: "extra" }), T0 + 200))).toBe("rejected");
 		expect(box.sends).toBe(0);
-		await drain(runEnv, config);
-		expect(box.sends).toBe(1);
+		expect(await all("SELECT key FROM meta WHERE key = 'full:alerts'")).toHaveLength(1);
 		expect(await result(await send(runEnv, payload({ deduplication_key: "extra2" }), T0 + 202))).toBe("rejected");
 		expect(await result(await send(runEnv, payload({ deduplication_key: "k5" }), T0 + 203))).toBe("duplicate");
 		await drain(runEnv, config);
-		expect(box.sends).toBe(1);
+		expect(box.sends).toBe(0);
 		expect(await all("SELECT count(*) AS n FROM relay_keys")).toEqual([{ n: 100 }]);
 	});
 
