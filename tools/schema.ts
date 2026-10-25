@@ -198,6 +198,7 @@ export const instanceSchema = z
 		timeout_ms: z.number().int().min(1000).max(30000).default(10000),
 		checks: z.array(check).min(1, "list at least one check."),
 		relays: z.array(relay).default([]),
+		outside: z.boolean().default(false),
 		digest: z
 			.string()
 			.regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use a UTC time of day such as "07:30".')

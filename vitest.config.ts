@@ -43,7 +43,7 @@ export default defineConfig({
 				],
 				test: {
 					name: "workers",
-					include: ["prober/test/**/*.test.ts", "page/test/**/*.test.ts"],
+					include: ["prober/test/**/*.test.ts", "page/test/**/*.test.ts", "outside/test/**/*.test.ts"],
 					globalSetup: ["./prober/test/listener.ts"],
 					setupFiles: ["./prober/test/setup.ts"],
 				},

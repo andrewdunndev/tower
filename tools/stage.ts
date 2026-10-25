@@ -35,7 +35,17 @@ const issueLines = (file: string, issues: z.core.$ZodIssue[]) =>
 
 const readConfig = (dir: string) => JSON.parse(readFileSync(join(root, dir, "wrangler.jsonc"), "utf8"));
 
-function wranglerConfigs(name: string, out: string) {
+function outsideConfig(name: string, here: (path: string) => string) {
+	const outside = readConfig("outside");
+	return {
+		...outside,
+		name: `${name}-outside`,
+		main: here(`outside/${outside.main}`),
+		d1_databases: outside.d1_databases.map((d: object) => ({ ...d, database_name: `${name}-outside` })),
+	};
+}
+
+function wranglerConfigs(name: string, out: string, outside: boolean) {
 	const here = (path: string) => relative(out, join(root, path));
 	const prober = readConfig("prober");
 	const page = readConfig("page");
@@ -56,6 +66,7 @@ function wranglerConfigs(name: string, out: string) {
 			main: here(`page/${page.main}`),
 			services: page.services.map((s: object) => ({ ...s, service: `${name}-prober` })),
 		},
+		...(outside && { "outside.wrangler.json": outsideConfig(name, here) }),
 	};
 }
 
@@ -98,8 +109,12 @@ export function stage(instance: string, out = join(root, ".tower")): Omit<Instan
 		const head = Object.entries(shown).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
 		writeFileSync(join(out, "notes", file), `---\n${head.join("\n")}\n---\n${body}`);
 	}
-	for (const [file, config] of Object.entries(wranglerConfigs(parsed.data.name, out))) {
+	for (const [file, config] of Object.entries(wranglerConfigs(parsed.data.name, out, parsed.data.outside))) {
 		writeFileSync(join(out, file), `${JSON.stringify(config, null, "\t")}\n`);
+	}
+	if (parsed.data.outside) {
+		const url = `https://${parsed.data.domain}/healthz`;
+		writeFileSync(join(out, "outside.json"), `${JSON.stringify({ url, alert: parsed.data.alert })}\n`);
 	}
 	writeFileSync(join(out, "page.json"), `${JSON.stringify({ title: parsed.data.title, alert: parsed.data.alert })}\n`);
 	const own = (file: string) => (existsSync(join(instance, file)) ? join(instance, file) : null);

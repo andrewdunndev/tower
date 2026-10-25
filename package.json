@@ -14,7 +14,7 @@
 		"check": "node tools/stage.ts test/fixture && npm run lint && npm run typecheck && npm test",
 		"test": "npm run build -w page && vitest run",
 		"lint": "biome check",
-		"typecheck": "npm run typecheck -w prober && npm run typecheck -w page && tsc -p tools",
+		"typecheck": "npm run typecheck -w prober && npm run typecheck -w page && npm run typecheck -w outside && tsc -p tools",
 		"deploy": "node tools/deploy.ts"
 	},
 	"devDependencies": {
@@ -29,6 +29,7 @@
 	},
 	"workspaces": [
 		"prober",
-		"page"
+		"page",
+		"outside"
 	]
 }

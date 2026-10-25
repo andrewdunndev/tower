@@ -7,5 +7,5 @@
 		"allowImportingTsExtensions": true,
 		"types": ["@cloudflare/vitest-plugin/types"]
 	},
-	"include": ["worker-configuration.d.ts", "src", "test", "../page/test"]
+	"include": ["worker-configuration.d.ts", "src", "test", "../page/test", "../outside/test"]
 }

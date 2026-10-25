@@ -32,9 +32,9 @@ describe("a broken instance", () => {
 	});
 });
 
-const stageNamed = (name: string) => {
+const stageNamed = (name: string, extra: object = {}) => {
 	const dir = mkdtempSync(join(tmpdir(), "tower-named-"));
-	writeFileSync(join(dir, "tower.json"), JSON.stringify({ ...fixture, name }));
+	writeFileSync(join(dir, "tower.json"), JSON.stringify({ ...fixture, name, ...extra }));
 	const out = mkdtempSync(join(tmpdir(), "tower-out-"));
 	stage(dir, out);
 	const read = (f: string) => JSON.parse(readFileSync(join(out, f), "utf8"));
@@ -73,6 +73,32 @@ describe("resource names", () => {
 		expect(existsSync(join(out, prober.main))).toBe(true);
 		expect(existsSync(join(out, page.main))).toBe(true);
 		expect(existsSync(join(out, prober.d1_databases[0].migrations_dir, "0001_init.sql"))).toBe(true);
+	});
+});
+
+describe("outside", () => {
+	const staged = (outside: boolean) => {
+		const { out } = stageNamed("a", { outside });
+		const read = (f: string) => JSON.parse(readFileSync(join(out, f), "utf8"));
+		return { out, read };
+	};
+
+	it("stages its own config and the healthz URL with the alert addresses", () => {
+		const { out, read } = staged(true);
+		const config = read("outside.wrangler.json");
+		expect(config.name).toBe("a-outside");
+		expect(config.d1_databases).toEqual([{ binding: "DB", database_name: "a-outside" }]);
+		expect(config.send_email).toEqual([{ name: "EMAIL" }]);
+		expect(config.triggers.crons).toEqual(["* * * * *"]);
+		expect(config.services).toBeUndefined();
+		expect(existsSync(join(out, config.main))).toBe(true);
+		expect(read("outside.json")).toEqual({ url: `https://${fixture.domain}/healthz`, alert: fixture.alert });
+	});
+
+	it("stages nothing when off", () => {
+		const { out } = staged(false);
+		expect(existsSync(join(out, "outside.wrangler.json"))).toBe(false);
+		expect(existsSync(join(out, "outside.json"))).toBe(false);
 	});
 });
 

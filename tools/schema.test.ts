@@ -175,6 +175,12 @@ describe("instance", () => {
 			expect(instanceSchema.parse({ ...example, digest: undefined }).digest).toBe("12:00");
 		});
 
+		it("defaults outside to false and takes a boolean", () => {
+			expect(instanceSchema.parse({ ...example, outside: undefined }).outside).toBe(false);
+			expect(instanceSchema.parse({ ...example, outside: true }).outside).toBe(true);
+			expect(messages({ ...example, outside: "yes" }).length).toBeGreaterThan(0);
+		});
+
 		it("takes digest as a UTC time of day", () => {
 			expect(messages({ ...example, digest: "07:30" })).toEqual([]);
 			for (const digest of ["7:30", "24:00", "07:60", "0730", "07:30:00"]) {
