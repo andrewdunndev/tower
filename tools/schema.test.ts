@@ -144,6 +144,30 @@ describe("instance", () => {
 			);
 		});
 
+		it("reads a string and a list of hashes as the same list, at most two", () => {
+			const parsed = (hash: unknown) => {
+				const r = instanceSchema.parse(withRelays({ ...relay, token_sha256: hash }));
+				return r.relays[0].token_sha256;
+			};
+			expect(parsed("a".repeat(64))).toEqual(["a".repeat(64)]);
+			expect(parsed(["a".repeat(64), "b".repeat(64)])).toEqual(["a".repeat(64), "b".repeat(64)]);
+			const hashes = (...h: string[]) => messages(withRelays({ ...relay, token_sha256: h.map((c) => c.repeat(64)) }));
+			expect(hashes("a", "b", "c")).toContain("list at most 2 hashes: the current token and its replacement.");
+			expect(hashes()).toContain("list at least one hash.");
+		});
+
+		it("rejects a hash repeated across relays or inside one list", () => {
+			const a = "a".repeat(64);
+			const b = "b".repeat(64);
+			const other = { ...relay, id: "other", token_sha256: [b, a] };
+			expect(messages(withRelays({ ...relay, token_sha256: [a] }, other))).toContain(
+				"Two relays share a token: mint a token for each.",
+			);
+			expect(messages(withRelays({ ...relay, token_sha256: [a, a] }))).toContain(
+				"Two relays share a token: mint a token for each.",
+			);
+		});
+
 		it("limits grace to 7 days", () => {
 			expect(messages(withRelays({ ...relay, grace: "7d" }))).toEqual([]);
 			expect(messages(withRelays({ ...relay, grace: "8d" }))).toContain("use at most 7 days.");

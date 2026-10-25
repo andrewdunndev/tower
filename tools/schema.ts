@@ -141,12 +141,20 @@ const tokenHash = z
 	.string()
 	.regex(/^[0-9a-f]{64}$/, "token_sha256: use the lowercase hex sha256 of the token (64 characters).");
 
+const tokenHashes = z.preprocess(
+	(v) => (typeof v === "string" ? [v] : v),
+	z
+		.array(tokenHash)
+		.min(1, "list at least one hash.")
+		.max(2, "list at most 2 hashes: the current token and its replacement."),
+);
+
 const heartbeat = z.strictObject({
 	...common,
 	type: z.literal("heartbeat"),
 	every: duration,
 	grace: duration,
-	token_sha256: tokenHash,
+	token_sha256: tokenHashes,
 });
 
 const WEEK_MS = 7 * 86400_000;
@@ -154,7 +162,7 @@ const WEEK_MS = 7 * 86400_000;
 const relay = z.strictObject({
 	id,
 	name: z.string().min(1, "required."),
-	token_sha256: tokenHash,
+	token_sha256: tokenHashes,
 	grace: duration.refine((ms) => ms <= WEEK_MS, "use at most 7 days.").default(900_000),
 	to,
 	digest_only: z.boolean().default(false),
@@ -216,14 +224,14 @@ export const instanceSchema = z
 				});
 			}
 			seen.add(r.id);
-			if (hashes.has(r.token_sha256)) {
+			if (r.token_sha256.some((h) => hashes.has(h)) || new Set(r.token_sha256).size < r.token_sha256.length) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["relays", i, "token_sha256"],
 					message: "Two relays share a token: mint a token for each.",
 				});
 			}
-			hashes.add(r.token_sha256);
+			for (const h of r.token_sha256) hashes.add(h);
 			if (r.digest_only && r.maintenance) {
 				ctx.addIssue({
 					code: "custom",

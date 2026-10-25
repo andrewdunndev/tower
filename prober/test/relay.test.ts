@@ -39,6 +39,22 @@ describe("incident", () => {
 		expect(await keys()).toEqual([{ relay: "alerts", key: "evt-1", title: "Alert for Errors - 12 exceeds 10" }]);
 	});
 
+	it("accepts either token of a rotating pair on incident and kept, and refuses the dropped one", async () => {
+		const { runEnv } = mailbox();
+		const next = await sha256("next-secret");
+		const pair = (hashes: string[]) =>
+			makeConfig([web], { relays: [{ id: "alerts", name: "Alerts", token_sha256: hashes, maintenance: true }] });
+		const rotating = pair([hash, next]);
+		for (const token of [TOKEN, "next-secret"]) {
+			expect((await incident(runEnv, rotating, token, payload({}), T0)).status).toBe(202);
+			expect((await kept(runEnv, rotating, token)).status).toBe(200);
+		}
+		const dropped = pair([next]);
+		expect((await incident(runEnv, dropped, TOKEN, payload({}), T0)).status).toBe(404);
+		expect((await kept(runEnv, dropped, TOKEN)).status).toBe(404);
+		expect((await kept(runEnv, dropped, "next-secret")).status).toBe(200);
+	});
+
 	it("mails a resolved once and answers duplicate for a repeat or an unknown key", async () => {
 		const { runEnv, box } = mailbox();
 		await send(runEnv, hyperdx("ALERT"));

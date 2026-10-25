@@ -80,6 +80,8 @@ A heartbeat check expects a request within `every` plus `grace`. Make a token an
 openssl rand -hex 32 | tee token | tr -d '\n' | openssl dgst -sha256 -r | cut -d' ' -f1
 ```
 
+To rotate a token, list two hashes, `"token_sha256": ["<old>", "<new>"]`, deploy, move the senders to the new token, then drop the old hash and deploy again. A relay rotates the same way. At most 2 hashes are accepted.
+
 Beat from the job:
 
 ```sh

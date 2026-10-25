@@ -1,5 +1,5 @@
 import type { Instance } from "../../tools/schema.ts";
-import { sameHex, sha256Hex } from "./heartbeat.ts";
+import { matches, sha256Hex } from "./heartbeat.ts";
 import { drain, type RunEnv, route } from "./run.ts";
 
 export const MAX_KEYS = 100;
@@ -57,9 +57,8 @@ const BURST = `INSERT INTO meta (key, value) SELECT 'burst:' || ?1, CAST(?3 AS I
 
 async function find(config: Instance, token: string) {
 	const hash = await sha256Hex(token);
-	let relay: Instance["relays"][number] | undefined;
-	for (const r of config.relays) if (sameHex(hash, r.token_sha256) && !relay) relay = r;
-	return token === "" ? undefined : relay;
+	const found = config.relays.filter((r) => matches(hash, r.token_sha256));
+	return token === "" ? undefined : found[0];
 }
 
 export async function kept(env: RunEnv, config: Instance, token: string) {
