@@ -13,6 +13,7 @@ type Tower = {
   beat(id: string, token: string, ok: boolean): Promise<Response>;
   watch(now: number): Promise<void>;
   incident(token: string, body: string): Promise<Response>;
+  kept(token: string): Promise<Response>;
 };
 
 export async function load(tower: Pick<Tower, 'status'>): Promise<StatusResponse | null> {
@@ -31,7 +32,8 @@ export async function statusResponse(tower: Pick<Tower, 'status'>): Promise<Resp
 
 export function refuse(request: Request): Response | null {
   const { pathname } = new URL(request.url);
-  const allowed = pathname.startsWith('/beat/') || pathname.startsWith('/relay/') ? ['POST'] : ['GET', 'HEAD'];
+  const allowed =
+    pathname === '/relay/kept' ? ['GET'] : pathname.startsWith('/beat/') || pathname.startsWith('/relay/') ? ['POST'] : ['GET', 'HEAD'];
   if (allowed.includes(request.method)) return null;
   return new Response(null, { status: 405, headers: { Allow: allowed.join(', ') } });
 }
@@ -79,6 +81,15 @@ async function readCapped(request: Request): Promise<string | null> {
     text += decoder.decode(value, { stream: true });
   }
   return text + decoder.decode();
+}
+
+export async function kept(request: Request, env: { TOWER: Pick<Tower, 'kept'> }): Promise<Response> {
+  try {
+    return await env.TOWER.kept(bearer(request));
+  } catch (e) {
+    console.error('tower-page: relay unavailable:', e);
+    return new Response(null, { status: 503 });
+  }
 }
 
 export async function relay(request: Request, env: { TOWER: Pick<Tower, 'incident'> }): Promise<Response> {

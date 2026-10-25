@@ -78,6 +78,36 @@ describe("digest", () => {
 		expect(box.subjects.filter((s) => s.startsWith("DIGEST"))).toHaveLength(2);
 	});
 
+	it("mails a summary line, never a blank body, on an all-up day", async () => {
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, config, at(7, 30), at(7, 30), respond(200));
+		expect(box.subjects).toEqual(["DIGEST: Example 2026-10-08: all up"]);
+		expect(box.bodies[0]).toBe("Checked 1/1 checks up. Relay keys fired and closed: 0. Mail: 0 sent, 0 dead.\r\n");
+	});
+
+	it("lists a fired-and-resolved relay key by title, counts it, and resets the sent count", async () => {
+		const { runEnv, box } = mailbox();
+		const hash = await sha256("relay-secret");
+		const quiet = makeConfig([web], {
+			digest: "07:30",
+			relays: [
+				{ id: "alerts", name: "Alerts", token_sha256: hash, digest_only: true },
+				{ id: "push", name: "Push", token_sha256: await sha256("push-secret") },
+			],
+		});
+		const body = (status: string) => JSON.stringify({ title: "Disk full", deduplication_key: "k1", status });
+		await incident(runEnv, quiet, "relay-secret", body("firing"), at(6, 0));
+		await incident(runEnv, quiet, "relay-secret", body("resolved"), at(6, 10));
+		await incident(runEnv, quiet, "push-secret", body("firing"), at(7, 25));
+		await tick(runEnv, quiet, at(7, 30), at(7, 30), respond(200));
+		const digest = box.bodies.at(-1)?.replaceAll("\r\n", "\n");
+		expect(box.subjects.at(-1)).toBe("DIGEST: Example 2026-10-08: 1 need attention");
+		expect(digest).toBe(
+			"OPEN: Push: Disk full\nDisk full: fired 1, first 10-08 06:00Z, last 10-08 06:00Z, closed\nChecked 1/1 checks up. Relay keys fired and closed: 1. Mail: 1 sent, 0 dead.\n",
+		);
+		expect(await all("SELECT value FROM meta WHERE key = 'sent'")).toEqual([{ value: "0" }]);
+	});
+
 	it("lists only what needs attention, and sends nothing without a digest time", async () => {
 		const { runEnv, box } = mailbox();
 		const noisy = makeConfig([unhealthy], { digest: "07:30" });
@@ -94,7 +124,7 @@ describe("digest", () => {
 			digest: "07:30",
 			relays: [{ id: "alerts", name: "Alerts", token_sha256: await sha256("relay-secret"), grace: "1d" }],
 		});
-		expect(await attention(env.DB, config)).toEqual([]);
+		expect((await attention(env.DB, config)).lines).toEqual([]);
 		await tick(runEnv, config, at(7, 0), at(7, 0), respond(500));
 		await incident(
 			runEnv,
@@ -109,8 +139,8 @@ describe("digest", () => {
 				`INSERT INTO outbox ("check", "key", at, kind, attempts, dead) VALUES ('web', '', 1, 'down', 10, 1), ('web', '', 2, 'up', 2, 0), ('web', '', 3, 'up', 0, 0)`,
 			),
 		]);
-		const lines = await attention(env.DB, config);
-		expect(lines).toEqual([
+		const report = await attention(env.DB, config);
+		expect(report.lines).toEqual([
 			"DOWN: Web",
 			"OPEN: Alerts: disk full",
 			"SELF-CHECK: Cloudflare API token",
@@ -118,11 +148,14 @@ describe("digest", () => {
 			"MAIL: 1 dead",
 		]);
 		const row = { at: at(7, 30), key: "digest", kind: "digest", since: null, reason: null } as const;
-		expect(towerMessage(config, row, lines)).toEqual([
+		expect(towerMessage(config, row, report)).toEqual([
 			"DIGEST: Example 2026-10-08: 5 need attention",
-			`${lines.join("\n")}\n`,
+			`${report.lines.join("\n")}\nChecked 0/1 checks up. Relay keys fired and closed: 0. Mail: 2 sent, 1 dead.\n`,
 		]);
-		expect(towerMessage(config, row, [])).toEqual(["DIGEST: Example 2026-10-08: all up", ""]);
+		expect(towerMessage(config, row, { ...report, lines: [], need: 0, up: 1, sent: 0, dead: 0 })).toEqual([
+			"DIGEST: Example 2026-10-08: all up",
+			"Checked 1/1 checks up. Relay keys fired and closed: 0. Mail: 0 sent, 0 dead.\n",
+		]);
 	});
 });
 
@@ -354,7 +387,7 @@ describe("stuck checks", () => {
 		await minutes(runEnv, hidden, 0, 4, serve(503));
 		expect(stuck(box)).toEqual(["SELF-CHECK FAILING: results for Certificate"]);
 		expect((await status(env.DB, hidden, T0 + 5 * MINUTE)).self).toEqual([]);
-		expect(await attention(env.DB, hidden)).toContain("SELF-CHECK: results for Certificate");
+		expect((await attention(env.DB, hidden)).lines).toContain("SELF-CHECK: results for Certificate");
 		expect((await status(env.DB, makeConfig([cert]), T0 + 5 * MINUTE)).self).toEqual([
 			{ name: "results for Certificate", since: new Date(T0 + 4 * MINUTE).toISOString() },
 		]);
@@ -525,7 +558,7 @@ describe("self-checks with a digest", () => {
 		expect(digests).toHaveLength(2);
 		expect(box.bodies.filter((b) => b.includes("probing stalled"))).toHaveLength(2);
 		expect(box.bodies[0]).toContain("SELF-CHECK: probing stalled");
-		expect(await attention(env.DB, quiet)).toEqual(["SELF-CHECK: probing stalled"]);
+		expect((await attention(env.DB, quiet)).lines).toEqual(["SELF-CHECK: probing stalled"]);
 	});
 
 	it("lists a bad token and a stuck check from their flags and mails nothing", async () => {
@@ -536,7 +569,7 @@ describe("self-checks with a digest", () => {
 		}
 		expect(box.sends).toBe(0);
 		expect(await unsent()).toEqual([]);
-		expect(await attention(env.DB, certs)).toEqual([
+		expect((await attention(env.DB, certs)).lines).toEqual([
 			"SELF-CHECK: results for Certificate",
 			"SELF-CHECK: Cloudflare API token",
 		]);
@@ -555,7 +588,7 @@ describe("self-checks with a digest", () => {
 		}
 		await steadyTick(runEnv, config, T0 - 20 * MINUTE, respond(200));
 		expect(box.subjects.filter((s) => s.startsWith("SELF-CHECK"))).toEqual([]);
-		expect(await attention(env.DB, config)).toContain("SELF-CHECK: relay Alerts is full");
+		expect((await attention(env.DB, config)).lines).toContain("SELF-CHECK: relay Alerts is full");
 	});
 
 	it("mails one direct note at the digest time when writes fail, not before or after", async () => {

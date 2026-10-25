@@ -1,7 +1,7 @@
 import { connect } from "cloudflare:sockets";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
-import { compose, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
+import { compose, NONE, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
 import { attention, digestWrites, raiseStall, reportWriteFailure, selfWrites } from "./self.ts";
 import { DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
@@ -34,6 +34,7 @@ const TIMED = new Set<Check["type"]>(["http", "tcp", "dns"]);
 
 const SKEW_MS = 2000;
 const DAY_MS = 86_400_000;
+const FIRED_DAYS = 7;
 const CONCURRENCY = 6;
 const MAX_ATTEMPTS = 10;
 const LEASE_MS = 50_000;
@@ -272,7 +273,7 @@ function expire(db: D1Database, config: Instance, t: number): D1PreparedStatemen
 			.prepare(
 				`INSERT INTO outbox ("check", "key", at, kind, since, reason, "to") SELECT r.relay, r."key", ?2, 'stale', r.since, json_object('title', r.title), j.value FROM relay_keys r, json_each(?4) j WHERE r.relay = ?1 AND r.seen < ?3 AND ?5 = 0`,
 			)
-			.bind(r.id, t, t - r.grace, route(r), r.digest_only ? 1 : 0),
+			.bind(r.id, t, t - r.grace, route(r), r.digest_only || r.maintenance ? 1 : 0),
 		db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND seen < ?2`).bind(r.id, t - r.grace),
 	]);
 }
@@ -312,6 +313,9 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 			.bind(ids),
 		db.prepare(`DELETE FROM relay_keys WHERE relay NOT IN (SELECT value FROM json_each(?1))`).bind(relays),
 		db
+			.prepare(`DELETE FROM relay_fired WHERE relay NOT IN (SELECT value FROM json_each(?1)) OR last_at < ?2`)
+			.bind(relays, t - FIRED_DAYS * DAY_MS),
+		db
 			.prepare(
 				`DELETE FROM meta WHERE (key LIKE 'burst:%' OR key LIKE 'full:%') AND substr(key, instr(key, ':') + 1) NOT IN (SELECT value FROM json_each(?1))`,
 			)
@@ -346,7 +350,6 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 	)
 		.bind(only)
 		.all<Row>();
-	const lines = results.some((r) => r.kind === "digest") ? await attention(env.DB, config) : [];
 	const relayIds = new Set(config.relays.map((r) => r.id));
 	const checkIds = new Set(config.checks.map((c) => c.id));
 	const transition = (r: Row) => checkIds.has(r.check) && (r.kind === "down" || r.kind === "up");
@@ -359,7 +362,9 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 			: JSON.stringify([r.check, relayIds.has(r.check) ? null : r.key, addr(r)]),
 	);
 	for (const rows of groups.values()) {
-		const composed = compose(config, rows, lines);
+		const digest = rows[0].kind === "digest";
+		const cut = digest ? now() : 0;
+		const composed = compose(config, rows, digest ? await attention(env.DB, config) : NONE);
 		if (!composed) continue;
 		if (now() + SEND_TIMEOUT_MS + DB_MARGIN_MS > until) return;
 		const rowids = JSON.stringify(rows.map((r) => r.rowid));
@@ -368,12 +373,24 @@ async function send(env: RunEnv, config: Instance, until: number, now: () => num
 			.run();
 		const [subject, text] = composed;
 		const sent = await sendMail(env.EMAIL, { from: config.alert.from, to: addr(rows[0]) }, subject, text);
-		const update = sent
-			? env.DB.prepare(`DELETE FROM outbox WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(rowids)
-			: env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?2 WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(
-					rowids,
-					MAX_ATTEMPTS,
-				);
-		await update.run();
+		if (!sent) {
+			await env.DB.prepare(`UPDATE outbox SET dead = attempts >= ?2 WHERE rowid IN (SELECT value FROM json_each(?1))`)
+				.bind(rowids, MAX_ATTEMPTS)
+				.run();
+			continue;
+		}
+		await env.DB.batch([
+			env.DB.prepare(`DELETE FROM outbox WHERE rowid IN (SELECT value FROM json_each(?1))`).bind(rowids),
+			...(digest
+				? [
+						env.DB.prepare(`DELETE FROM relay_fired WHERE last_at <= ?1`).bind(cut),
+						env.DB.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('sent', '0')`),
+					]
+				: [
+						env.DB.prepare(
+							`INSERT INTO meta (key, value) VALUES ('sent', '1') ON CONFLICT (key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`,
+						),
+					]),
+		]);
 	}
 }

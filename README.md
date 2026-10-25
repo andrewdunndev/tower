@@ -47,6 +47,7 @@ An instance is a directory holding `tower.json`, optional `notes/*.md` for maint
 - A tcp check is up when the connection opens and down on a connect error or at the timeout. It sends no data, so a service that accepts and then fails reads as up.
 - A tls check covers the edge certificates Cloudflare serves. An origin certificate failure shows as http 526.
 - Checks run from one Cloudflare location per cron run. There is no multi-location confirmation, so a failure near that location can read as down.
+- A maintenance relay keeps only the keys firing now; resolved history is not kept.
 
 ## Contributing
 

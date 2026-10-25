@@ -33,6 +33,18 @@ describe("the relay through the page and the real prober", () => {
 		expect(await all("SELECT relay FROM relay_keys")).toEqual([]);
 	});
 
+	it("serves a maintenance relay's firing keys to a GET with its bearer token", async () => {
+		const body = JSON.stringify({ title: "Disk full", description: "act now", deduplication_key: "k1", status: "firing" });
+		expect((await post(body, { token: "maint-secret" })).status).toBe(202);
+		const kept = (token: string) =>
+			page.fetch("https://status.example.com/relay/kept", { headers: { Authorization: `Bearer ${token}` } });
+		const res = await kept("maint-secret");
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject([{ key: "k1", title: "Disk full", description: "act now" }]);
+		expect((await kept("wrong")).status).toBe(404);
+		expect((await kept(TOKEN)).status).toBe(404);
+	});
+
 	it("404s a bad token, a trailing slash and a query-string token without writing", async () => {
 		expect((await post(hyperdx("ALERT"), { token: "wrong" })).status).toBe(404);
 		expect((await post(hyperdx("ALERT"), { path: "/relay/incident/" })).status).toBe(404);

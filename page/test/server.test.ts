@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
-import { beat, cached, cacheKey, refuse, relay, watch } from "../src/server.ts";
+import { beat, cached, cacheKey, kept, refuse, relay, watch } from "../src/server.ts";
 
 const request = (method: string, path: string, headers: Record<string, string> = {}) =>
 	new Request(`https://status.example.com${path}`, { method, headers });
@@ -148,6 +148,41 @@ describe("relay", () => {
 	});
 });
 
+describe("kept", () => {
+	const get = (path = "/relay/kept", headers: Record<string, string> = {}) =>
+		new Request(`https://status.example.com${path}`, { headers });
+
+	it("forwards the bearer token and returns the prober's response", async () => {
+		const calls: string[] = [];
+		const env = {
+			TOWER: {
+				kept: async (token: string) => {
+					calls.push(token);
+					return Response.json([{ key: "k1" }]);
+				},
+			},
+		};
+		const res = await kept(get("/relay/kept", { Authorization: "Bearer s3cret" }), env);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual([{ key: "k1" }]);
+		expect(calls).toEqual(["s3cret"]);
+		await kept(get(), env);
+		expect(calls).toEqual(["s3cret", ""]);
+	});
+
+	it("answers 503 with an empty body when the prober throws", async () => {
+		const res = await kept(get(), {
+			TOWER: {
+				kept: async () => {
+					throw new Error("down");
+				},
+			},
+		});
+		expect(res.status).toBe(503);
+		expect(await res.text()).toBe("");
+	});
+});
+
 describe("methods", () => {
 	it("allows only POST on /beat and GET or HEAD elsewhere", () => {
 		for (const [method, path] of [
@@ -157,6 +192,7 @@ describe("methods", () => {
 			["GET", "/api/status"],
 			["POST", "/beat/db"],
 			["POST", "/relay/incident"],
+			["GET", "/relay/kept"],
 		]) {
 			expect(refuse(request(method, path))).toBeNull();
 		}
@@ -168,6 +204,7 @@ describe("methods", () => {
 			["PUT", "/beat/db/fail"],
 			["GET", "/relay/incident"],
 			["PUT", "/relay/incident"],
+			["POST", "/relay/kept"],
 		]) {
 			expect(refuse(request(method, path))?.status).toBe(405);
 		}

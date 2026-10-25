@@ -112,6 +112,17 @@ describe("instance", () => {
 			expect(messages(withRelays({ ...relay, digest_only: "yes" })).length).toBeGreaterThan(0);
 		});
 
+		it("defaults maintenance to false and takes a boolean, with or without a digest", () => {
+			expect(instanceSchema.parse(withRelays(relay)).relays[0].maintenance).toBe(false);
+			expect(instanceSchema.parse(withRelays({ ...relay, maintenance: true })).relays[0].maintenance).toBe(true);
+			expect(messages(withRelays({ ...relay, maintenance: "yes" })).length).toBeGreaterThan(0);
+		});
+
+		it("rejects a relay that is both digest_only and maintenance", () => {
+			const both = { ...withRelays({ ...relay, digest_only: true, maintenance: true }), digest: "07:30" };
+			expect(messages(both)).toEqual(["A relay is either digest_only or maintenance, not both."]);
+		});
+
 		it("rejects digest_only on an instance without a digest", () => {
 			expect(messages({ ...withRelays({ ...relay, digest_only: true }), digest: undefined }).join()).toContain(
 				"digest_only needs",

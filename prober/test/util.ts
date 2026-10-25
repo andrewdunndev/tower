@@ -59,7 +59,7 @@ export function mailbox() {
 }
 
 export async function reset() {
-	const tables = ["state", "samples", "daily", "beats", "events", "outbox", "meta", "relay_keys"];
+	const tables = ["state", "samples", "daily", "beats", "events", "outbox", "meta", "relay_keys", "relay_fired"];
 	await env.DB.batch(tables.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
 	await env.DB.prepare(`DROP TRIGGER IF EXISTS boom`).run();
 	await env.DB.prepare(`INSERT INTO meta (key, value) VALUES ('version', ?1)`).bind(VERSION.id).run();

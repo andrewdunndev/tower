@@ -3,7 +3,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import config from "../../.tower/tower.json";
 import type { Instance } from "../../tools/schema.ts";
 import { recordBeat } from "./heartbeat.ts";
-import { incident } from "./relay.ts";
+import { incident, kept } from "./relay.ts";
 import { tick, watch } from "./run.ts";
 import { status } from "./status.ts";
 
@@ -29,6 +29,10 @@ export class Tower extends WorkerEntrypoint<Env> {
 
 	async incident(token: string, body: string) {
 		return incident(this.env, instance, token, body, Date.now());
+	}
+
+	async kept(token: string) {
+		return kept(this.env, instance, token);
 	}
 }
 

@@ -1,9 +1,12 @@
 import type { Instance } from "../../tools/schema.ts";
+import type { Attention } from "./mail.ts";
 import { MAX_KEYS } from "./relay.ts";
 import { allowance, DEPLOY_GRACE_MS, interval, STUCK_PREFIX, selfName } from "./status.ts";
 
 const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
+const TALLY_LINES = 50;
+const TITLE_CLIP = 120;
 
 type Version = { id: string; timestamp?: string };
 
@@ -153,31 +156,58 @@ function stuckWrites(db: D1Database, config: Instance, t: number): D1PreparedSta
 	];
 }
 
-export async function attention(db: D1Database, config: Instance): Promise<string[]> {
-	const [down, open, mail, flags] = await db.batch<Record<string, string | number>>([
+const stamp = (t: number) => new Date(t).toISOString().slice(5, 16).replace("T", " ");
+
+export async function attention(db: D1Database, config: Instance): Promise<Attention> {
+	const [down, open, fired, mail, flags, sent] = await db.batch<Record<string, string | number>>([
 		db.prepare(`SELECT "check" AS id FROM state WHERE avail = 0`),
-		db.prepare(`SELECT relay AS id, title FROM relay_keys ORDER BY relay, since`),
+		db.prepare(
+			`SELECT k.relay AS id, k.title FROM relay_keys k WHERE NOT EXISTS (SELECT 1 FROM relay_fired f WHERE f.relay = k.relay AND f."key" = k."key") ORDER BY k.relay, k.since`,
+		),
+		db.prepare(
+			`SELECT f.relay AS id, f.title, f.n, f.first_at, f.last_at, EXISTS (SELECT 1 FROM relay_keys k WHERE k.relay = f.relay AND k."key" = f."key") AS open FROM relay_fired f ORDER BY f.first_at, f.rowid`,
+		),
 		db.prepare(
 			`SELECT COALESCE(SUM(dead = 0), 0) AS unsent, COALESCE(SUM(dead), 0) AS dead FROM outbox WHERE kind <> 'digest' AND (dead = 1 OR attempts > 0)`,
 		),
 		db.prepare(`SELECT key FROM meta WHERE key LIKE 'self:%' OR key LIKE 'full:%' OR key = 'stall' ORDER BY key`),
+		db.prepare(`SELECT COALESCE(CAST((SELECT value FROM meta WHERE key = 'sent') AS INTEGER), 0) AS n`),
 	]);
 	const names = new Map<string, string>([
 		...config.checks.map((c) => [c.id, c.name] as const),
 		...config.relays.map((r) => [r.id, r.name] as const),
 	]);
-	const lines = [
+	const listed = new Set(config.relays.filter((r) => !r.maintenance).map((r) => r.id));
+	const downChecks = down.results.filter((r) => config.checks.some((c) => c.id === r.id));
+	const tally = fired.results.filter((r) => names.has(String(r.id)));
+	const tallied = tally
+		.slice(0, TALLY_LINES)
+		.map(
+			(r) =>
+				`${String(r.title).slice(0, TITLE_CLIP)}: fired ${r.n}, first ${stamp(Number(r.first_at))}Z, last ${stamp(Number(r.last_at))}Z, ${r.open ? "open" : "closed"}`,
+		);
+	const more = tally.length - tallied.length;
+	const standing = tally.filter((r) => r.open === 1).length;
+	const before = [
 		...down.results.flatMap((r) => (names.has(String(r.id)) ? [`DOWN: ${names.get(String(r.id))}`] : [])),
-		...open.results.flatMap((r) => (names.has(String(r.id)) ? [`OPEN: ${names.get(String(r.id))}: ${r.title}`] : [])),
-		...flags.results.flatMap((r) => {
-			const key = String(r.key);
-			const relay = key.startsWith("full:") ? names.get(key.slice(5)) : undefined;
-			const what = relay ? `relay ${relay} is full` : selfName(config, key, false);
-			return what ? [`SELF-CHECK: ${what}`] : [];
-		}),
+		...open.results.flatMap((r) => (listed.has(String(r.id)) ? [`OPEN: ${names.get(String(r.id))}: ${r.title}`] : [])),
 	];
+	const after = flags.results.flatMap((r) => {
+		const key = String(r.key);
+		const relay = key.startsWith("full:") ? names.get(key.slice(5)) : undefined;
+		const what = relay ? `relay ${relay} is full` : selfName(config, key, false);
+		return what ? [`SELF-CHECK: ${what}`] : [];
+	});
 	const { unsent, dead } = mail.results[0] as { unsent: number; dead: number };
-	if (unsent > 0) lines.push(`MAIL: ${unsent} unsent`);
-	if (dead > 0) lines.push(`MAIL: ${dead} dead`);
-	return lines;
+	if (unsent > 0) after.push(`MAIL: ${unsent} unsent`);
+	if (dead > 0) after.push(`MAIL: ${dead} dead`);
+	return {
+		lines: [...before, ...tallied, ...(more > 0 ? [`and ${more} more`] : []), ...after],
+		need: before.length + after.length + standing,
+		up: config.checks.length - downChecks.length,
+		total: config.checks.length,
+		closed: tally.length - standing,
+		sent: Number(sent.results[0].n),
+		dead,
+	};
 }

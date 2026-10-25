@@ -158,6 +158,7 @@ const relay = z.strictObject({
 	grace: duration.refine((ms) => ms <= WEEK_MS, "use at most 7 days.").default(900_000),
 	to,
 	digest_only: z.boolean().default(false),
+	maintenance: z.boolean().default(false),
 });
 
 const check = z.discriminatedUnion("type", [http, tcp, dns, tls, heartbeat], {
@@ -223,6 +224,13 @@ export const instanceSchema = z
 				});
 			}
 			hashes.add(r.token_sha256);
+			if (r.digest_only && r.maintenance) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["relays", i, "maintenance"],
+					message: "A relay is either digest_only or maintenance, not both.",
+				});
+			}
 			if (r.digest_only && !inst.digest) {
 				ctx.addIssue({
 					code: "custom",

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 (2026-10-24)
+
+- Relay mail is verbatim. The subject is the sender's `title` and the body its `description`, with no label, relay name or key; the mail transport reduces the text to printable ASCII. A resolve mails under the title the key last fired with. A blank title answers `400`; titles clip at 900 characters. `STOPPED REPORTING` and `ALERTS` keep their own format.
+- A `digest_only` relay tallies every key fired since the last digest, so a key that fired and resolved between digests is listed: `<title>: fired <n>, first ..., last ..., open|closed`. Migration `0004_fired` adds the tally table and a `description` column.
+- A relay takes `maintenance`: keys are recorded, nothing is mailed or digested, and `GET /relay/kept` with the relay's token returns the keys firing now with their title and description.
+- The `DIGEST` body always ends with a summary line: checks up, relay keys fired and closed, mail sent and dead. An all-up day is no longer blank. Rolling back to 0.5.0 ignores migration `0004_fired` and leaves `relay_fired` unpruned.
+
 ## 0.5.0 (2026-10-17)
 
 - Mail is for outages. Self-checks no longer mail when they fail: the `DIGEST` lists a failing Cloudflare API token, `results for <check>`, `probing stalled` and a full relay while it lasts. Where the digest cannot be produced, one `SELF-CHECK FAILING` mail goes out at the digest time instead: from the page Worker when the prober does not answer (was hourly), from the prober when D1 writes fail. An instance without `digest` keeps `SELF-CHECK FAILING` as push.

@@ -39,6 +39,12 @@
 			"name": "Alerts",
 			"token_sha256": "e2ee0f71b8609552218a4d0cc72f57e0860fb488e8180514130f1f22d5a6571f",
 			"grace": "15m"
+		},
+		{
+			"id": "queue",
+			"name": "Queue",
+			"token_sha256": "5eb88f84c815cfe3cbe14a0d6762c6e948094a9d1225a3c0918534fac45da89e",
+			"maintenance": true
 		}
 	]
 }
