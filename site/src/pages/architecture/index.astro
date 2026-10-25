@@ -18,7 +18,7 @@ import Relay from '../../figures/05-relay.astro';
 
     <Split>
       <h2 id="workers">Two Workers</h2>
-      <p>The prober runs on a cron each minute, runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober.</p>
+      <p>The prober runs on a cron each minute, runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober. An optional third Worker, <code>outside</code>, polls <code>/healthz</code> every minute from its own database and mails when it stops answering.</p>
       <Fragment slot="aside">
         <figure class="diagram">
         <div class="figure-pair">
@@ -83,7 +83,7 @@ import Relay from '../../figures/05-relay.astro';
       <div class="section-prose" data-step="1">The prober flags any check with no conclusive result for three of its intervals plus a minute, and the daily digest lists the flag while it lasts. A probe that stays inconclusive or misconfigured, such as a tls check with an unset token, counts as no result, so a check that stops producing results still shows up.</div>
       <div class="section-prose" data-step="2">The page Worker's minute cron asks the prober to watch its last run. If no run has written results for three of the shortest intervals plus a minute, the prober mails that probing stalled, and again every three hours until probing resumes. Because the page Worker's cron asks, not the prober's own, the mail survives a dead prober cron. Failing database writes mail the same way.</div>
       <div class="section-prose" data-step="3">If the prober does not answer at all, the page Worker mails that probing stalled and the prober did not answer, and repeats every three hours until it does. This is the only mail the page Worker sends: it holds no secrets or storage, and the prober sends every other alert.</div>
-      <div class="section-prose" data-step="4">When both Workers are dead, an account or platform failure, nothing can mail. The daily digest, at 12:00 UTC unless you choose another time, is the alarm: a missing digest means something is wrong. A normal day's digest is the subject <code>all up</code> and one summary line. An outside poller can read <code>/healthz</code>, which answers <code>ok</code> only while the prober runs and no mail is dead, or <code>/api/status</code> for the detail.</div>
+      <div class="section-prose" data-step="4">When both Workers are dead, an account or platform failure, nothing can mail. The daily digest, at 12:00 UTC unless you choose another time, is the alarm: a missing digest means something is wrong. A normal day's digest is the subject <code>all up</code> and one summary line. The optional <code>outside</code> Worker polls <code>/healthz</code> and mails after two failing minutes, but runs on Cloudflare too. Any other outside poller can read <code>/healthz</code>, which answers <code>ok</code> only while the prober runs and no mail is dead, or <code>/api/status</code> for the detail.</div>
       <div slot="figure" class="figure-pair"><Watch /></div>
     </DiagramTrack>
 
@@ -105,7 +105,7 @@ import Relay from '../../figures/05-relay.astro';
       <li>Checks run from one Cloudflare location per cron run, so a failure near it can read as down.</li>
       <li>Relays have no silences.</li>
       <li>A relay holds at most 100 open keys. A firing past that is rejected, and the digest says so.</li>
-      <li>If both Workers are dead, nothing mails, and only the missing digest says so.</li>
+      <li>If both Workers are dead, nothing mails, and only the missing digest says so. The outside watcher runs on Cloudflare too.</li>
     </ul>
     </div>
   </article>

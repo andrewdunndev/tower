@@ -8,7 +8,7 @@
 
 ## Instance
 
-`tower.json` ([`example/`](../example) is a starter) names the instance with a required `name`, a slug of lowercase letters, digits and hyphens, at most 54 characters. It derives every Cloudflare resource: Workers `<name>-prober` and `<name>-page`, the service binding between them and the D1 database `<name>`. Two instances with different names can share an account. Renaming deploys a new, empty instance and leaves the old Workers and D1 database in place to delete by hand.
+`tower.json` ([`example/`](../example) is a starter) names the instance with a required `name`, a slug of lowercase letters, digits and hyphens, at most 54 characters. It derives every Cloudflare resource: Workers `<name>-prober` and `<name>-page`, the service binding between them and the D1 database `<name>`. With `"outside": true` also the Worker `<name>-outside` and the D1 database `<name>-outside`. Two instances with different names can share an account. Renaming deploys a new, empty instance and leaves the old Workers and D1 database in place to delete by hand.
 
 Notes are Markdown files in `notes/` with this frontmatter:
 
@@ -145,7 +145,7 @@ D1 time travel also restores the database to any minute inside your plan's reten
 
 ## External monitoring
 
-tower reports a stalled prober and failing database writes itself, so polling is optional. If both Workers are dead, an account or platform failure, nothing can mail: set `digest` and treat a missing digest as the alarm, or poll from outside.
+tower reports a stalled prober and failing database writes itself, so polling is optional. If both Workers are dead, an account or platform failure, nothing can mail: treat a missing digest as the alarm, or poll from outside. [Outside watcher](#outside-watcher) does the polling.
 
 `GET https://<domain>/healthz` answers `200` with body `ok` only when the prober's last run is within `max(5 min, 3 x shortest interval + 1 min)` (ignored for 15 minutes after a deploy) and no outbox row is dead. Otherwise it answers `503` with `stale`, `dead` or `unavailable`. It sends `Cache-Control: no-store`, never redirects and carries no data. Each request reads D1, so include it in the zone's WAF rate limiting. A dead row keeps it `503` for the 24 hours dead rows are kept.
 
@@ -160,6 +160,21 @@ A Cloudflare Health Check on it: GET, port 443, `expected_codes` 200, `expected_
 - `dead_outbox` counts mails that gave up in the last 24 h, one per address.
 - `stuck` counts public checks with no conclusive run inside three intervals plus a minute.
 - `self` lists failing self-checks by name with the time the flag was set. `probing stalled` and `database writes` are mail-only and never listed.
+
+## Outside watcher
+
+`"outside": true` in `tower.json` deploys a third Worker, `<name>-outside`, with its own D1 database `<name>-outside`. It has no binding to the prober, the page or their database. Each minute it runs `GET https://<domain>/healthz` without following redirects and allows 10 seconds. Only `200` with body `ok` is healthy. Anything else fails: `503` with `stale`, `dead` or `unavailable`, any other status, a timeout or a network error. It mails `alert.from` to `alert.to`; interval, timeout and thresholds are fixed.
+
+| Mail | When |
+|---|---|
+| `OUTSIDE CHECK FAILING: <domain>` | the second consecutive failing minute, so 1 to 2 minutes after the route starts failing; then every 3 hours while it fails |
+| `OUTSIDE CHECK RECOVERED: <domain>` | the first healthy minute after a failing mail; a failure that clears before its mail sends nothing |
+
+The mail names the reason, `<status> <body>`, `no answer within 10 s` or `network error`, and when the failure began. A mail that does not send is retried on the next minute.
+
+It catches a dark route, a stalled or dead prober, a dead mail row, `unavailable`, a dead page Worker, and a certificate or DNS fault on the route. A WAF or Access rule that challenges Workers on `/healthz` reads as failing. It runs on Cloudflare, as does its mail, so a Cloudflare-wide outage silences it too; the missing digest remains the alarm for that.
+
+Turning `outside` off stops deploying the Worker but leaves the deployed one running. Remove it with `npx wrangler delete --name <name>-outside` and `npx wrangler d1 delete <name>-outside`.
 
 ## Upgrade
 
