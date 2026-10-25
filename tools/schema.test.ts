@@ -123,10 +123,8 @@ describe("instance", () => {
 			expect(messages(both)).toEqual(["A relay is either digest_only or maintenance, not both."]);
 		});
 
-		it("rejects digest_only on an instance without a digest", () => {
-			expect(messages({ ...withRelays({ ...relay, digest_only: true }), digest: undefined }).join()).toContain(
-				"digest_only needs",
-			);
+		it("takes digest_only on an instance that never set a digest", () => {
+			expect(messages(withRelays({ ...relay, digest_only: true }))).toEqual([]);
 		});
 
 		it("rejects an unknown relay key", () => {
@@ -171,6 +169,10 @@ describe("instance", () => {
 		it("limits grace to 7 days", () => {
 			expect(messages(withRelays({ ...relay, grace: "7d" }))).toEqual([]);
 			expect(messages(withRelays({ ...relay, grace: "8d" }))).toContain("use at most 7 days.");
+		});
+
+		it("defaults digest to 12:00 UTC", () => {
+			expect(instanceSchema.parse({ ...example, digest: undefined }).digest).toBe("12:00");
 		});
 
 		it("takes digest as a UTC time of day", () => {

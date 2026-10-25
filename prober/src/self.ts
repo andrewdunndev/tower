@@ -77,7 +77,6 @@ export async function reportWriteFailure(db: D1Database, send: Send, t: number):
 }
 
 export function digestWrites(db: D1Database, config: Instance, t: number, guard = "1"): D1PreparedStatement[] {
-	if (!config.digest) return [];
 	const day = new Date(t).toISOString().slice(0, 10);
 	const due = Date.parse(`${day}T${config.digest}:00Z`);
 	return [

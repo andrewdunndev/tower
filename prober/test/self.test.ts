@@ -106,7 +106,7 @@ describe("digest", () => {
 		expect(await all("SELECT value FROM meta WHERE key = 'sent'")).toEqual([{ value: "0" }]);
 	});
 
-	it("lists only what needs attention, and sends nothing without a digest time", async () => {
+	it("lists only what needs attention, and sends nothing before the digest time", async () => {
 		const { runEnv, box } = mailbox();
 		const noisy = makeConfig([unhealthy], { digest: "07:30" });
 		await tick(runEnv, noisy, at(7, 30), at(7, 30), respond(500));
@@ -163,12 +163,8 @@ const flagKeys = async () =>
 		(r) => r.key,
 	);
 
-describe.each([
-	["without a digest", undefined],
-	["with a digest", "12:00"],
-])("digest-only flags %s", (_, digest) => {
+describe("digest-only flags", () => {
 	const base = T0 - 60 * MINUTE;
-	const extra = digest ? { digest } : {};
 	const live = () => {
 		const { runEnv, box } = mailbox();
 		return { box, env: { ...runEnv, CF_API_TOKEN: "tok" } };
@@ -189,7 +185,7 @@ describe.each([
 	};
 
 	it("flags a 401 without mail, holds on a 503, clears on an authenticated run", async () => {
-		const config = makeConfig([cert], extra);
+		const config = makeConfig([cert]);
 		const { box, env: runEnv } = live();
 		await minutes(runEnv, config, 0, 0, cloudflare(401));
 		expect(box.sends).toBe(0);
@@ -197,7 +193,7 @@ describe.each([
 		expect((await status(env.DB, config, base + MINUTE)).self).toEqual([
 			{ name: "Cloudflare API token", since: new Date(base).toISOString() },
 		]);
-		if (digest) expect(await attentionOf(config)).toEqual(["SELF-CHECK: Cloudflare API token"]);
+		expect(await attentionOf(config)).toEqual(["SELF-CHECK: Cloudflare API token"]);
 		await minutes(runEnv, config, 1, 1, cloudflare(503));
 		expect(await flagKeys()).toEqual(["self:token"]);
 		await minutes(runEnv, config, 2, 2, cloudflare([]));
@@ -207,16 +203,16 @@ describe.each([
 
 	it("flags an unset secret, and nothing without a tls check", async () => {
 		const { runEnv, box } = mailbox();
-		await minutes(runEnv, makeConfig([cert], extra), 0, 0, cloudflare([]));
+		await minutes(runEnv, makeConfig([cert]), 0, 0, cloudflare([]));
 		expect(await flagKeys()).toEqual(["self:token"]);
 		await reset();
-		await minutes(runEnv, makeConfig([web], extra), 0, 0, respond(200));
+		await minutes(runEnv, makeConfig([web]), 0, 0, respond(200));
 		expect(await flagKeys()).toEqual([]);
 		expect(box.sends).toBe(0);
 	});
 
 	describe("stuck checks", () => {
-		const config = makeConfig([web, cert], extra);
+		const config = makeConfig([web, cert]);
 
 		it("flags a check with no conclusive result at exactly three intervals plus a minute, and no other", async () => {
 			const { box, env: runEnv } = live();
@@ -226,7 +222,7 @@ describe.each([
 			expect(await flagKeys()).toEqual(["self:stuck:cert"]);
 			expect(await all("SELECT avail FROM state WHERE \"check\" = 'web'")).toEqual([{ avail: 1 }]);
 			expect(box.sends).toBe(0);
-			if (digest) expect(await attentionOf(config)).toEqual(["SELF-CHECK: results for Certificate"]);
+			expect(await attentionOf(config)).toEqual(["SELF-CHECK: results for Certificate"]);
 		});
 
 		it("keeps the flag when a superseded run sees a conclusive result, clears it on a later one", async () => {
@@ -244,7 +240,7 @@ describe.each([
 
 		it("gives a check added later three intervals plus a minute from when it was added", async () => {
 			const { env: runEnv } = live();
-			await minutes(runEnv, makeConfig([web], extra), 0, 9, serve(503));
+			await minutes(runEnv, makeConfig([web]), 0, 9, serve(503));
 			await minutes(runEnv, config, 10, 13, serve(503));
 			expect(await flagKeys()).toEqual([]);
 			await minutes(runEnv, config, 14, 14, serve(503));
@@ -253,7 +249,7 @@ describe.each([
 
 		it("counts a check by its own interval", async () => {
 			const { env: runEnv } = live();
-			const hourly = makeConfig([web, { ...cert, every: "1h" }], extra);
+			const hourly = makeConfig([web, { ...cert, every: "1h" }]);
 			await minutes(runEnv, hourly, 0, 5, serve(503));
 			expect(await flagKeys()).toEqual([]);
 			await tick(runEnv, hourly, base + 3 * 3_600_000 + MINUTE, base + 3 * 3_600_000 + MINUTE, serve(503));
@@ -262,7 +258,7 @@ describe.each([
 
 		it("flags a check that never runs because its slot is ahead of the clock, and clears when it runs", async () => {
 			const { runEnv, box } = mailbox();
-			const one = makeConfig([web], extra);
+			const one = makeConfig([web]);
 			await minutes(runEnv, one, 0, 0, respond(200));
 			await env.DB.prepare(`UPDATE state SET slot = 9e15 WHERE "check" = 'web'`).run();
 			await minutes(runEnv, one, 1, 4, respond(200));
@@ -275,11 +271,11 @@ describe.each([
 
 		it("flags a private check but shows only a public one in status", async () => {
 			const { env: runEnv } = live();
-			const hidden = makeConfig([{ ...cert, public: false }], extra);
+			const hidden = makeConfig([{ ...cert, public: false }]);
 			await minutes(runEnv, hidden, 0, 4, serve(503));
 			expect((await status(env.DB, hidden, base + 5 * MINUTE)).self).toEqual([]);
 			expect(await attentionOf(hidden)).toContain("SELF-CHECK: results for Certificate");
-			expect((await status(env.DB, makeConfig([cert], extra), base + 5 * MINUTE)).self).toEqual([
+			expect((await status(env.DB, makeConfig([cert]), base + 5 * MINUTE)).self).toEqual([
 				{ name: "results for Certificate", since: new Date(base + 4 * MINUTE).toISOString() },
 			]);
 		});
@@ -288,7 +284,7 @@ describe.each([
 			const { env: runEnv } = live();
 			await minutes(runEnv, config, 0, 4, serve(503));
 			expect(await flagKeys()).toEqual(["self:stuck:cert"]);
-			await minutes(runEnv, makeConfig([web], extra), 5, 5, serve(503));
+			await minutes(runEnv, makeConfig([web]), 5, 5, serve(503));
 			expect(await flagKeys()).toEqual([]);
 		});
 	});
@@ -297,7 +293,6 @@ describe.each([
 		const { runEnv, box } = mailbox();
 		const token = "relay-secret";
 		const config = makeConfig([web], {
-			...extra,
 			relays: [{ id: "alerts", name: "Alerts", token_sha256: await sha256(token), grace: "1h" }],
 		});
 		const fire = (key: string, state = "firing") =>
@@ -308,7 +303,7 @@ describe.each([
 		expect(await all("SELECT count(*) AS n FROM outbox")).toEqual(queued);
 		await steadyTick(runEnv, config, base + MINUTE, respond(200));
 		expect(await flagKeys()).toContain("full:alerts");
-		if (digest) expect(await attentionOf(config)).toContain("SELF-CHECK: relay Alerts is full");
+		expect(await attentionOf(config)).toContain("SELF-CHECK: relay Alerts is full");
 		expect(box.subjects.filter((s) => s.startsWith("SELF-CHECK"))).toEqual([]);
 		await fire("k0", "resolved");
 		await steadyTick(runEnv, config, base + 2 * MINUTE, respond(200));
@@ -475,11 +470,8 @@ describe("stalled prober", () => {
 		);
 	});
 
-	describe.each([
-		["without a digest", undefined],
-		["with a digest", "12:00"],
-	])("%s", (_, digest) => {
-		const stalled = makeConfig([web], digest ? { digest } : {});
+	describe("stall", () => {
+		const stalled = makeConfig([web]);
 		const start = async () => {
 			const mail = mailbox();
 			await tick(mail.runEnv, stalled, T0 - 60 * MINUTE, T0 - 60 * MINUTE, respond(200));

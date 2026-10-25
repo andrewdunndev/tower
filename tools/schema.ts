@@ -201,7 +201,7 @@ export const instanceSchema = z
 		digest: z
 			.string()
 			.regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use a UTC time of day such as "07:30".')
-			.optional(),
+			.default("12:00"),
 	})
 	.superRefine((inst, ctx) => {
 		const seen = new Set<string>();
@@ -249,13 +249,6 @@ export const instanceSchema = z
 					code: "custom",
 					path: ["relays", i, "maintenance"],
 					message: "A relay is either digest_only or maintenance, not both.",
-				});
-			}
-			if (r.digest_only && !inst.digest) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["relays", i, "digest_only"],
-					message: 'digest_only needs "digest" set: without a digest its keys are never listed.',
 				});
 			}
 		}

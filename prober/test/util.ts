@@ -20,6 +20,7 @@ export function makeConfig(
 			domain: "status.example.com",
 			alert: { from: "tower@example.com", to: "oncall@example.com" },
 			checks,
+			digest: "23:59",
 			...extra,
 		}),
 		maintenance,

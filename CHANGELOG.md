@@ -3,6 +3,7 @@
 ## 0.7.0 (2026-10-25)
 
 - Self-failures mail at onset and every 3 hours while they hold, nothing on recovery: `probing stalled` (from the prober, or from the page Worker when the prober does not answer) and the new `database writes`. A bad Cloudflare API token, `results for <check>` and a full relay are digest-only, with or without `digest`; the `SELF-CHECK` mail for them is gone, so set `digest` to see them. The page Worker's hourly mail and the exact-minute digest window are gone.
+- `digest` defaults to `12:00` UTC: an instance that never set it now receives a daily mail. `digest_only` no longer needs it.
 - Mail is retried with backoff, 1 minute doubling to 15, and goes dead after 24 hours instead of 10 tries. A rejected recipient or sender goes dead after 3 tries. A `DOWN` whose check is still down is never dead.
 - `GET /healthz` answers `200 ok` while the prober's last run is recent and no mail is dead, otherwise `503` with `stale`, `dead` or `unavailable`.
 - A relay with 200 mails waiting answers `503` to a new key, so senders retry; `rejected` now means 100 open keys.
