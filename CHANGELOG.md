@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Probing runs from a Durable Object alarm that re-arms itself each minute; the cron only re-arms it. Cloudflare skipped about 15% of cron minutes. Redeploy to add the `Ticker` object.
+
 ## 0.8.0 (2026-10-26)
 
 - New optional `stall_after` (such as `"15m"`) sets how long probing may go without a run before `probing stalled` mails, and when `/healthz` answers `stale`. Unset keeps three of the shortest interval plus a minute.

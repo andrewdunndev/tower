@@ -1,12 +1,13 @@
-import { connect } from "cloudflare:sockets";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import config from "../../.tower/tower.json";
 import type { Instance } from "../../tools/schema.ts";
 import { recordBeat } from "./heartbeat.ts";
 import { incident, kept } from "./relay.ts";
-import { tick, watch } from "./run.ts";
+import { watch } from "./run.ts";
 import { health } from "./self.ts";
 import { status } from "./status.ts";
+
+export { Ticker } from "./ticker.ts";
 
 const instance = config as Instance;
 
@@ -42,7 +43,7 @@ export class Tower extends WorkerEntrypoint<Env> {
 }
 
 export default {
-	async scheduled(controller, env) {
-		await tick(env, instance, controller.scheduledTime, Date.now(), fetch, connect);
+	async scheduled(_controller, env) {
+		await env.TICKER.getByName("tower").kick();
 	},
 } satisfies ExportedHandler<Env>;

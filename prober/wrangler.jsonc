@@ -5,6 +5,8 @@
 	"preview_urls": false,
 	"observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } },
 	"triggers": { "crons": ["* * * * *"] },
+	"durable_objects": { "bindings": [{ "name": "TICKER", "class_name": "Ticker" }] },
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ticker"] }],
 	"d1_databases": [{ "binding": "DB" }],
 	"send_email": [{ "name": "EMAIL" }],
 	"version_metadata": { "binding": "VERSION" }
