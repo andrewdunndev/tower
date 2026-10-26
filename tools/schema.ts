@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONCURRENCY, DB_MARGIN_MS, fits, SKEW_MS } from "./budget.ts";
+import { allowance, CONCURRENCY, DB_MARGIN_MS, fits, SKEW_MS } from "./budget.ts";
 
 z.config({
 	customError: (iss) => {
@@ -200,6 +200,7 @@ export const instanceSchema = z
 			to: email,
 		}),
 		timeout_ms: z.number().int().min(1000).max(30000).default(10000),
+		stall_after: duration.refine((ms) => ms <= 86_400_000, "use at most 1 day.").optional(),
 		checks: z.array(check).min(1, "list at least one check."),
 		relays: z.array(relay).default([]),
 		outside: z.boolean().default(false),
@@ -229,6 +230,14 @@ export const instanceSchema = z
 				code: "custom",
 				path: ["timeout_ms"],
 				message: `${probes} probes at a ${inst.timeout_ms / 1000} s timeout can need ${need / 1000} s, more than the ${budget / 1000} s the shortest interval (${shortest / 1000} s) leaves: lower timeout_ms, drop checks, or lengthen every.`,
+			});
+		}
+		const floor = allowance(shortest);
+		if (inst.stall_after !== undefined && inst.stall_after < floor) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["stall_after"],
+				message: `use at least ${floor / 60_000} minutes, three of the shortest interval plus a minute: a shorter window fires on every healthy gap.`,
 			});
 		}
 		const hashes = new Set<string>();

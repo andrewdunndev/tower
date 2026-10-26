@@ -287,6 +287,29 @@ describe("note", () => {
 	});
 });
 
+describe("stall_after", () => {
+	const stall = (stall_after: unknown, ...checks: Json[]) => messages({ ...instance(...checks), stall_after });
+
+	it("takes a duration at or above three of the shortest interval plus a minute, up to a day", () => {
+		expect(stall("4m", http)).toEqual([]);
+		expect(stall("1d", http)).toEqual([]);
+		expect(stall("16m", { ...http, every: "5m" })).toEqual([]);
+	});
+
+	it("rejects a value below the derived window or above a day", () => {
+		expect(stall("3m", http)).toEqual([
+			"use at least 4 minutes, three of the shortest interval plus a minute: a shorter window fires on every healthy gap.",
+		]);
+		expect(stall("15m", { ...http, every: "5m" })).toHaveLength(1);
+		expect(stall("2d", http)).toEqual(["use at most 1 day."]);
+		expect(stall("90", http)).not.toEqual([]);
+	});
+
+	it("is optional", () => {
+		expect(instanceSchema.parse(instance(http)).stall_after).toBeUndefined();
+	});
+});
+
 describe("run budget", () => {
 	const many = (n: number, extra: Json = {}) =>
 		Array.from({ length: n }, (_, i) => ({ ...http, id: `web${i}`, ...extra }));

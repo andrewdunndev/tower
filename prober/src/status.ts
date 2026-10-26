@@ -1,3 +1,4 @@
+import { allowance } from "../../tools/budget.ts";
 import type { Check, Instance } from "../../tools/schema.ts";
 
 const MINUTE_MS = 60_000;
@@ -5,8 +6,6 @@ const DAY_MS = 86_400_000;
 const BUCKET_MS = 300_000;
 const POINTS = 288;
 export const DAYS = 90;
-const STALE_INTERVALS = 3;
-const CRON_SLACK_MS = 60_000;
 export const DEPLOY_GRACE_MS = 15 * MINUTE_MS;
 export const STUCK_PREFIX = "self:stuck:";
 const SELF_NAMES: Record<string, string> = {
@@ -18,7 +17,6 @@ const SELF_NAMES: Record<string, string> = {
 const iso = (t: number) => new Date(t).toISOString();
 
 export const interval = (c: Check) => (c.type === "heartbeat" ? MINUTE_MS : c.every);
-export const allowance = (every: number) => STALE_INTERVALS * every + CRON_SLACK_MS;
 
 export function selfName(config: Instance, key: string, publicOnly: boolean): string | undefined {
 	if (!key.startsWith(STUCK_PREFIX)) return SELF_NAMES[key];
