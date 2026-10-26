@@ -484,7 +484,7 @@ describe("stalled prober", () => {
 		await watch(runEnv, config, ONSET);
 		expect(box.subjects).toEqual(["SELF-CHECK FAILING: probing stalled"]);
 		expect(box.bodies[0]).toBe(
-			`No probe run has written results since ${new Date(T0).toISOString()}; detected ${new Date(ONSET).toISOString()}. The prober's cron trigger or its runs are failing; its Worker log says which. This repeats every 3 hours until probing resumes.\r\n`,
+			`No probe run has written results since ${new Date(T0).toISOString()}; detected ${new Date(ONSET).toISOString()}. The prober's alarm or its runs are failing; its Worker log says which. This repeats every 3 hours until probing resumes.\r\n`,
 		);
 	});
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # The prober, page and outside watcher under wrangler dev with a local D1, the example instance pointed at a target served here: a fast
-# check, a check whose target never answers, and a 3-minute cron gap with jitter. Run from the repo root after npm ci.
+# check and a check whose target never answers. One scheduled kick starts the prober's Durable Object alarm, which runs the probes. Run from the repo root after npm ci.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 T=8797 P=8798 G=8799 O=8800 I=8898
@@ -101,20 +101,21 @@ ok "one failing mail" 1 "$(watched 'OUTSIDE CHECK FAILING')"
 dev page $G --persist-to "$work/page-state"
 up "http://127.0.0.1:$G/favicon.svg"
 
-m=$((($(date +%s) - 213) / 60 * 60))
-echo "== tick at :58 jitter, then 3m05s later; the slow target holds each run to its 20 s budget"
-tick $(((m - 2) * 1000))
-tick $(((m + 183) * 1000))
+echo "== one kick; the alarm runs the probes, the slow target holds the run to its 20 s budget"
+tick $(($(date +%s) * 1000))
+row() { node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))[0].results[0][process.argv[2]])' "$work/state.json" "$1"; }
+for _ in $(seq 24); do
+	d1 execute DB --json --command \
+		"SELECT (SELECT reason FROM state WHERE \"check\" = 'slow') AS reason, (SELECT count(*) FROM outbox) AS queued" \
+		> "$work/state.json" 2> "$work/execute.log" || { tail -20 "$work/execute.log"; exit 1; }
+	[ "$(row reason)" = "probe outlived the run" ] && break
+	sleep 5
+done
 
 status=$(curl -sSf "http://127.0.0.1:$G/api/status") || logs
 level() { node -e 'console.log(JSON.parse(process.argv[1]).checks.find((c) => c.name === process.argv[2])?.status)' "$status" "$1"; }
 ok "fast check reads up" up "$(level Website)"
 ok "slow check reads unknown, not down" unknown "$(level Slow)"
-
-d1 execute DB --json --command \
-	"SELECT (SELECT reason FROM state WHERE \"check\" = 'slow') AS reason, (SELECT count(*) FROM outbox) AS queued" \
-	> "$work/state.json" 2> "$work/execute.log" || { tail -20 "$work/execute.log"; exit 1; }
-row() { node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))[0].results[0][process.argv[2]])' "$work/state.json" "$1"; }
 ok "slow check verdict" "probe outlived the run" "$(row reason)"
 ok "outbox drained" 0 "$(row queued)"
 
@@ -123,7 +124,7 @@ for f in $(grep -ho 'Email: [^[:space:]]*\.eml' "$work/prober.log" | cut -c8- ||
 	grep -h '^Subject:' "$f" >> "$work/subjects"
 done
 ok "no deploy mail" 0 "$(grep -c '^Subject: DEPLOYED' "$work/subjects" || true)"
-ok "no SELF-CHECK mail for the gap" 0 "$(grep -c '^Subject: SELF-CHECK' "$work/subjects" || true)"
+ok "no SELF-CHECK mail" 0 "$(grep -c '^Subject: SELF-CHECK' "$work/subjects" || true)"
 
 echo "== healthz answers again: outside mails recovery once"
 watch $((w + 180000))

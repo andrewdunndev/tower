@@ -18,7 +18,7 @@ import Relay from '../../figures/05-relay.astro';
 
     <Split>
       <h2 id="workers">Two Workers</h2>
-      <p>The prober runs on a cron each minute, runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober. An optional third Worker, <code>outside</code>, polls <code>/healthz</code> every minute from its own database and mails when it stops answering.</p>
+      <p>A Durable Object alarm drives the prober each minute and the cron re-arms it; it runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober. An optional third Worker, <code>outside</code>, polls <code>/healthz</code> every minute from its own database and mails when it stops answering.</p>
       <Fragment slot="aside">
         <figure class="diagram">
         <div class="figure-pair">
@@ -31,7 +31,7 @@ import Relay from '../../figures/05-relay.astro';
 
     <h2 id="check">A check's life</h2>
     <DiagramTrack>
-      <div class="section-prose" data-step="1">A probed check starts up, and each passing run keeps it there. The prober runs on a cron each minute and runs the checks that are due. When runs fail, it stays up and counts the failures until <code>down_after</code> runs in a row have failed.</div>
+      <div class="section-prose" data-step="1">A probed check starts up, and each passing run keeps it there. A Durable Object alarm runs the checks that are due each minute. When runs fail, it stays up and counts the failures until <code>down_after</code> runs in a row have failed.</div>
       <div class="section-prose" data-step="2">When <code>down_after</code> runs in a row have failed, the check goes down and the change queues one DOWN mail in the outbox. The failure reason goes to that mail and the Worker log only, never the public page. A maintenance note suppresses alerts for its checks inside its window.</div>
       <div class="section-prose" data-step="3">Once runs pass again, the check stays down and counts the passes, until <code>up_after</code> runs in a row have passed. Meanwhile the public page shows it down by name, with how long it has held that status, its uptime and its response times, while its address stays behind.</div>
       <div class="section-prose" data-step="4">When <code>up_after</code> runs in a row have passed, the check is up again and the change queues one UP mail, so tower mails once when a check goes down and once when it recovers. Each mail waits in the outbox until it sends: a failed send is tried again on the next run.</div>
@@ -67,7 +67,7 @@ import Relay from '../../figures/05-relay.astro';
 
     <Split>
       <h2 id="names">Names only</h2>
-      <p>Failure reasons go to the alert mail and the Worker log only. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
+      <p>Failure reasons go to the alert mail and the Worker log only. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped prober cannot leave a stale green page.</p>
       <Fragment slot="aside">
         <figure class="diagram">
         <div class="figure-pair">
@@ -102,7 +102,7 @@ import Relay from '../../figures/05-relay.astro';
       <li>A tcp check against a Cloudflare-proxied address, or one Cloudflare blocks, reads as down.</li>
       <li>A tcp check sends no data, so a service that accepts and then fails reads as up.</li>
       <li>A tls check covers edge certificates. An origin certificate failure shows as http 526.</li>
-      <li>Checks run from one Cloudflare location per cron run, so a failure near it can read as down.</li>
+      <li>Checks run from one Cloudflare location per run, so a failure near it can read as down.</li>
       <li>Relays have no silences.</li>
       <li>A relay holds at most 100 open keys. A firing past that is rejected, and the digest says so.</li>
       <li>If both Workers are dead, nothing mails, and only the missing digest says so. The outside watcher runs on Cloudflare too.</li>

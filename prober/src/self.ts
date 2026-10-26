@@ -39,7 +39,7 @@ export async function raiseStall(
 	await selfAlert(d1Latch(db), "stall", t, () =>
 		send(
 			"SELF-CHECK FAILING: probing stalled",
-			`No probe run has written results since ${new Date(row.run).toISOString()}; detected ${new Date(t).toISOString()}. The prober's cron trigger or its runs are failing; its Worker log says which. This repeats every ${REPEAT_HOURS} hours until probing resumes.\n`,
+			`No probe run has written results since ${new Date(row.run).toISOString()}; detected ${new Date(t).toISOString()}. The prober's alarm or its runs are failing; its Worker log says which. This repeats every ${REPEAT_HOURS} hours until probing resumes.\n`,
 		),
 	);
 	return true;

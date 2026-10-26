@@ -53,10 +53,12 @@ describe("resource names", () => {
 		]);
 	});
 
-	it("carries the cron and the DB, EMAIL and VERSION bindings into the staged prober", () => {
+	it("carries the cron, the TICKER object and the DB, EMAIL and VERSION bindings into the staged prober", () => {
 		const { prober } = stageNamed("tower");
 		expect(prober.triggers.crons).toEqual(["* * * * *"]);
 		expect(prober.d1_databases[0].binding).toBe("DB");
+		expect(prober.durable_objects.bindings).toEqual([{ name: "TICKER", class_name: "Ticker" }]);
+		expect(prober.migrations).toEqual([{ tag: "v1", new_sqlite_classes: ["Ticker"] }]);
 		expect(prober.send_email).toEqual([{ name: "EMAIL" }]);
 		expect(prober.version_metadata).toEqual({ binding: "VERSION" });
 	});
