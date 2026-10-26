@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (2026-10-26)
 
 - Probing runs from a Durable Object alarm that re-arms itself each minute; the cron only re-arms it. Cloudflare skipped about 15% of cron minutes. Redeploy to add the `Ticker` object.
 
