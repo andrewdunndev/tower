@@ -460,6 +460,24 @@ describe("stalled prober", () => {
 		expect(stalls(box)).toHaveLength(1);
 	});
 
+	it("takes stall_after as the window: quiet inside it, mails past it, default unchanged without it", async () => {
+		const patient = makeConfig([web], { stall_after: "15m" });
+		const { runEnv, box } = mailbox();
+		await tick(runEnv, patient, T0, T0, respond(200));
+		await watch(runEnv, patient, T0 + 15 * MINUTE);
+		expect(box.sends).toBe(0);
+		await watch(runEnv, patient, T0 + 15 * MINUTE + 1);
+		expect(stalls(box)).toHaveLength(1);
+
+		await reset();
+		const plain = mailbox();
+		await tick(plain.runEnv, config, T0, T0, respond(200));
+		await watch(plain.runEnv, config, T0 + 4 * MINUTE);
+		expect(plain.box.sends).toBe(0);
+		await watch(plain.runEnv, config, T0 + 4 * MINUTE + 1);
+		expect(stalls(plain.box)).toHaveLength(1);
+	});
+
 	it("words the mail with the last run, the detection time and the repeat", async () => {
 		const { runEnv, box } = mailbox();
 		await tick(runEnv, config, T0, T0, respond(200));

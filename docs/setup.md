@@ -124,7 +124,7 @@ In HyperDX add a webhook with service `incident.io`, URL `https://<domain>/relay
 
 Two conditions mail when they start and again every 3 hours while they hold. Recovery never mails, and tower never mails `DEPLOYED` or `OK`. These mails go to `alert.to`, even for a check or relay with its own `to`, and the `DIGEST` lists each while it holds.
 
-- `SELF-CHECK FAILING: probing stalled`: no run has written results for three of the shortest `every` plus a minute. The page Worker's minute cron asks the prober, so a dead prober cron is caught, and the digest due while the cron is stalled is still queued and lists it. A prober that does not answer shows as `unavailable` at `/healthz`, which only `outside` mails. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
+- `SELF-CHECK FAILING: probing stalled`: no run has written results for three of the shortest `every` plus a minute, or for `stall_after` (a duration such as `"15m"`, at least that default and at most `"1d"`) when set. Cloudflare's minute cron skips minutes; raise `stall_after` if gaps of a few minutes mail. `/healthz` reports `stale` on the same window. The page Worker's minute cron asks the prober, so a dead prober cron is caught, and the digest due while the cron is stalled is still queued and lists it. A prober that does not answer shows as `unavailable` at `/healthz`, which only `outside` mails. A deploy re-registers the cron, so the alarm holds for 15 minutes after the prober's version is uploaded.
 - `SELF-CHECK FAILING: database writes`: D1 rejected a run's writes.
 
 Three more appear in the `DIGEST` only:

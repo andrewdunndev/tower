@@ -139,6 +139,13 @@ describe("health", () => {
 		expect(await check(makeConfig(), T0)).toBe("dead");
 	});
 
+	it("stays ok through stall_after, so it never reads stale while the stall alarm is quiet", async () => {
+		await lastRun(T0);
+		const patient = makeConfig([web], { stall_after: "15m" });
+		expect(await check(patient, T0 + 15 * MINUTE)).toBe("ok");
+		expect(await check(patient, T0 + 16 * MINUTE)).toBe("stale");
+	});
+
 	it("waits three of the shortest interval plus a minute for a slow fleet", async () => {
 		await lastRun(T0);
 		const slow = makeConfig([{ ...web, every: "5m" }]);

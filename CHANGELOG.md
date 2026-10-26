@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0 (2026-10-26)
+
+- New optional `stall_after` (such as `"15m"`) sets how long probing may go without a run before `probing stalled` mails, and when `/healthz` answers `stale`. Unset keeps three of the shortest interval plus a minute.
+
 ## 0.7.0 (2026-10-25)
 
 - Self-failures mail at onset and every 3 hours while they hold, nothing on recovery: `probing stalled` (from the prober) and the new `database writes`. A bad Cloudflare API token, `results for <check>` and a full relay are digest-only; the `SELF-CHECK` mail for them is gone; they appear in the daily digest. The page Worker's hourly mail and the exact-minute digest window are gone.
