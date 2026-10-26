@@ -33,7 +33,7 @@ Shared as-is: no roadmap, no support promise. Design after [herdr.dev](https://h
 - The page holds no secrets and no storage. The prober is the only owner of D1.
 - Failure reasons go only to the alert mail and the Worker log.
 - Heartbeat tokens are stored as sha256 hashes; the plaintext never enters your config.
-- A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.
+- A check that has not run recently reads as unknown, so a stopped prober cannot leave a stale green page.
 
 Report vulnerabilities as [SECURITY.md](SECURITY.md) describes.
 

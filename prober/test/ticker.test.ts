@@ -34,18 +34,20 @@ describe("alarm", () => {
 	it("re-arms when the run throws", async () => {
 		await env.DB.prepare(`CREATE TRIGGER boom BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
 		await arm();
-		await runDurableObjectAlarm(ticker()).catch(() => {});
+		await expect(runDurableObjectAlarm(ticker())).rejects.toThrow();
 		expect(await armed()).toBe(nextMinute());
 	});
 
 	it("probes once when the same minute alarms twice", async () => {
+		if (nextMinute() - Date.now() < 3000) await new Promise((r) => setTimeout(r, 3000));
 		await arm();
 		await runDurableObjectAlarm(ticker());
 		const first = calls;
 		const slot = nextMinute();
 		await runDurableObjectAlarm(ticker());
 		expect(first).toBeGreaterThan(0);
-		if (nextMinute() === slot) expect(calls).toBe(first);
+		expect(nextMinute()).toBe(slot);
+		expect(calls).toBe(first);
 	});
 });
 

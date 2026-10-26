@@ -67,7 +67,7 @@ import Relay from '../../figures/05-relay.astro';
 
     <Split>
       <h2 id="names">Names only</h2>
-      <p>Failure reasons go to the alert mail and the Worker log only. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped cron cannot leave a stale green page.</p>
+      <p>Failure reasons go to the alert mail and the Worker log only. Heartbeat and relay tokens are stored as sha256 hashes, so the plaintext never enters your config. A check that has not run recently reads as unknown, so a stopped prober cannot leave a stale green page.</p>
       <Fragment slot="aside">
         <figure class="diagram">
         <div class="figure-pair">
