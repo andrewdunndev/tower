@@ -1,6 +1,13 @@
 # Contributing
 
-Issues and merge requests go to GitLab at https://gitlab.com/dunn.dev/tower. There is no DCO and no CLA.
+Issues and changes are welcome on either forge:
+
+- GitLab (canonical): https://gitlab.com/dunn.dev/tower
+- GitHub (mirror): https://github.com/andrewdunndev/tower
+
+GitHub pull requests land through GitLab; the mirror then marks them merged.
+
+There is no DCO and no CLA.
 
 Use the Node version in `mise.toml`, then:
 
