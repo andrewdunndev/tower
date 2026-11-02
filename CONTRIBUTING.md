@@ -1,9 +1,11 @@
 # Contributing
 
 Issues and changes are welcome on either forge:
-GitLab (canonical): https://gitlab.com/dunn.dev/tower (issues, merge requests)
-GitHub (mirror): https://github.com/andrewdunndev/tower (issues, pull requests)
-GitHub pull requests are landed through GitLab; the mirror then marks them merged.
+
+- GitLab (canonical): https://gitlab.com/dunn.dev/tower
+- GitHub (mirror): https://github.com/andrewdunndev/tower
+
+GitHub pull requests land through GitLab; the mirror then marks them merged.
 
 There is no DCO and no CLA.
 
