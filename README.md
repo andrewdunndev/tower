@@ -61,4 +61,4 @@ Issues and changes are welcome on either forge:
 
 GitHub pull requests land through GitLab; the mirror then marks them merged.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). A GitHub mirror follows each release.
