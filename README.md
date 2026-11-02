@@ -54,4 +54,8 @@ An instance is a directory holding `tower.json`, optional `notes/*.md` for maint
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). A GitHub mirror follows each release.
+Issues and changes are welcome on either forge:
+GitLab (canonical): https://gitlab.com/dunn.dev/tower (issues, merge requests)
+GitHub (mirror): https://github.com/andrewdunndev/tower (issues, pull requests)
+GitHub pull requests are landed through GitLab; the mirror then marks them merged.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
