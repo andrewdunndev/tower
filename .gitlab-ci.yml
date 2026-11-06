@@ -38,7 +38,7 @@ include:
       required-checks: "osv,secret"
 
 .node:
-  image: node:24.22.1@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a
+  image: node:26.13.0@sha256:438603bbb5cda404b9416f0b5c8026f61501ab911760d861ec28c36b5d675725
   variables:
     npm_config_cache: $CI_PROJECT_DIR/.npm
   cache:
