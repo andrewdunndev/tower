@@ -2,7 +2,7 @@
 	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
 	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
 	"files": {
-		"includes": ["**", "!**/*.astro", "!page/src/styles"]
+		"includes": ["**", "!**/*.astro", "!**/*.md", "!page/src/styles"]
 	},
 	"formatter": { "indentStyle": "tab", "lineWidth": 120 },
 	"overrides": [{ "includes": ["page/**"], "formatter": { "enabled": false } }]

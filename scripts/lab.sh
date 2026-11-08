@@ -102,6 +102,8 @@ dev page $G --persist-to "$work/page-state"
 up "http://127.0.0.1:$G/favicon.svg"
 
 echo "== one kick; the alarm runs the probes, the slow target holds the run to its 20 s budget"
+# A run's budget is the rest of its minute less 7 s, at least 20 s: kicked at :36 it is 20 s, under the 30 s probe timeout.
+sleep $(((96 - 10#$(date +%S)) % 60))
 tick $(($(date +%s) * 1000))
 row() { node -e 'console.log(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))[0].results[0][process.argv[2]])' "$work/state.json" "$1"; }
 for _ in $(seq 24); do
