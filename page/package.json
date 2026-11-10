@@ -8,14 +8,14 @@
     "typecheck": "wrangler types -c ../.tower/page.wrangler.json -c ../.tower/prober.wrangler.json && astro check"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "14.4.1",
-    "@astrojs/markdown-satteri": "0.4.4",
+    "@astrojs/cloudflare": "14.4.6",
+    "@astrojs/markdown-satteri": "0.4.7",
     "@fontsource-variable/archivo": "5.3.0",
     "@fontsource-variable/inter": "5.3.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
-    "astro": "7.4.1"
+    "astro": "7.4.7"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.11"
+    "@astrojs/check": "0.9.12"
   }
 }
