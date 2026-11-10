@@ -17,11 +17,11 @@ stages:
   - automerge-gate
 
 include:
-  - component: gitlab.com/dunn.dev/pipeline/reference-check@4.12.0
+  - component: gitlab.com/dunn.dev/pipeline/reference-check@4.16.0
     inputs:
       reference_ref: main
       fail_on_violation: true
-  - component: gitlab.com/dunn.dev/pipeline/cloudflare-worker@4.12.0
+  - component: gitlab.com/dunn.dev/pipeline/cloudflare-worker@4.16.0
     inputs:
       wrangler_config: site/wrangler.toml
       build_command: npm run build
@@ -29,10 +29,10 @@ include:
       needs_npm_install: true
       npm_dir: site
       production_url: https://tower.dunn.dev
-  - component: gitlab.com/dunn.dev/pipeline/osv-verdict@4.12.0
-  - component: gitlab.com/dunn.dev/pipeline/secret-verdict@4.12.0
-  - component: gitlab.com/dunn.dev/pipeline/pin-audit@4.12.0
-  - component: gitlab.com/dunn.dev/pipeline/automerge-gate@4.12.0
+  - component: gitlab.com/dunn.dev/pipeline/osv-verdict@4.16.0
+  - component: gitlab.com/dunn.dev/pipeline/secret-verdict@4.16.0
+  - component: gitlab.com/dunn.dev/pipeline/pin-audit@4.16.0
+  - component: gitlab.com/dunn.dev/pipeline/automerge-gate@4.16.0
     inputs:
       stage: automerge-gate
       required-checks: "osv,secret"
