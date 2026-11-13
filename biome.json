@@ -4,6 +4,5 @@
 	"files": {
 		"includes": ["**", "!**/*.astro", "!**/*.md", "!page/src/styles"]
 	},
-	"formatter": { "indentStyle": "tab", "lineWidth": 120 },
-	"overrides": [{ "includes": ["page/**"], "formatter": { "enabled": false } }]
+	"formatter": { "indentStyle": "tab", "lineWidth": 120 }
 }

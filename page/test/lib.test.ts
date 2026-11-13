@@ -22,12 +22,20 @@ const auto = {
 
 describe("notes on the page", () => {
 	it("merges incident notes beside automatic incidents, newest first", () => {
-		const merged = mergeIncidents([auto], [note({ title: "Newer", start: "2026-10-07T10:00:00Z", end: "2026-10-07T11:00:00Z" })], NOW);
+		const merged = mergeIncidents(
+			[auto],
+			[note({ title: "Newer", start: "2026-10-07T10:00:00Z", end: "2026-10-07T11:00:00Z" })],
+			NOW,
+		);
 		expect(merged.map((i) => [i.kind, i.title])).toEqual([
 			["note", "Newer"],
 			["auto", "API is not responding"],
 		]);
-		expect(merged[0]).toMatchObject({ severity: "info", resolved: "2026-10-07T11:00:00.000Z", bodyHtml: "<p>body</p>" });
+		expect(merged[0]).toMatchObject({
+			severity: "info",
+			resolved: "2026-10-07T11:00:00.000Z",
+			bodyHtml: "<p>body</p>",
+		});
 	});
 
 	it("leaves maintenance notes and incidents older than 90 days out of the timeline", () => {
@@ -40,7 +48,12 @@ describe("notes on the page", () => {
 	});
 
 	it("gives each window the body of the note with the same title and start", () => {
-		const window = { title: "Upgrade", checks: ["API"], starts: "2026-11-01T02:00:00.000Z", ends: "2026-11-01T03:00:00.000Z" };
+		const window = {
+			title: "Upgrade",
+			checks: ["API"],
+			starts: "2026-11-01T02:00:00.000Z",
+			ends: "2026-11-01T03:00:00.000Z",
+		};
 		const notes = [
 			note({ kind: "maintenance", title: "Upgrade", start: "2026-12-01T02:00:00Z", bodyHtml: "<p>other</p>" }),
 			note({ kind: "maintenance", title: "Different", start: "2026-11-01T02:00:00Z", bodyHtml: "<p>other</p>" }),

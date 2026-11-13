@@ -34,7 +34,12 @@ describe("the relay through the page and the real prober", () => {
 	});
 
 	it("serves a maintenance relay's firing keys to a GET with its bearer token", async () => {
-		const body = JSON.stringify({ title: "Disk full", description: "act now", deduplication_key: "k1", status: "firing" });
+		const body = JSON.stringify({
+			title: "Disk full",
+			description: "act now",
+			deduplication_key: "k1",
+			status: "firing",
+		});
 		expect((await post(body, { token: "maint-secret" })).status).toBe(202);
 		const kept = (token: string) =>
 			page.fetch("https://status.example.com/relay/kept", { headers: { Authorization: `Bearer ${token}` } });
@@ -95,7 +100,9 @@ describe("the relay through the page and the real prober", () => {
 
 describe("the page's cron through the real prober", () => {
 	const scheduled = (scheduledTime: number) =>
-		(page as Fetcher & { scheduled(options: { scheduledTime: number }): Promise<unknown> }).scheduled({ scheduledTime });
+		(page as Fetcher & { scheduled(options: { scheduledTime: number }): Promise<unknown> }).scheduled({
+			scheduledTime,
+		});
 	const staleRun = async (now: number) =>
 		env.DB.prepare(
 			`INSERT INTO state ("check", avail, degraded, fails, passes, since, slot, last_run) VALUES ('any', 1, 0, 0, 0, 0, -1, ?1)`,
@@ -130,7 +137,9 @@ describe("/healthz through the real prober", () => {
 			.run();
 		const ok = await healthz();
 		expect([ok.status, await ok.text()]).toEqual([200, "ok"]);
-		await env.DB.prepare(`INSERT INTO outbox ("check", at, kind, dead) VALUES ('any', ?1, 'up', 1)`).bind(Date.now()).run();
+		await env.DB.prepare(`INSERT INTO outbox ("check", at, kind, dead) VALUES ('any', ?1, 'up', 1)`)
+			.bind(Date.now())
+			.run();
 		const dead = await healthz();
 		expect([dead.status, await dead.text()]).toEqual([503, "dead"]);
 	});
