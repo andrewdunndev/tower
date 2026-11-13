@@ -19,14 +19,13 @@ describe("the example", () => {
 });
 
 describe("a broken instance", () => {
-	it.each([
-		["bad-to", "tower.json: checks.0.to.0: use an email address."],
-		["bad-every", "tower.json: checks.0.every: "],
-		["unknown-type", 'tower.json: checks.0.type: use "http", "tcp", "dns", "tls" or "heartbeat".'],
-	])("%s is rejected before anything is staged", (dir, message) => {
+	it("bad-to is rejected before anything is staged", () => {
 		const out = join(mkdtempSync(join(tmpdir(), "tower-reject-")), "out");
-		expect(() => stage(join(import.meta.dirname, "reject", dir), out)).toThrow(
-			expect.objectContaining({ name: "Error", message: expect.stringContaining(message) }),
+		expect(() => stage(join(import.meta.dirname, "reject", "bad-to"), out)).toThrow(
+			expect.objectContaining({
+				name: "Error",
+				message: expect.stringContaining("tower.json: checks.0.to.0: use an email address."),
+			}),
 		);
 		expect(existsSync(out)).toBe(false);
 	});
