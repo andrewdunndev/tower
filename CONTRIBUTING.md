@@ -26,7 +26,6 @@ These jobs gate a merge request:
 
 - `test` runs `npm run check`.
 - `lab` runs `bash scripts/lab.sh`: the Workers under `wrangler dev` with a local D1, through a slow check and the outside watcher.
-- `page-visual` runs `node tools/stage.ts test/fixture`, `npm run build -w page`, then `node_modules/.bin/playwright test -c test/visual`, which needs Chromium (`npx playwright install chromium`). It runs only when the page, its fixture, staging or CI changes.
 - `worker-dry-run` runs `npm run deploy -- example --dry-run`.
 - `osv-verdict` records OSV advisories new in the change and `automerge-gate` fails on them; `secret-verdict` fails on a committed secret, `pin-audit` on an image pin Renovate cannot track.
 

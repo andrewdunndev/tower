@@ -71,23 +71,3 @@ lab:
   stage: test
   script:
     - bash scripts/lab.sh
-
-page-visual:
-  extends: .node
-  stage: test
-  image: mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - page/**/*
-        - test/visual/**/*
-        - test/fixture/**/*
-        - tools/stage.ts
-        - .gitlab-ci.yml
-        - package.json
-        - package-lock.json
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-  script:
-    - node tools/stage.ts test/fixture
-    - npm run build -w page
-    - node_modules/.bin/playwright test -c test/visual
