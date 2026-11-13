@@ -76,7 +76,7 @@ function detail(reason: string | null): { title: string; description?: string } 
 	}
 }
 
-export function relayMessage(relay: Relay, p: Pending): [subject: string, text: string] {
+function relayMessage(relay: Relay, p: Pending): [subject: string, text: string] {
 	const { title, description } = detail(p.reason);
 	if (p.kind !== "stale") return [line(title), description ?? ""];
 	const at = new Date(p.at).toISOString();
