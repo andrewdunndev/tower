@@ -73,6 +73,18 @@ describe("beat", () => {
 		}
 		expect(calls).toEqual([]);
 	});
+
+	it("answers 503 with an empty body when the prober throws", async () => {
+		const res = await beat(request("POST", "/beat/db"), {
+			TOWER: {
+				beat: async () => {
+					throw new Error("down");
+				},
+			},
+		});
+		expect(res.status).toBe(503);
+		expect(await res.text()).toBe("");
+	});
 });
 
 describe("relay", () => {

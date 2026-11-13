@@ -74,7 +74,12 @@ export async function cached(key: Request, render: () => Promise<Response>): Pro
 export async function beat(request: Request, env: { TOWER: Pick<Tower, "beat"> }): Promise<Response> {
 	const match = BEAT_PATH.exec(new URL(request.url).pathname);
 	if (!match) return new Response(null, { status: 404 });
-	return env.TOWER.beat(match[1], bearer(request), match[2] === undefined);
+	try {
+		return await env.TOWER.beat(match[1], bearer(request), match[2] === undefined);
+	} catch (e) {
+		console.error("tower-page: beat unavailable:", e);
+		return new Response(null, { status: 503 });
+	}
 }
 
 const bearer = (request: Request) => /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1] ?? "";
