@@ -16,7 +16,7 @@ const newest = (t: string) => `${t} >= (SELECT CAST(value AS INTEGER) FROM meta 
 const staleWindow = (config: Instance) => config.stall_after ?? allowance(Math.min(...config.checks.map(interval)));
 const stallCutoff = (config: Instance, t: number) => t - staleWindow(config);
 
-export function inDeployGrace(version: Version, t: number): boolean {
+function inDeployGrace(version: Version, t: number): boolean {
 	const deployed = Date.parse(version.timestamp ?? "");
 	return t - deployed < DEPLOY_GRACE_MS;
 }

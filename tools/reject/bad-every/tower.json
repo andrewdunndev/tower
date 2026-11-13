@@ -1,7 +1,0 @@
-{
-	"name": "tower",
-	"title": "T",
-	"domain": "status.example.com",
-	"alert": { "from": "tower@example.com", "to": "oncall@example.com" },
-	"checks": [{ "id": "web", "type": "http", "name": "Website", "url": "https://www.example.com/", "every": "1 minute" }]
-}

@@ -145,7 +145,7 @@ D1 time travel also restores the database to any minute inside your plan's reten
 
 ## External monitoring
 
-tower reports a stalled prober and failing database writes itself, so polling is optional. If both Workers are dead, an account or platform failure, nothing can mail: treat a missing digest as the alarm, or poll from outside. [Outside watcher](#outside-watcher) does the polling.
+tower reports a stalled prober and failing database writes itself, so polling is optional. If both core Workers are dead, an account or platform failure, they cannot mail: treat a missing digest as the alarm, or poll from outside. The optional [outside watcher](#outside-watcher) polls and mails.
 
 `GET https://<domain>/healthz` answers `200` with body `ok` only when the prober's last run is within `max(5 min, 3 x shortest interval + 1 min)` (ignored for 15 minutes after a deploy) and no outbox row is dead. Otherwise it answers `503` with `stale`, `dead` or `unavailable`. It sends `Cache-Control: no-store`, never redirects and carries no data. Each request reads D1, so give it its own per-IP WAF rate limiting rule that blocks, never challenges, scoped to `/healthz` alone: not shared with `/beat/*` or any global count. A dead row keeps it `503` for the 24 hours dead rows are kept.
 

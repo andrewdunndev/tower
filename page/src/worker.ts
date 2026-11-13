@@ -1,6 +1,6 @@
-import { handle } from '@astrojs/cloudflare/handler';
+import { handle } from "@astrojs/cloudflare/handler";
 
 export default {
-  fetch: handle,
-  scheduled: (controller, env) => env.TOWER.watch(controller.scheduledTime),
+	fetch: handle,
+	scheduled: (controller, env) => env.TOWER.watch(controller.scheduledTime),
 } satisfies ExportedHandler<Env>;

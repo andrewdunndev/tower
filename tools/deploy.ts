@@ -2,8 +2,8 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { root, StageError, stage } from "./stage.ts";
 
-export type DbState = "present" | "absent" | "unknown";
-export type Step = "migrate" | "prober";
+type DbState = "present" | "absent" | "unknown";
+type Step = "migrate" | "prober";
 
 export function plan(db: DbState, dryRun: boolean): Step[] | "abort" {
 	if (dryRun) return ["prober"];

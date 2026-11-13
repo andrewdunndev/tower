@@ -1,7 +1,7 @@
 import type { Check } from "../../tools/schema.ts";
 import type { Deps, Outcome } from "./probe.ts";
 
-export type HttpCheck = Extract<Check, { type: "http" }>;
+type HttpCheck = Extract<Check, { type: "http" }>;
 
 const CACHED = new Set(["HIT", "STALE", "UPDATING"]);
 const BODY_BYTES = 65536;
