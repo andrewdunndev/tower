@@ -1,9 +1,0 @@
-{
-	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"packageRules": [
-		{
-			"matchPackageNames": ["@playwright/test", "mcr.microsoft.com/playwright"],
-			"groupName": "playwright"
-		}
-	]
-}
