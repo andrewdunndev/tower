@@ -19,10 +19,10 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.8",
-		"@cloudflare/vitest-plugin": "1.8.4",
+		"@cloudflare/vitest-plugin": "1.9.0",
 		"@types/node": "26.6.6",
 		"typescript": "6.0.3",
-		"vitest": "5.1.0",
+		"vitest": "5.1.1",
 		"wrangler": "4.166.0",
 		"zod": "4.6.7"
 	},
