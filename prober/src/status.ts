@@ -4,7 +4,7 @@ import type { Check, Instance } from "../../tools/schema.ts";
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
 export const BUCKET_MS = 300_000;
-const POINTS = 288;
+export const POINTS = 288;
 export const DAYS = 90;
 export const DEPLOY_GRACE_MS = 15 * MINUTE_MS;
 export const STUCK_PREFIX = "self:stuck:";
@@ -34,7 +34,7 @@ const windowEnd = (config: Instance, id: string, t: number): number | null => {
 export const inWindow = (config: Instance, id: string, t: number) => windowEnd(config, id, t) !== null;
 
 // The ms at rank floor(q * (n - 1)) of the sorted samples, read off a histogram sorted by ms.
-function quantile(histogram: { ms: number; n: number }[], q: number): number | null {
+export function quantile(histogram: { ms: number; n: number }[], q: number): number | null {
 	const rank = Math.trunc(q * (histogram.reduce((a, r) => a + r.n, 0) - 1));
 	let seen = 0;
 	for (const r of histogram) {
