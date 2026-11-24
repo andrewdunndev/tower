@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The prober also records latency (samples, `histogram`, `buckets`) in the `Ticker` object's own SQLite, as the first step of moving it off D1; status still reads D1. The Durable Object tables are created on first use. The first tick no longer rebuilds the rollups from `samples`, the per-run prunes of `daily` and `events` read only each check's own rows, and migration `0007` adds `events_check_at`. Deploy in order: migrate (`0007`), then the prober, as `npm run deploy` does; the page is unchanged. Rolling the prober back to the previous release is harmless: it ignores the Durable Object tables.
 - Status reads p50, p95 and the 24-hour latency chart from two rollups each run keeps (`histogram`, `buckets`) instead of a day of samples, and `samples` gains an index on `at`: about 4k D1 rows read per status request instead of about 130k. Migration `0006` must apply before the prober deploys, as `npm run deploy` does; latency reads blank until the first run after it.
 
 ## 0.9.0 (2026-10-26)
