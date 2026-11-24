@@ -5,7 +5,7 @@ import { judgeBeat } from "./heartbeat.ts";
 import { compose, NONE, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
 import { attention, digestWrites, raiseStall, reportWriteFailure, selfWrites } from "./self.ts";
-import { DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
+import { BUCKET_MS, DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & {
 	EMAIL: Pick<SendEmail, "send">;
@@ -181,7 +181,8 @@ export async function tick(
 	);
 
 	const day = new Date(t).toISOString().slice(0, 10);
-	const writes: D1PreparedStatement[] = [];
+	const bucket = Math.floor(t / BUCKET_MS) * BUCKET_MS;
+	const writes: D1PreparedStatement[] = rebuild(env.DB);
 	for (const [i, { check, row, outcome, ms }] of ran.entries()) {
 		const conclusive = outcome.verdict === "ok" || outcome.verdict === "down";
 		const before = { avail: row.avail === 1, fails: row.fails, passes: row.passes, since: row.since };
@@ -226,6 +227,18 @@ export async function tick(
 					outcome.verdict === "ok" ? 1 : 0,
 				),
 			);
+			if (outcome.verdict === "ok") {
+				writes.push(
+					env.DB.prepare(
+						`INSERT INTO histogram ("check", ms, n) SELECT ?1, ?3, 1 WHERE ${current}
+							 ON CONFLICT ("check", ms) DO UPDATE SET n = n + 1`,
+					).bind(check.id, row.slot, ms),
+					env.DB.prepare(
+						`INSERT INTO buckets (bucket, "check", n, total) SELECT ?3, ?1, 1, ?4 WHERE ${current}
+							 ON CONFLICT (bucket, "check") DO UPDATE SET n = n + 1, total = total + ?4`,
+					).bind(check.id, row.slot, bucket, ms),
+				);
+			}
 		}
 		writes.push(
 			env.DB.prepare(
@@ -301,6 +314,21 @@ function expire(db: D1Database, config: Instance, t: number): D1PreparedStatemen
 	]);
 }
 
+// histogram and buckets roll up the ok samples. An empty one (the first tick after the migration) is rebuilt from
+// samples; the CROSS JOIN puts the emptiness test outside the scan, so a full one costs no samples read.
+function rebuild(db: D1Database): D1PreparedStatement[] {
+	return [
+		db.prepare(
+			`INSERT INTO histogram ("check", ms, n) SELECT "check", ms, COUNT(*)
+			 FROM (SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM histogram)) CROSS JOIN samples WHERE ok = 1 GROUP BY "check", ms`,
+		),
+		db.prepare(
+			`INSERT INTO buckets (bucket, "check", n, total) SELECT at / ${BUCKET_MS} * ${BUCKET_MS}, "check", COUNT(*), SUM(ms)
+			 FROM (SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM buckets)) CROSS JOIN samples WHERE ok = 1 GROUP BY 1, 2`,
+		),
+	];
+}
+
 function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
 	const ids = JSON.stringify(config.checks.map((c) => c.id));
 	const owners = JSON.stringify([...config.checks.map((c) => c.id), ...config.relays.map((r) => r.id), ""]);
@@ -312,7 +340,19 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 	const absentCutoff = t - ABSENT_DAYS * DAY_MS;
 	const lapsed = `key LIKE '${GONE_PREFIX}%' AND CAST(value AS INTEGER) < ?1`;
 	return [
+		db
+			.prepare(
+				`UPDATE histogram SET n = n - (SELECT COUNT(*) FROM samples s WHERE s."check" = histogram."check" AND s.ms = histogram.ms AND s.ok = 1 AND s.at < ?1)
+				 WHERE ("check", ms) IN (SELECT "check", ms FROM samples WHERE ok = 1 AND at < ?1)`,
+			)
+			.bind(t - DAY_MS),
+		db
+			.prepare(
+				`DELETE FROM histogram WHERE n <= 0 AND ("check", ms) IN (SELECT "check", ms FROM samples WHERE ok = 1 AND at < ?1)`,
+			)
+			.bind(t - DAY_MS),
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
+		db.prepare(`DELETE FROM buckets WHERE bucket < ?1`).bind(t - DAY_MS),
 		db.prepare(`DELETE FROM daily WHERE day < ?1`).bind(new Date(cutoff).toISOString().slice(0, 10)),
 		db.prepare(`DELETE FROM events WHERE at < ?1`).bind(cutoff),
 		db.prepare(`DELETE FROM outbox WHERE dead = 1 AND next_at < ?1`).bind(t - DAY_MS),
