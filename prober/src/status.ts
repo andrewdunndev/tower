@@ -3,7 +3,7 @@ import type { Check, Instance } from "../../tools/schema.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
-const BUCKET_MS = 300_000;
+export const BUCKET_MS = 300_000;
 const POINTS = 288;
 export const DAYS = 90;
 export const DEPLOY_GRACE_MS = 15 * MINUTE_MS;
@@ -33,6 +33,17 @@ const windowEnd = (config: Instance, id: string, t: number): number | null => {
 
 export const inWindow = (config: Instance, id: string, t: number) => windowEnd(config, id, t) !== null;
 
+// The ms at rank floor(q * (n - 1)) of the sorted samples, read off a histogram sorted by ms.
+function quantile(histogram: { ms: number; n: number }[], q: number): number | null {
+	const rank = Math.trunc(q * (histogram.reduce((a, r) => a + r.n, 0) - 1));
+	let seen = 0;
+	for (const r of histogram) {
+		seen += r.n;
+		if (seen > rank) return r.ms;
+	}
+	return null;
+}
+
 export async function status(db: D1Database, config: Instance, now: number) {
 	const firstDay = iso(now - (DAYS - 1) * DAY_MS).slice(0, 10);
 	const firstBucket = Math.floor(now / BUCKET_MS) * BUCKET_MS - (POINTS - 1) * BUCKET_MS;
@@ -41,27 +52,15 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		db.prepare(`SELECT "check", day, runs, down FROM daily WHERE day >= ?1`).bind(firstDay),
 		db
 			.prepare(
-				`SELECT "check", CAST((at - ?1) / ?2 AS INTEGER) AS bucket, AVG(ms) AS ms
-				 FROM samples WHERE ok = 1 AND at >= ?1 GROUP BY "check", bucket`,
+				`SELECT "check", CAST((bucket - ?1) / ?2 AS INTEGER) AS bucket, CAST(total AS REAL) / n AS ms FROM buckets WHERE bucket >= ?1`,
 			)
 			.bind(firstBucket, BUCKET_MS),
-		db
-			.prepare(
-				`SELECT "check",
-				   MAX(CASE WHEN rank = CAST(0.5 * (n - 1) AS INTEGER) THEN ms END) AS p50,
-				   MAX(CASE WHEN rank = CAST(0.95 * (n - 1) AS INTEGER) THEN ms END) AS p95
-				 FROM (SELECT "check", ms,
-				         ROW_NUMBER() OVER (PARTITION BY "check" ORDER BY ms) - 1 AS rank,
-				         COUNT(*) OVER (PARTITION BY "check") AS n
-				       FROM samples WHERE ok = 1 AND at > ?1)
-				 GROUP BY "check"`,
-			)
-			.bind(now - DAY_MS),
+		db.prepare(`SELECT "check", ms, n FROM histogram ORDER BY "check", ms`),
 		db.prepare(`SELECT "check", at, "to" FROM events ORDER BY at`),
 		db.prepare(`SELECT MIN(CASE WHEN dead = 0 THEN at END) AS oldest, COALESCE(SUM(dead), 0) AS dead FROM outbox`),
 		db.prepare(`SELECT key, value FROM meta WHERE key LIKE 'self:%'`),
 	]);
-	const [states, daily, buckets, quantiles, events, [queue], selves] = sets.map((s) => s.results) as [
+	const [states, daily, buckets, histogram, events, [queue], selves] = sets.map((s) => s.results) as [
 		{
 			check: string;
 			avail: number;
@@ -73,7 +72,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 		}[],
 		{ check: string; day: string; runs: number; down: number }[],
 		{ check: string; bucket: number; ms: number }[],
-		{ check: string; p50: number | null; p95: number | null }[],
+		{ check: string; ms: number; n: number }[],
 		{ check: string; at: number; to: "up" | "down" }[],
 		{ oldest: number | null; dead: number }[],
 		{ key: string; value: string }[],
@@ -82,7 +81,7 @@ export async function status(db: D1Database, config: Instance, now: number) {
 	const stateOf = new Map(states.map((s) => [s.check, s]));
 	const dailyOf = Map.groupBy(daily, (r) => r.check);
 	const bucketsOf = Map.groupBy(buckets, (r) => r.check);
-	const quantilesOf = new Map(quantiles.map((q) => [q.check, q]));
+	const histogramOf = Map.groupBy(histogram, (r) => r.check);
 	const eventsOf = Map.groupBy(events, (e) => e.check);
 	const dayKeys = Array.from({ length: DAYS }, (_, i) => iso(now - (DAYS - 1 - i) * DAY_MS).slice(0, 10));
 
@@ -111,14 +110,14 @@ export async function status(db: D1Database, config: Instance, now: number) {
 			const down = rows.reduce((a, r) => a + r.down, 0);
 			const byDay = new Map(rows.map((r) => [r.day, r]));
 			const byBucket = new Map((bucketsOf.get(check.id) ?? []).map((r) => [r.bucket, r.ms]));
-			const q = quantilesOf.get(check.id);
+			const spread = histogramOf.get(check.id) ?? [];
 			return {
 				name: check.name,
 				status: level === "config-error" ? "unknown" : level,
 				since: iso(state?.since ?? now),
 				uptime90: runs ? 1 - down / runs : null,
-				p50: q?.p50 ?? null,
-				p95: q?.p95 ?? null,
+				p50: quantile(spread, 0.5),
+				p95: quantile(spread, 0.95),
 				days: dayKeys.map((d) => {
 					const r = byDay.get(d);
 					return r ? 1 - r.down / r.runs : null;

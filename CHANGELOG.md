@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Status reads p50, p95 and the 24-hour latency chart from two rollups each run keeps (`histogram`, `buckets`) instead of a day of samples, and `samples` gains an index on `at`: about 4k D1 rows read per status request instead of about 130k. Migration `0006` must apply before the prober deploys, as `npm run deploy` does; latency reads blank until the first run after it.
+
 ## 0.9.0 (2026-10-26)
 
 - Probing runs from a Durable Object alarm that re-arms itself each minute; the cron only re-arms it. Cloudflare skipped about 15% of cron minutes. Redeploy to add the `Ticker` object.
