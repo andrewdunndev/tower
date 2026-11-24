@@ -833,6 +833,17 @@ describe("one mail per outage", () => {
 			]);
 		});
 
+		it("keeps the record gate aligned with the statements rebuild prepends", async () => {
+			const { runEnv } = mailbox();
+			await env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, 77, 1)`)
+				.bind(T0 - MINUTE)
+				.run();
+			const seen: unknown[][] = [];
+			await tick(runEnv, makeConfig([web]), T0, T0, respond(200), undefined, (rows) => seen.push(rows));
+			expect(seen).toEqual([[{ check: "web", at: T0, ms: expect.any(Number), ok: true }]]);
+			expect(await all("SELECT ms FROM histogram WHERE ms = 77")).toEqual([{ ms: 77 }]);
+		});
+
 		it("leaves out a check whose state row moved on during the probe", async () => {
 			const { runEnv } = mailbox();
 			const config = makeConfig([web]);

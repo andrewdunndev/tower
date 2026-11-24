@@ -184,7 +184,7 @@ export async function tick(
 
 	const day = new Date(t).toISOString().slice(0, 10);
 	const bucket = Math.floor(t / BUCKET_MS) * BUCKET_MS;
-	const writes: D1PreparedStatement[] = [];
+	const writes: D1PreparedStatement[] = rebuild(env.DB);
 	const timed: { at: number; sample: Sample }[] = [];
 	for (const [i, { check, row, outcome, ms }] of ran.entries()) {
 		const conclusive = outcome.verdict === "ok" || outcome.verdict === "down";
@@ -323,6 +323,21 @@ function expire(db: D1Database, config: Instance, t: number): D1PreparedStatemen
 			.bind(r.id, t, t - r.grace, route(r), r.digest_only || r.maintenance ? 1 : 0),
 		db.prepare(`DELETE FROM relay_keys WHERE relay = ?1 AND seen < ?2`).bind(r.id, t - r.grace),
 	]);
+}
+
+// histogram and buckets roll up the ok samples. An empty one (the first tick after the migration) is rebuilt from
+// samples; the CROSS JOIN puts the emptiness test outside the scan, so a full one costs no samples read.
+function rebuild(db: D1Database): D1PreparedStatement[] {
+	return [
+		db.prepare(
+			`INSERT INTO histogram ("check", ms, n) SELECT "check", ms, COUNT(*)
+			 FROM (SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM histogram)) CROSS JOIN samples WHERE ok = 1 GROUP BY "check", ms`,
+		),
+		db.prepare(
+			`INSERT INTO buckets (bucket, "check", n, total) SELECT at / ${BUCKET_MS} * ${BUCKET_MS}, "check", COUNT(*), SUM(ms)
+			 FROM (SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM buckets)) CROSS JOIN samples WHERE ok = 1 GROUP BY 1, 2`,
+		),
+	];
 }
 
 function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
