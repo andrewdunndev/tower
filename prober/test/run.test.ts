@@ -817,4 +817,33 @@ describe("one mail per outage", () => {
 		await drain(runEnv, makeConfig([web], { relays }));
 		expect(box.subjects).toEqual(["ALERTS: Alerts: 3 changed"]);
 	});
+
+	describe("latency records", () => {
+		it("hands the timed, conclusive results of a committed tick to the record function", async () => {
+			const { runEnv } = mailbox();
+			const config = makeConfig([web, { ...web, id: "bad", name: "Bad", url: "https://bad.example.com/" }]);
+			const seen: unknown[][] = [];
+			const fetch = async (input: RequestInfo | URL) =>
+				new Response("", { status: String(input).includes("bad") ? 500 : 200 });
+			await tick(runEnv, config, T0, T0, fetch, undefined, (rows) => seen.push(rows));
+			expect(seen).toHaveLength(1);
+			expect(seen[0]).toEqual([
+				{ check: "web", at: T0, ms: expect.any(Number), ok: true },
+				{ check: "bad", at: T0, ms: expect.any(Number), ok: false },
+			]);
+		});
+
+		it("leaves out a check whose state row moved on during the probe", async () => {
+			const { runEnv } = mailbox();
+			const config = makeConfig([web]);
+			const seen: unknown[][] = [];
+			const moved = async () => {
+				await env.DB.prepare(`UPDATE state SET slot = slot + 1`).run();
+				return new Response("", { status: 200 });
+			};
+			await tick(runEnv, config, T0, T0, moved, undefined, (rows) => seen.push(rows));
+			expect(seen).toEqual([[]]);
+			expect(await all("SELECT * FROM samples")).toEqual([]);
+		});
+	});
 });

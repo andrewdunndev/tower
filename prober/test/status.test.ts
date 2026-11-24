@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { tick } from "../src/run.ts";
 import { health } from "../src/self.ts";
 import { DEPLOY_GRACE_MS, status } from "../src/status.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, VERSION, web } from "./util.ts";
+import { MINUTE, mailbox, makeConfig, reset, respond, T0, VERSION, web } from "./util.ts";
 
 beforeEach(reset);
 
@@ -41,7 +41,7 @@ describe("status", () => {
 		const config = makeConfig([{ ...web, down_after: 1, up_after: 1 }]);
 		await env.DB.batch(
 			[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].map((ms) =>
-				env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, ?2, 1)`).bind(T0 - ms, ms),
+				env.DB.prepare(`INSERT INTO histogram ("check", ms, n) VALUES ('web', ?1, 1)`).bind(ms),
 			),
 		);
 		await tick(runEnv, config, T0, T0, respond(200));
@@ -62,46 +62,6 @@ describe("status", () => {
 			},
 		]);
 		expect(s.last_run).toBe(new Date(T0 + 2 * MINUTE).toISOString());
-	});
-
-	it("serves the same p50, p95 and latency from the rollups as a query over samples", async () => {
-		const { runEnv } = mailbox();
-		const config = makeConfig([web]);
-		const DAY = 24 * 60 * MINUTE;
-		await env.DB.batch(
-			Array.from({ length: 220 }, (_, i) =>
-				env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, ?2, ?3)`).bind(
-					T0 - DAY + 30_000 + (i - 20) * 7 * MINUTE,
-					((i * 37) % 97) + (i % 5) * 50,
-					i % 9 === 0 ? 0 : 1,
-				),
-			),
-		);
-		for (const t of [T0, T0 + 90 * MINUTE, T0 + 91 * MINUTE]) {
-			await tick(runEnv, config, t, t, respond(200));
-			const [p] = await all<{ p50: number; p95: number }>(
-				`SELECT MAX(CASE WHEN rank = CAST(0.5 * (n - 1) AS INTEGER) THEN ms END) AS p50,
-				        MAX(CASE WHEN rank = CAST(0.95 * (n - 1) AS INTEGER) THEN ms END) AS p95
-				 FROM (SELECT ms, ROW_NUMBER() OVER (ORDER BY ms) - 1 AS rank, COUNT(*) OVER () AS n
-				       FROM samples WHERE ok = 1 AND at > ?1)`,
-				t - DAY,
-			);
-			const first = Math.floor(t / 300_000) * 300_000 - 287 * 300_000;
-			const points = await all<{ bucket: number; ms: number }>(
-				`SELECT CAST((at - ?1) / 300000 AS INTEGER) AS bucket, AVG(ms) AS ms FROM samples WHERE ok = 1 AND at >= ?1 GROUP BY bucket`,
-				first,
-			);
-			const latency = Array.from({ length: 288 }, () => null as number | null);
-			for (const r of points) latency[r.bucket] = Math.round(r.ms);
-			expect(p.p95).toBeGreaterThan(p.p50);
-			expect(latency.filter((v) => v !== null).length).toBeGreaterThan(150);
-			const s = await status(env.DB, config, t);
-			expect(s.checks[0]).toMatchObject({ p50: p.p50, p95: p.p95, latency });
-			expect(await all(`SELECT SUM(n) AS n FROM histogram`)).toEqual(
-				await all(`SELECT COUNT(*) AS n FROM samples WHERE ok = 1`),
-			);
-			expect(await all(`SELECT * FROM histogram WHERE n <= 0`)).toEqual([]);
-		}
 	});
 
 	it("turns unknown and stuck when no run lands within 3 intervals plus a minute", async () => {
