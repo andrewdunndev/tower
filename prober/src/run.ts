@@ -2,6 +2,7 @@ import { connect } from "cloudflare:sockets";
 import { CONCURRENCY, DB_MARGIN_MS, SKEW_MS } from "../../tools/budget.ts";
 import type { Check, Instance } from "../../tools/schema.ts";
 import { judgeBeat } from "./heartbeat.ts";
+import type { Sample } from "./latency.ts";
 import { compose, NONE, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
 import { attention, digestWrites, raiseStall, reportWriteFailure, selfWrites } from "./self.ts";
@@ -126,6 +127,7 @@ export async function tick(
 	startedAt: number,
 	doFetch: typeof fetch = fetch,
 	doConnect: typeof connect = connect,
+	record: (rows: Sample[], t: number) => void = () => {},
 ) {
 	const now = clockAt(startedAt);
 	const fail = async (e: unknown): Promise<never> => {
@@ -183,6 +185,7 @@ export async function tick(
 	const day = new Date(t).toISOString().slice(0, 10);
 	const bucket = Math.floor(t / BUCKET_MS) * BUCKET_MS;
 	const writes: D1PreparedStatement[] = rebuild(env.DB);
+	const timed: { at: number; sample: Sample }[] = [];
 	for (const [i, { check, row, outcome, ms }] of ran.entries()) {
 		const conclusive = outcome.verdict === "ok" || outcome.verdict === "down";
 		const before = { avail: row.avail === 1, fails: row.fails, passes: row.passes, since: row.since };
@@ -198,6 +201,8 @@ export async function tick(
 		const quiet = inWindow(config, check.id, t);
 		const mail = conclusive && !quiet && (next.avail ? 1 : 0) !== row.mailed;
 		const current = `EXISTS (SELECT 1 FROM state WHERE "check" = ?1 AND slot = ?2)`;
+		if (conclusive && TIMED.has(check.type))
+			timed.push({ at: writes.length, sample: { check: check.id, at: t, ms, ok: outcome.verdict === "ok" } });
 		writes.push(
 			env.DB.prepare(
 				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_conclusive = COALESCE(?8, last_conclusive), last_run = ?9, reason = ?10, config_error = ?11, mailed = ?12 WHERE "check" = ?1 AND slot = ?2`,
@@ -280,12 +285,18 @@ export async function tick(
 		...prune(env.DB, config, t),
 		...selfWrites(env.DB, config, t, env.VERSION, token),
 	);
+	let results: D1Result[];
 	try {
-		await env.DB.batch(writes);
+		results = await env.DB.batch(writes);
 	} catch (e) {
 		return fail(e);
 	}
 
+	// The same set the `current` guard admitted to D1: a check whose state UPDATE changed its row.
+	record(
+		timed.filter(({ at }) => results[at].meta.changes === 1).map(({ sample }) => sample),
+		t,
+	);
 	await drain(env, config, { now });
 }
 
@@ -353,8 +364,10 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 			.bind(t - DAY_MS),
 		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
 		db.prepare(`DELETE FROM buckets WHERE bucket < ?1`).bind(t - DAY_MS),
-		db.prepare(`DELETE FROM daily WHERE day < ?1`).bind(new Date(cutoff).toISOString().slice(0, 10)),
-		db.prepare(`DELETE FROM events WHERE at < ?1`).bind(cutoff),
+		db
+			.prepare(`DELETE FROM daily WHERE "check" IN (SELECT "check" FROM state) AND day < ?1`)
+			.bind(new Date(cutoff).toISOString().slice(0, 10)),
+		db.prepare(`DELETE FROM events WHERE "check" IN (SELECT "check" FROM state) AND at < ?1`).bind(cutoff),
 		db.prepare(`DELETE FROM outbox WHERE dead = 1 AND next_at < ?1`).bind(t - DAY_MS),
 		db
 			.prepare(
