@@ -31,7 +31,7 @@ describe("the built page", () => {
 		it("shows a note's text and none of its raw HTML, under a CSP", async () => {
 			await reset();
 			const config = { ...instanceSchema.parse(example), maintenance: [] };
-			await answer(JSON.stringify(await status(env.DB, config, Date.parse("2026-09-10T00:00:00Z"))));
+			await answer(JSON.stringify(await status(env.DB, config, Date.parse("2026-09-10T00:00:00Z"), null)));
 			const res = await get("/", "note");
 			const body = await res.text();
 			expect(res.status).toBe(200);
@@ -45,7 +45,7 @@ describe("the built page", () => {
 		it("shows the instance title, header image and icon", async () => {
 			await reset();
 			const config = { ...instanceSchema.parse(example), maintenance: [] };
-			await answer(JSON.stringify(await status(env.DB, config, Date.parse("2026-09-10T00:00:00Z"))));
+			await answer(JSON.stringify(await status(env.DB, config, Date.parse("2026-09-10T00:00:00Z"), null)));
 			const body = await (await get("/", "look")).text();
 			expect(body).toContain("<title>Example Status</title>");
 			expect(body).toContain('<span class="mark">Example Status</span>');
@@ -58,7 +58,7 @@ describe("the built page", () => {
 			await reset();
 			const config = { ...instanceSchema.parse(example), maintenance: [] };
 			const now = Date.parse("2026-09-10T00:00:00Z");
-			const base = await status(env.DB, config, now);
+			const base = await status(env.DB, config, now, null);
 			const iso = (ms: number) => new Date(ms).toISOString();
 			await answer(JSON.stringify({ ...base, last_run: iso(now) }));
 			const quiet = await (await get("/", "banner-quiet")).text();
@@ -97,7 +97,7 @@ describe("the built page", () => {
 			const unavailable = (async () => new Response("{}", { status: 503 })) as typeof fetch;
 			for (let k = 0; k <= 4; k++)
 				await tick({ ...runEnv, CF_API_TOKEN: "tok" }, config, T0 + k * MINUTE, T0 + k * MINUTE, unavailable);
-			const data = await status(env.DB, config, T0 + 4 * MINUTE);
+			const data = await status(env.DB, config, T0 + 4 * MINUTE, null);
 			expect(data.self.map((s) => s.name)).toEqual(["results for Shown"]);
 			await answer(JSON.stringify(data));
 			const html = await (await get("/", "stuck")).text();
@@ -136,7 +136,7 @@ describe("the built page", () => {
 			}) as unknown as typeof connect;
 			for (let i = 0; i < 3; i++)
 				await tick(mailbox().runEnv, config, T0 + i * 60_000, T0 + i * 60_000, leaky, leakyConnect);
-			await answer(JSON.stringify(await status(env.DB, config, T0 + 180_000)));
+			await answer(JSON.stringify(await status(env.DB, config, T0 + 180_000, null)));
 
 			const res = await get("/api/status", "api");
 			const body = await res.text();

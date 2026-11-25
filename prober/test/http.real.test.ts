@@ -14,6 +14,5 @@ describe("http over the real fetch", () => {
 		} as typeof parsed;
 		await tick(runEnv, config, T0, T0);
 		expect(await all("SELECT avail, fails, reason FROM state")).toEqual([{ avail: 1, fails: 0, reason: null }]);
-		expect(await all("SELECT ok FROM samples")).toEqual([{ ok: 1 }]);
 	});
 });

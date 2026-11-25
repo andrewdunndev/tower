@@ -1,6 +1,7 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { record } from "../src/latency.ts";
 import { MINUTE, reset } from "./util.ts";
 
 const ticker = () => env.TICKER.getByName("tower");
@@ -48,6 +49,37 @@ describe("alarm", () => {
 		expect(first).toBeGreaterThan(0);
 		expect(nextMinute()).toBe(slot);
 		expect(calls).toBe(first);
+	});
+});
+
+describe("latency", () => {
+	const at = Date.now();
+
+	it("answers for public checks only", async () => {
+		await runInDurableObject(ticker(), (_o, state) => {
+			state.storage.sql.exec("DELETE FROM samples");
+			record(
+				state.storage,
+				["web", "backup"].map((check) => ({ check, at, ms: 50, ok: true })),
+				at,
+			);
+		});
+		const got = await ticker().latency(at);
+		expect(Object.keys(got)).toContain("web");
+		expect(Object.keys(got)).not.toContain("backup");
+		expect(got.web.p50).toBe(50);
+	});
+
+	it("does not fail the tick when recording throws", async () => {
+		await runInDurableObject(ticker(), (_o, state) => state.storage.sql.exec("DROP TABLE samples"));
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		await arm();
+		expect(await runDurableObjectAlarm(ticker())).toBe(true);
+		expect(calls).toBeGreaterThan(0);
+		expect(error).toHaveBeenCalledWith("tower: latency write failed:", expect.anything());
+		expect(
+			await env.DB.prepare(`SELECT COUNT(*) AS n FROM state WHERE last_conclusive IS NOT NULL`).first("n"),
+		).toBeGreaterThan(0);
 	});
 });
 

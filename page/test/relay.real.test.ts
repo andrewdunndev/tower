@@ -87,7 +87,7 @@ describe("the relay through the page and the real prober", () => {
 		});
 		expect((await post(body)).status).toBe(202);
 		const config = { ...instanceSchema.parse(example), maintenance: [] };
-		const data = await status(env.DB, config, Date.now());
+		const data = await status(env.DB, config, Date.now(), null);
 		const { STUB, PAGE } = env as unknown as { STUB: Fetcher; PAGE: Fetcher };
 		await STUB.fetch("https://stub.test/", { method: "POST", body: JSON.stringify(data) });
 		const html = await (await PAGE.fetch("https://leak.example.com/")).text();

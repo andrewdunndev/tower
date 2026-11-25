@@ -97,7 +97,7 @@ describe("slot claims", () => {
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 0 }]);
 	});
 
-	it("writes no sample, event or outbox row from a superseded run", async () => {
+	it("writes no event, outbox or daily row from a superseded run", async () => {
 		const { runEnv, box } = mailbox();
 		const config = makeConfig([{ ...web, down_after: 1 }]);
 		let release = () => {};
@@ -120,9 +120,9 @@ describe("slot claims", () => {
 		expect(box.sends).toBe(0);
 		const rows = () =>
 			all<{ n: number }>(
-				"SELECT (SELECT COUNT(*) FROM samples) + (SELECT COUNT(*) FROM events) + (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM daily WHERE runs > 1) AS n",
+				"SELECT (SELECT COUNT(*) FROM events) + (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM daily WHERE runs > 1) AS n",
 			);
-		expect(await rows()).toEqual([{ n: 1 }]);
+		expect(await rows()).toEqual([{ n: 0 }]);
 
 		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(500));
 		expect(await all('SELECT "to" FROM events')).toEqual([{ to: "down" }]);
@@ -159,7 +159,6 @@ describe("run deadline", () => {
 				: new Response("", { status })) as typeof fetch;
 	const dump = async () => ({
 		state: await all('SELECT * FROM state ORDER BY "check"'),
-		samples: await all('SELECT "check", at, ok FROM samples ORDER BY "check"'),
 		daily: await all('SELECT * FROM daily ORDER BY "check"'),
 		events: await all('SELECT * FROM events ORDER BY "check"'),
 		outbox: await all("SELECT * FROM outbox"),
@@ -172,7 +171,6 @@ describe("run deadline", () => {
 			{ check: "slow", avail: 1, last_conclusive: null, last_run: T0, reason: "probe outlived the run" },
 			{ check: "web", avail: 0, last_conclusive: T0, last_run: T0, reason: "HTTP 500" },
 		]);
-		expect(await all('SELECT "check", at FROM samples')).toEqual([{ check: "web", at: T0 }]);
 		expect(await all('SELECT "check", "to" FROM events')).toEqual([{ check: "web", to: "down" }]);
 		expect(await all('SELECT "check" FROM daily')).toEqual([{ check: "web" }]);
 		expect(box.subjects).toEqual(["DOWN: Web"]);
@@ -307,7 +305,6 @@ describe("outbox", () => {
 		await env.DB.prepare(`CREATE TRIGGER boom BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT, 'boom'); END`).run();
 		await expect(tick(runEnv, downAfterOne, T0, T0, respond(500))).rejects.toThrow();
 		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
-		expect(await all("SELECT * FROM samples")).toEqual([]);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 
 		await env.DB.prepare(`DROP TRIGGER boom`).run();
@@ -433,7 +430,7 @@ describe("outbox", () => {
 			for (let i = 15; i <= 31; i++) await tick(runEnv, downWeb, at(i), at(i), respond(500));
 			expect(box.subjects.slice(failed)).toEqual(["DOWN: Web"]);
 			expect(await all("SELECT * FROM outbox")).toEqual([]);
-			expect(await status(env.DB, downWeb, at(31))).toMatchObject({ dead_outbox: 0 });
+			expect(await status(env.DB, downWeb, at(31), null)).toMatchObject({ dead_outbox: 0 });
 		});
 
 		it("never kills the DOWN of a check that is still down", async () => {
@@ -463,7 +460,7 @@ describe("outbox", () => {
 			expect(dead.dead).toBe(1);
 			expect(dead.next_at - (T0 + DAY)).toBeLessThan(MINUTE);
 			expect(dead.next_at).toBeGreaterThanOrEqual(T0 + DAY);
-			expect(await status(env.DB, config, T0 + 25 * 60 * MINUTE)).toMatchObject({ dead_outbox: 1 });
+			expect(await status(env.DB, config, T0 + 25 * 60 * MINUTE, null)).toMatchObject({ dead_outbox: 1 });
 			const later = T0 + 2 * DAY + 2 * MINUTE;
 			await tick(runEnv, config, later, later, respond(200));
 			expect(await all("SELECT * FROM outbox")).toEqual([]);
@@ -728,7 +725,7 @@ describe("pruning", () => {
 		});
 	});
 
-	it("keeps samples for 24 hours and daily rows and events for 90 days", async () => {
+	it("keeps daily rows and events for 90 days", async () => {
 		const { runEnv } = mailbox();
 		const config = makeConfig([web]);
 		await tick(runEnv, config, T0, T0, respond(200));
@@ -736,7 +733,6 @@ describe("pruning", () => {
 			.bind(T0)
 			.run();
 		await tick(runEnv, config, T0 + 25 * 3_600_000, T0 + 25 * 3_600_000, respond(200));
-		expect(await all("SELECT at FROM samples")).toEqual([{ at: T0 + 25 * 3_600_000 }]);
 		await tick(runEnv, config, T0 + 91 * 86_400_000, T0 + 91 * 86_400_000, respond(200));
 		expect(await all("SELECT day FROM daily")).toEqual([{ day: "2026-10-09" }, { day: "2027-01-07" }]);
 		expect(await all("SELECT * FROM events")).toEqual([]);
@@ -833,17 +829,6 @@ describe("one mail per outage", () => {
 			]);
 		});
 
-		it("keeps the record gate aligned with the statements rebuild prepends", async () => {
-			const { runEnv } = mailbox();
-			await env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, 77, 1)`)
-				.bind(T0 - MINUTE)
-				.run();
-			const seen: unknown[][] = [];
-			await tick(runEnv, makeConfig([web]), T0, T0, respond(200), undefined, (rows) => seen.push(rows));
-			expect(seen).toEqual([[{ check: "web", at: T0, ms: expect.any(Number), ok: true }]]);
-			expect(await all("SELECT ms FROM histogram WHERE ms = 77")).toEqual([{ ms: 77 }]);
-		});
-
 		it("leaves out a check whose state row moved on during the probe", async () => {
 			const { runEnv } = mailbox();
 			const config = makeConfig([web]);
@@ -854,7 +839,6 @@ describe("one mail per outage", () => {
 			};
 			await tick(runEnv, config, T0, T0, moved, undefined, (rows) => seen.push(rows));
 			expect(seen).toEqual([[]]);
-			expect(await all("SELECT * FROM samples")).toEqual([]);
 		});
 	});
 });

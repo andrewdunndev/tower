@@ -14,7 +14,14 @@ const instance = config as Instance;
 export class Tower extends WorkerEntrypoint<Env> {
 	async status() {
 		try {
-			return await status(this.env.DB, instance, Date.now());
+			const now = Date.now();
+			const ticker = this.env.TICKER.getByName("tower")
+				.latency(now)
+				.catch((e) => {
+					console.error("tower: latency unavailable:", e);
+					return null;
+				});
+			return await status(this.env.DB, instance, now, await ticker);
 		} catch (e) {
 			console.error("tower: status failed:", e);
 			throw new Error("status unavailable");
