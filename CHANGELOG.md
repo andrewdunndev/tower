@@ -5,6 +5,7 @@
 - Latency (p50, p95 and the 24-hour chart) moves from D1 to the `Ticker` object's own SQLite, which keeps 24 hours of raw samples and answers from them; the prober no longer writes `samples` to D1, and the status page no longer reads it. This cuts the D1 read from about 210M rows a day. State, history and mail stay in D1. Deploy in order, as `npm run deploy` does: migrate (`0006` adds `state.recent`, the last 5 ok times behind `slow_ms`; `0007` adds `events_check_at`), then the prober, then the page. Latency reads blank for at most 1 minute plus the page's 30 second cache after the prober deploys, then covers only the time since and fills to the full 24 hours; uptime, days, state, events and mail are unaffected. Rolling back to 0.9.0 is safe: D1 `samples` still exists, and 0.9.0 ignores `recent`; latency then shows only the time since the rollback. The unused D1 `samples` rows are dropped in a later release.
 - `/beat` answers 503 when the beat call throws, instead of an unhandled error.
 - `/api/status` carries `stale`, set by the prober on the window `probing stalled` uses (3 of the shortest interval plus a minute, or `stall_after`); the page's "No probe has run" banner reads it instead of a fixed 3 minutes, which showed for part of every cycle on an instance whose shortest interval is 5 minutes or more.
+- Status reads events for public checks only, so private checks' events no longer add to the D1 rows read.
 
 ## 0.9.0 (2026-10-26)
 

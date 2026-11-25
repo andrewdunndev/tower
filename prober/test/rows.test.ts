@@ -55,7 +55,10 @@ function metered(db: D1Database) {
 
 describe("D1 row budget at day 90", () => {
 	it("keeps a tick and a status call inside the daily read budget", async () => {
-		const checks = Array.from({ length: 14 }, (_, i) => ({ ...web, id: `c${i}`, name: `C${i}` }));
+		const checks = [
+			...Array.from({ length: 14 }, (_, i) => ({ ...web, id: `c${i}`, name: `C${i}` })),
+			{ ...web, id: "hidden", name: "Hidden", public: false },
+		];
 		const config = makeConfig(checks);
 		const { runEnv } = mailbox();
 		const { db, tally } = metered(env.DB);
@@ -69,12 +72,18 @@ describe("D1 row budget at day 90", () => {
 		);
 		const event = env.DB.prepare(`INSERT INTO events ("check", at, "from", "to") VALUES (?1, ?2, ?3, ?4)`);
 		await env.DB.batch([
-			...checks.flatMap((c) => days.map((d) => daily.bind(c.id, d))),
-			...checks.flatMap((c) =>
-				Array.from({ length: 20 }, (_, i) =>
-					event.bind(c.id, T0 - (i + 1) * 1.5 * DAY, i % 2 ? "down" : "up", i % 2 ? "up" : "down"),
-				),
+			// A private check with many events must not widen the status read.
+			...Array.from({ length: 2000 }, (_, i) =>
+				event.bind("hidden", T0 - (i + 1) * 60_000, i % 2 ? "down" : "up", i % 2 ? "up" : "down"),
 			),
+			...checks.flatMap((c) => days.map((d) => daily.bind(c.id, d))),
+			...checks
+				.filter((c) => c.id !== "hidden")
+				.flatMap((c) =>
+					Array.from({ length: 20 }, (_, i) =>
+						event.bind(c.id, T0 - (i + 1) * 1.5 * DAY, i % 2 ? "down" : "up", i % 2 ? "up" : "down"),
+					),
+				),
 		]);
 
 		const ticks: number[] = [];

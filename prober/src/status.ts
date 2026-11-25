@@ -45,7 +45,9 @@ export async function status(db: D1Database, config: Instance, now: number, late
 				`SELECT "check", day, runs, down FROM daily WHERE day >= ?1 AND "check" IN (SELECT value FROM json_each(?2))`,
 			)
 			.bind(firstDay, publicIds),
-		db.prepare(`SELECT "check", at, "to" FROM events ORDER BY at`),
+		db
+			.prepare(`SELECT "check", at, "to" FROM events WHERE "check" IN (SELECT value FROM json_each(?1)) ORDER BY at`)
+			.bind(publicIds),
 		db.prepare(`SELECT MIN(CASE WHEN dead = 0 THEN at END) AS oldest, COALESCE(SUM(dead), 0) AS dead FROM outbox`),
 		db.prepare(`SELECT key, value FROM meta WHERE key LIKE 'self:%'`),
 	]);
