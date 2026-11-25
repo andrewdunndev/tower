@@ -143,7 +143,7 @@ npx wrangler d1 export <name> --remote --output tower.sql
 
 D1 time travel also restores the database to any minute inside your plan's retention window (`wrangler d1 time-travel restore`).
 
-Latency (p50, p95 and the 24-hour chart) is not in D1 and not in an export. It lives in the SQLite of the `Ticker` Durable Object, which keeps 24 hours of samples and refills itself within a day, so a restore or a new deploy loses only the chart. That is deliberate: it is display-only telemetry, and uptime, days, events and mail are all in D1.
+Latency (p50, p95 and the 24-hour chart) is not in D1 and not in an export. It lives in the SQLite of the `Ticker` Durable Object, which keeps 24 hours of samples and refills itself within a day, so a restore into a new account loses only the chart; a redeploy keeps it. That is deliberate: it is display-only telemetry, and uptime, days, events and mail are all in D1.
 
 ## External monitoring
 
