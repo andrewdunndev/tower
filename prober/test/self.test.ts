@@ -190,7 +190,7 @@ describe("digest-only flags", () => {
 		await minutes(runEnv, config, 0, 0, cloudflare(401));
 		expect(box.sends).toBe(0);
 		expect(await flagKeys()).toEqual(["self:token"]);
-		expect((await status(env.DB, config, base + MINUTE)).self).toEqual([
+		expect((await status(env.DB, config, base + MINUTE, null)).self).toEqual([
 			{ name: "Cloudflare API token", since: new Date(base).toISOString() },
 		]);
 		expect(await attentionOf(config)).toEqual(["SELF-CHECK: Cloudflare API token"]);
@@ -273,9 +273,9 @@ describe("digest-only flags", () => {
 			const { env: runEnv } = live();
 			const hidden = makeConfig([{ ...cert, public: false }]);
 			await minutes(runEnv, hidden, 0, 4, serve(503));
-			expect((await status(env.DB, hidden, base + 5 * MINUTE)).self).toEqual([]);
+			expect((await status(env.DB, hidden, base + 5 * MINUTE, null)).self).toEqual([]);
 			expect(await attentionOf(hidden)).toContain("SELF-CHECK: results for Certificate");
-			expect((await status(env.DB, makeConfig([cert]), base + 5 * MINUTE)).self).toEqual([
+			expect((await status(env.DB, makeConfig([cert]), base + 5 * MINUTE, null)).self).toEqual([
 				{ name: "results for Certificate", since: new Date(base + 4 * MINUTE).toISOString() },
 			]);
 		});

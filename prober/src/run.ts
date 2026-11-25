@@ -6,7 +6,7 @@ import type { Sample } from "./latency.ts";
 import { compose, NONE, type Pending, SEND_TIMEOUT_MS, sendMail } from "./mail.ts";
 import { type Outcome, probe } from "./probe.ts";
 import { attention, digestWrites, raiseStall, reportWriteFailure, selfWrites } from "./self.ts";
-import { BUCKET_MS, DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
+import { DAYS, interval, inWindow, STUCK_PREFIX } from "./status.ts";
 
 export type RunEnv = Pick<Env, "DB"> & {
 	EMAIL: Pick<SendEmail, "send">;
@@ -30,6 +30,7 @@ interface StateRow {
 	since: number;
 	slot: number;
 	mailed: number;
+	recent: string;
 }
 
 const TIMED = new Set<Check["type"]>(["http", "tcp", "dns"]);
@@ -45,7 +46,7 @@ const LEASE_MS = 50_000;
 const MIN_BUDGET_MS = 20_000;
 const RECENT_SAMPLES = 5;
 const GONE_PREFIX = "gone:";
-const OWNED_TABLES = ["state", "samples", "daily", "beats", "events"];
+const OWNED_TABLES = ["state", "daily", "beats", "events"];
 
 export function step(
 	s: Track,
@@ -107,7 +108,7 @@ async function claim(db: D1Database, config: Instance, t: number) {
 	const claims = config.checks.map((c) =>
 		db
 			.prepare(
-				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, degraded, fails, passes, since, slot, mailed`,
+				`UPDATE state SET slot = ?2 WHERE "check" = ?1 AND slot < ?2 RETURNING "check", avail, degraded, fails, passes, since, slot, mailed, recent`,
 			)
 			.bind(c.id, Math.floor((t + SKEW_MS) / interval(c)) * interval(c)),
 	);
@@ -172,31 +173,19 @@ export async function tick(
 	probes.done.catch(() => {});
 	const ran = claimed.map(({ check, row }, i) => probes.out[i] ?? { check, row, outcome: OUTLIVED, ms: 0 });
 
-	const recent = await Promise.all(
-		ran.map(({ check }) =>
-			check.type === "http" && check.slow_ms !== undefined
-				? env.DB.prepare(`SELECT ms FROM samples WHERE "check" = ?1 AND ok = 1 ORDER BY at DESC LIMIT ?2`)
-						.bind(check.id, RECENT_SAMPLES)
-						.all<{ ms: number }>()
-				: null,
-		),
-	);
-
 	const day = new Date(t).toISOString().slice(0, 10);
-	const bucket = Math.floor(t / BUCKET_MS) * BUCKET_MS;
-	const writes: D1PreparedStatement[] = rebuild(env.DB);
+	const writes: D1PreparedStatement[] = [];
 	const timed: { at: number; sample: Sample }[] = [];
-	for (const [i, { check, row, outcome, ms }] of ran.entries()) {
+	for (const { check, row, outcome, ms } of ran) {
 		const conclusive = outcome.verdict === "ok" || outcome.verdict === "down";
 		const before = { avail: row.avail === 1, fails: row.fails, passes: row.passes, since: row.since };
 		const limits = "down_after" in check ? check : { down_after: 1, up_after: 1 };
 		const { next, transition } = conclusive
 			? step(before, outcome.verdict === "ok", t, limits)
 			: { next: before, transition: null };
-		const samples = recent[i]?.results.map((r) => r.ms) ?? [];
-		const window = (outcome.verdict === "ok" ? [ms] : []).concat(samples).slice(0, RECENT_SAMPLES);
+		const recent = (outcome.verdict === "ok" ? [ms] : []).concat(JSON.parse(row.recent)).slice(0, RECENT_SAMPLES);
 		const slow =
-			check.type === "http" && check.slow_ms !== undefined && window.length > 0 && median(window) > check.slow_ms;
+			check.type === "http" && check.slow_ms !== undefined && recent.length > 0 && median(recent) > check.slow_ms;
 		const degraded = conclusive ? (check.type === "http" ? slow : outcome.degraded === true) : row.degraded === 1;
 		const quiet = inWindow(config, check.id, t);
 		const mail = conclusive && !quiet && (next.avail ? 1 : 0) !== row.mailed;
@@ -205,7 +194,7 @@ export async function tick(
 			timed.push({ at: writes.length, sample: { check: check.id, at: t, ms, ok: outcome.verdict === "ok" } });
 		writes.push(
 			env.DB.prepare(
-				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_conclusive = COALESCE(?8, last_conclusive), last_run = ?9, reason = ?10, config_error = ?11, mailed = ?12 WHERE "check" = ?1 AND slot = ?2`,
+				`UPDATE state SET avail = ?3, degraded = ?4, fails = ?5, passes = ?6, since = ?7, last_conclusive = COALESCE(?8, last_conclusive), last_run = ?9, reason = ?10, config_error = ?11, mailed = ?12, recent = ?13 WHERE "check" = ?1 AND slot = ?2`,
 			).bind(
 				check.id,
 				row.slot,
@@ -219,32 +208,10 @@ export async function tick(
 				outcome.reason,
 				outcome.verdict === "config-error" ? 1 : 0,
 				mail ? (next.avail ? 1 : 0) : row.mailed,
+				JSON.stringify(recent),
 			),
 		);
 		if (!conclusive) continue;
-		if (TIMED.has(check.type)) {
-			writes.push(
-				env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) SELECT ?1, ?3, ?4, ?5 WHERE ${current}`).bind(
-					check.id,
-					row.slot,
-					t,
-					ms,
-					outcome.verdict === "ok" ? 1 : 0,
-				),
-			);
-			if (outcome.verdict === "ok") {
-				writes.push(
-					env.DB.prepare(
-						`INSERT INTO histogram ("check", ms, n) SELECT ?1, ?3, 1 WHERE ${current}
-							 ON CONFLICT ("check", ms) DO UPDATE SET n = n + 1`,
-					).bind(check.id, row.slot, ms),
-					env.DB.prepare(
-						`INSERT INTO buckets (bucket, "check", n, total) SELECT ?3, ?1, 1, ?4 WHERE ${current}
-							 ON CONFLICT (bucket, "check") DO UPDATE SET n = n + 1, total = total + ?4`,
-					).bind(check.id, row.slot, bucket, ms),
-				);
-			}
-		}
 		writes.push(
 			env.DB.prepare(
 				`INSERT INTO daily ("check", day, runs, down, maint) SELECT ?1, ?3, 1, ?4, ?5 WHERE ${current}
@@ -325,21 +292,6 @@ function expire(db: D1Database, config: Instance, t: number): D1PreparedStatemen
 	]);
 }
 
-// histogram and buckets roll up the ok samples. An empty one (the first tick after the migration) is rebuilt from
-// samples; the CROSS JOIN puts the emptiness test outside the scan, so a full one costs no samples read.
-function rebuild(db: D1Database): D1PreparedStatement[] {
-	return [
-		db.prepare(
-			`INSERT INTO histogram ("check", ms, n) SELECT "check", ms, COUNT(*)
-			 FROM (SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM histogram)) CROSS JOIN samples WHERE ok = 1 GROUP BY "check", ms`,
-		),
-		db.prepare(
-			`INSERT INTO buckets (bucket, "check", n, total) SELECT at / ${BUCKET_MS} * ${BUCKET_MS}, "check", COUNT(*), SUM(ms)
-			 FROM (SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM buckets)) CROSS JOIN samples WHERE ok = 1 GROUP BY 1, 2`,
-		),
-	];
-}
-
 function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement[] {
 	const ids = JSON.stringify(config.checks.map((c) => c.id));
 	const owners = JSON.stringify([...config.checks.map((c) => c.id), ...config.relays.map((r) => r.id), ""]);
@@ -351,19 +303,6 @@ function prune(db: D1Database, config: Instance, t: number): D1PreparedStatement
 	const absentCutoff = t - ABSENT_DAYS * DAY_MS;
 	const lapsed = `key LIKE '${GONE_PREFIX}%' AND CAST(value AS INTEGER) < ?1`;
 	return [
-		db
-			.prepare(
-				`UPDATE histogram SET n = n - (SELECT COUNT(*) FROM samples s WHERE s."check" = histogram."check" AND s.ms = histogram.ms AND s.ok = 1 AND s.at < ?1)
-				 WHERE ("check", ms) IN (SELECT "check", ms FROM samples WHERE ok = 1 AND at < ?1)`,
-			)
-			.bind(t - DAY_MS),
-		db
-			.prepare(
-				`DELETE FROM histogram WHERE n <= 0 AND ("check", ms) IN (SELECT "check", ms FROM samples WHERE ok = 1 AND at < ?1)`,
-			)
-			.bind(t - DAY_MS),
-		db.prepare(`DELETE FROM samples WHERE at < ?1`).bind(t - DAY_MS),
-		db.prepare(`DELETE FROM buckets WHERE bucket < ?1`).bind(t - DAY_MS),
 		db
 			.prepare(`DELETE FROM daily WHERE "check" IN (SELECT "check" FROM state) AND day < ?1`)
 			.bind(new Date(cutoff).toISOString().slice(0, 10)),

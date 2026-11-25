@@ -84,7 +84,7 @@ describe("maintenance", () => {
 		await tick(runEnv, config, T0, respond(200));
 		await tick(runEnv, config, T0 + MINUTE, respond(500));
 		await tick(runEnv, config, T0 + 5 * MINUTE, respond(500));
-		expect((await status(env.DB, config, T0 + 3 * MINUTE)).incidents).toEqual([]);
+		expect((await status(env.DB, config, T0 + 3 * MINUTE, null)).incidents).toEqual([]);
 	});
 
 	it("opens one incident at window end when the outage outlasts the window", async () => {
@@ -93,10 +93,10 @@ describe("maintenance", () => {
 		await tick(runEnv, config, T0, respond(200));
 		await tick(runEnv, config, T0 + MINUTE, respond(500));
 		await tick(runEnv, config, T0 + 5 * MINUTE, respond(500));
-		const { incidents } = await status(env.DB, config, T0 + 6 * MINUTE);
+		const { incidents } = await status(env.DB, config, T0 + 6 * MINUTE, null);
 		expect(incidents).toEqual([{ checks: ["Web"], started: new Date(T0 + 4 * MINUTE).toISOString(), resolved: null }]);
 		await tick(runEnv, config, T0 + 7 * MINUTE, respond(200));
-		const [healed] = (await status(env.DB, config, T0 + 8 * MINUTE)).incidents;
+		const [healed] = (await status(env.DB, config, T0 + 8 * MINUTE, null)).incidents;
 		expect(healed.resolved).toBe(new Date(T0 + 7 * MINUTE).toISOString());
 	});
 
@@ -113,9 +113,9 @@ describe("maintenance", () => {
 			},
 		]);
 		await tick(runEnv, config, T0, respond(200));
-		const before = await status(env.DB, config, T0);
+		const before = await status(env.DB, config, T0, null);
 		expect(before.checks[0].status).toBe("up");
-		const during = await status(env.DB, config, T0 + 2 * MINUTE);
+		const during = await status(env.DB, config, T0 + 2 * MINUTE, null);
 		expect(during.checks[0].status).toBe("maintenance");
 		expect(during.maintenance).toEqual([
 			{
@@ -125,7 +125,7 @@ describe("maintenance", () => {
 				ends: new Date(T0 + 4 * MINUTE).toISOString(),
 			},
 		]);
-		const after = await status(env.DB, config, T0 + 4 * MINUTE);
+		const after = await status(env.DB, config, T0 + 4 * MINUTE, null);
 		expect(after.maintenance).toEqual([]);
 		expect(after.checks[0].status).not.toBe("maintenance");
 	});

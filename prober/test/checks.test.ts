@@ -115,7 +115,6 @@ describe("dns", () => {
 		expect(await all("SELECT avail, fails, last_conclusive, last_run FROM state")).toEqual([
 			{ avail: 1, fails: 0, last_conclusive: T0, last_run: T0 + 4 * MINUTE },
 		]);
-		expect(await all("SELECT * FROM samples")).toHaveLength(1);
 		expect(await all("SELECT * FROM outbox")).toEqual([]);
 		expect(box.sends).toBe(0);
 		expect(await all("SELECT key FROM meta WHERE key LIKE 'self:stuck:%'")).toHaveLength(1);
@@ -254,7 +253,7 @@ describe("tls", () => {
 				cloudflare([pack("universal", ["www.example.com"], left)]).fetch,
 			);
 			expect(await all("SELECT avail, degraded FROM state")).toEqual([{ avail: 1, degraded: degraded[i] }]);
-			if (i === 2) expect((await status(runEnv.DB, config, T0 + i * MINUTE)).checks[0].status).toBe("degraded");
+			if (i === 2) expect((await status(runEnv.DB, config, T0 + i * MINUTE, null)).checks[0].status).toBe("degraded");
 		}
 		expect(box.sends).toBe(0);
 	});

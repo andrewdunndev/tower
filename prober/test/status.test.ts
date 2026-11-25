@@ -1,15 +1,18 @@
+import { createExecutionContext, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Tower } from "../src/index.ts";
 import { tick } from "../src/run.ts";
 import { health } from "../src/self.ts";
 import { DEPLOY_GRACE_MS, status } from "../src/status.ts";
-import { all, MINUTE, mailbox, makeConfig, reset, respond, T0, VERSION, web } from "./util.ts";
+import { MINUTE, mailbox, makeConfig, reset, respond, T0, VERSION, web } from "./util.ts";
 
 beforeEach(reset);
+afterEach(() => vi.restoreAllMocks());
 
 describe("status", () => {
 	it("shows empty history as unknown with no data", async () => {
-		const s = await status(env.DB, makeConfig(), T0);
+		const s = await status(env.DB, makeConfig(), T0, null);
 		expect(s.checks).toHaveLength(1);
 		expect(s.checks[0]).toMatchObject({ name: "Web", status: "unknown", uptime90: null, p50: null, p95: null });
 		expect(s.checks[0].days).toHaveLength(90);
@@ -32,28 +35,20 @@ describe("status", () => {
 				env.DB.prepare(`INSERT INTO meta (key, value) VALUES (?1, ?2)`).bind(key, String(T0)),
 			),
 		);
-		const s = await status(env.DB, makeConfig(), T0);
+		const s = await status(env.DB, makeConfig(), T0, null);
 		expect(s.self.map((f) => f.name)).toEqual(["Cloudflare API token"]);
 	});
 
-	it("reports uptime, latency and an incident from recorded runs", async () => {
+	it("reports uptime and an incident from recorded runs", async () => {
 		const { runEnv } = mailbox();
 		const config = makeConfig([{ ...web, down_after: 1, up_after: 1 }]);
-		await env.DB.batch(
-			[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].map((ms) =>
-				env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, ?2, 1)`).bind(T0 - ms, ms),
-			),
-		);
 		await tick(runEnv, config, T0, T0, respond(200));
 		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
 		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(200));
-		const s = await status(env.DB, config, T0 + 2 * MINUTE);
+		const s = await status(env.DB, config, T0 + 2 * MINUTE, null);
 		expect(s.checks[0]).toMatchObject({ status: "up" });
-		expect(s.checks[0].p95).toBeGreaterThan(s.checks[0].p50 as number);
 		expect(s.checks[0].uptime90).toBeCloseTo(2 / 3);
 		expect(s.checks[0].days.at(-1)).toBeCloseTo(2 / 3);
-		expect(s.checks[0].p50).not.toBeNull();
-		expect(s.checks[0].latency.at(-1)).not.toBeNull();
 		expect(s.incidents).toEqual([
 			{
 				checks: ["Web"],
@@ -64,54 +59,40 @@ describe("status", () => {
 		expect(s.last_run).toBe(new Date(T0 + 2 * MINUTE).toISOString());
 	});
 
-	it("serves the same p50, p95 and latency from the rollups as a query over samples", async () => {
+	it("serves the latency it is handed and nothing else of its own", async () => {
+		const latency = Array.from({ length: 288 }, (_, i) => (i === 287 ? 120 : null));
+		const s = await status(env.DB, makeConfig(), T0, { web: { p50: 80, p95: 300, latency } });
+		expect(s.checks[0]).toMatchObject({ p50: 80, p95: 300, latency });
+	});
+
+	it("renders with blank latency when the Ticker throws, and the rest of the page is intact", async () => {
 		const { runEnv } = mailbox();
-		const config = makeConfig([web]);
-		const DAY = 24 * 60 * MINUTE;
-		await env.DB.batch(
-			Array.from({ length: 220 }, (_, i) =>
-				env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, ?2, ?3)`).bind(
-					T0 - DAY + 30_000 + (i - 20) * 7 * MINUTE,
-					((i * 37) % 97) + (i % 5) * 50,
-					i % 9 === 0 ? 0 : 1,
-				),
-			),
+		await tick(runEnv, makeConfig(), T0, T0, respond(200));
+		await runInDurableObject(env.TICKER.getByName("tower"), (_o, state) =>
+			state.storage.sql.exec("DROP TABLE samples"),
 		);
-		for (const t of [T0, T0 + 90 * MINUTE, T0 + 91 * MINUTE]) {
-			await tick(runEnv, config, t, t, respond(200));
-			const [p] = await all<{ p50: number; p95: number }>(
-				`SELECT MAX(CASE WHEN rank = CAST(0.5 * (n - 1) AS INTEGER) THEN ms END) AS p50,
-				        MAX(CASE WHEN rank = CAST(0.95 * (n - 1) AS INTEGER) THEN ms END) AS p95
-				 FROM (SELECT ms, ROW_NUMBER() OVER (ORDER BY ms) - 1 AS rank, COUNT(*) OVER () AS n
-				       FROM samples WHERE ok = 1 AND at > ?1)`,
-				t - DAY,
-			);
-			const first = Math.floor(t / 300_000) * 300_000 - 287 * 300_000;
-			const points = await all<{ bucket: number; ms: number }>(
-				`SELECT CAST((at - ?1) / 300000 AS INTEGER) AS bucket, AVG(ms) AS ms FROM samples WHERE ok = 1 AND at >= ?1 GROUP BY bucket`,
-				first,
-			);
-			const latency = Array.from({ length: 288 }, () => null as number | null);
-			for (const r of points) latency[r.bucket] = Math.round(r.ms);
-			expect(p.p95).toBeGreaterThan(p.p50);
-			expect(latency.filter((v) => v !== null).length).toBeGreaterThan(150);
-			const s = await status(env.DB, config, t);
-			expect(s.checks[0]).toMatchObject({ p50: p.p50, p95: p.p95, latency });
-			expect(await all(`SELECT SUM(n) AS n FROM histogram`)).toEqual(
-				await all(`SELECT COUNT(*) AS n FROM samples WHERE ok = 1`),
-			);
-			expect(await all(`SELECT * FROM histogram WHERE n <= 0`)).toEqual([]);
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const s = await new Tower(createExecutionContext(), env).status();
+		expect(error).toHaveBeenCalled();
+		expect(s.checks.length).toBeGreaterThan(0);
+		for (const c of s.checks) {
+			expect(c.p50).toBeNull();
+			expect(c.p95).toBeNull();
+			expect(c.latency).toHaveLength(288);
+			expect(c.latency.every((v) => v === null)).toBe(true);
+			expect(c.days).toHaveLength(90);
 		}
+		expect(s.last_run).not.toBeNull();
 	});
 
 	it("turns unknown and stuck when no run lands within 3 intervals plus a minute", async () => {
 		const { runEnv } = mailbox();
 		await tick(runEnv, makeConfig(), T0, T0, respond(200));
 		for (const gap of [182_000, 4 * MINUTE]) {
-			const s = await status(env.DB, makeConfig(), T0 + gap);
+			const s = await status(env.DB, makeConfig(), T0 + gap, null);
 			expect([s.checks[0].status, s.stuck]).toEqual(["up", 0]);
 		}
-		const s = await status(env.DB, makeConfig(), T0 + 4 * MINUTE + 1);
+		const s = await status(env.DB, makeConfig(), T0 + 4 * MINUTE + 1, null);
 		expect([s.checks[0].status, s.stuck]).toEqual(["unknown", 1]);
 	});
 
@@ -124,18 +105,18 @@ describe("status", () => {
 		}) as typeof fetch;
 		for (let i = 0; i < 3; i++) await tick(runEnv, config, T0 + i * MINUTE, T0 + i * MINUTE, slow);
 		await tick(runEnv, config, T0 + 3 * MINUTE, T0 + 3 * MINUTE, respond(200));
-		expect((await status(env.DB, config, T0 + 3 * MINUTE)).checks[0].status).toBe("degraded");
+		expect((await status(env.DB, config, T0 + 3 * MINUTE, null)).checks[0].status).toBe("degraded");
 		for (let i = 4; i < 6; i++) await tick(runEnv, config, T0 + i * MINUTE, T0 + i * MINUTE, respond(200));
-		expect((await status(env.DB, config, T0 + 5 * MINUTE)).checks[0].status).toBe("up");
+		expect((await status(env.DB, config, T0 + 5 * MINUTE, null)).checks[0].status).toBe("up");
 	});
 
 	it("omits public:false checks from checks, incidents and stuck", async () => {
 		const { runEnv } = mailbox();
 		const hidden = { ...web, id: "hid-1", name: "Hidden", public: false, down_after: 1 };
 		const config = makeConfig([web, hidden]);
-		expect((await status(env.DB, config, T0)).stuck).toBe(1);
+		expect((await status(env.DB, config, T0, null)).stuck).toBe(1);
 		await tick(runEnv, config, T0, T0, respond(500));
-		const s = await status(env.DB, config, T0);
+		const s = await status(env.DB, config, T0, null);
 		expect(s.checks.map((c) => c.name)).toEqual(["Web"]);
 		expect(JSON.stringify(s)).not.toContain("Hidden");
 		expect(s.incidents.map((i) => i.checks[0])).toEqual([]);

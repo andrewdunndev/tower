@@ -60,7 +60,6 @@ describe("heartbeat deadlines", () => {
 		await tick(runEnv, config, T0 + 8 * MINUTE);
 		expect(await state()).toEqual([{ avail: 1 }]);
 		expect(box.sends).toBe(2);
-		expect(await all("SELECT * FROM samples")).toEqual([]);
 	});
 
 	it("keeps a beat that lands mid-run", async () => {
