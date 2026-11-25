@@ -32,7 +32,7 @@ export function record(storage: DurableObjectStorage, rows: Sample[], t: number)
 }
 
 // The ms at rank floor(q * (n - 1)) of the sorted samples, read off a histogram sorted by ms.
-export function quantile(histogram: { ms: number; n: number }[], q: number): number | null {
+function quantile(histogram: { ms: number; n: number }[], q: number): number | null {
 	const rank = Math.trunc(q * (histogram.reduce((a, r) => a + r.n, 0) - 1));
 	let seen = 0;
 	for (const r of histogram) {
