@@ -81,6 +81,24 @@ describe("the built page", () => {
 			expect(await (await get("/", "banner-fresh")).text()).not.toContain("Alert mail delayed");
 		});
 
+		it("banners a stale prober from the field the prober sets, and a missing field is not stale", async () => {
+			await reset();
+			const config = { ...instanceSchema.parse(example), maintenance: [] };
+			const now = Date.parse("2026-09-10T00:00:00Z");
+			const { stale: _, ...rest } = await status(env.DB, config, now, null);
+			const iso = (ms: number) => new Date(ms).toISOString();
+			const render = async (body: object, host: string) => {
+				await answer(JSON.stringify(body));
+				return (await get("/", host)).text();
+			};
+			const old = iso(now - 20 * 60_000);
+			expect(await render({ ...rest, last_run: old, stale: true }, "stale-on")).toContain(
+				"No probe has run since Sep 9, 23:40 UTC.",
+			);
+			expect(await render({ ...rest, last_run: old, stale: false }, "stale-off")).not.toContain("No probe has run");
+			expect(await render({ ...rest, last_run: old }, "stale-missing")).not.toContain("No probe has run");
+		});
+
 		it("banners a stuck public check and shows nothing of a private one, a target, a reason or the alert address", async () => {
 			await reset();
 			const tls = (id: string, name: string, pub: boolean) => ({

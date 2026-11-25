@@ -3,7 +3,7 @@ import type { Instance } from "../../tools/schema.ts";
 import { d1Latch, type Latch, memoryLatch, REPEAT_HOURS, selfAlert } from "./latch.ts";
 import type { Attention } from "./mail.ts";
 import { MAX_KEYS } from "./relay.ts";
-import { DEPLOY_GRACE_MS, interval, STUCK_PREFIX, selfName } from "./status.ts";
+import { DEPLOY_GRACE_MS, interval, STUCK_PREFIX, selfName, staleWindow } from "./status.ts";
 
 const HEALTH_FLOOR_MS = 5 * 60_000;
 const TALLY_LINES = 50;
@@ -13,7 +13,6 @@ type Version = { id: string; timestamp?: string };
 
 const lastRun = `(SELECT MAX(last_run) FROM state)`;
 const newest = (t: string) => `${t} >= (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'tick')`;
-const staleWindow = (config: Instance) => config.stall_after ?? allowance(Math.min(...config.checks.map(interval)));
 const stallCutoff = (config: Instance, t: number) => t - staleWindow(config);
 
 function inDeployGrace(version: Version, t: number): boolean {
