@@ -17,6 +17,9 @@ const iso = (t: number) => new Date(t).toISOString();
 
 export const interval = (c: Check) => (c.type === "heartbeat" ? MINUTE_MS : c.every);
 
+export const staleWindow = (config: Instance) =>
+	config.stall_after ?? allowance(Math.min(...config.checks.map(interval)));
+
 export function selfName(config: Instance, key: string, publicOnly: boolean): string | undefined {
 	if (!key.startsWith(STUCK_PREFIX)) return SELF_NAMES[key];
 	const check = config.checks.find((c) => c.id === key.slice(STUCK_PREFIX.length));
@@ -154,6 +157,7 @@ export async function status(db: D1Database, config: Instance, now: number, late
 		incidents,
 		maintenance,
 		last_run: lastRun ? iso(lastRun) : null,
+		stale: !lastRun || now - lastRun > staleWindow(config),
 		outbox_oldest_unsent_at: queue.oldest === null ? null : iso(queue.oldest),
 		dead_outbox: queue.dead,
 		self: selves.flatMap((r) => {

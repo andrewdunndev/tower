@@ -22,11 +22,29 @@ describe("status", () => {
 		expect(s).toMatchObject({
 			v: 1,
 			last_run: null,
+			stale: true,
 			outbox_oldest_unsent_at: null,
 			dead_outbox: 0,
 			stuck: 1,
 			incidents: [],
 		});
+	});
+
+	it("is stale on the window health uses: the shortest interval, not a fixed 3 minutes", async () => {
+		await env.DB.prepare(
+			`INSERT INTO state ("check", avail, degraded, fails, passes, since, slot, last_run) VALUES ('web', 1, 0, 0, 0, 0, -1, ?1)`,
+		)
+			.bind(T0)
+			.run();
+		const stale = async (config: ReturnType<typeof makeConfig>, at: number) =>
+			(await status(env.DB, config, at, null)).stale;
+		const every5 = makeConfig([{ ...web, every: "5m" }]);
+		expect(await stale(every5, T0 + 4 * MINUTE)).toBe(false);
+		expect(await stale(every5, T0 + 16 * MINUTE)).toBe(false);
+		expect(await stale(every5, T0 + 17 * MINUTE)).toBe(true);
+		expect(await stale(makeConfig(), T0 + 4 * MINUTE)).toBe(false);
+		expect(await stale(makeConfig(), T0 + 5 * MINUTE)).toBe(true);
+		expect(await stale(makeConfig([web], { stall_after: "15m" }), T0 + 15 * MINUTE)).toBe(false);
 	});
 
 	it("lists a failing token flag but not the mail-latched self-checks", async () => {

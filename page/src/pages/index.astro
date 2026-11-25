@@ -24,9 +24,9 @@ const notes = await Promise.all(
 const incidents = data ? mergeIncidents(data.incidents, notes, data.generatedAt) : [];
 const now = data?.generatedAt ?? '';
 const maintenance = data ? maintenanceWithBodies(data.maintenance, notes) : [];
-const STALE_MS = 3 * 60_000;
 const lastRun = data?.last_run;
-const stale = data && (!lastRun || Date.parse(data.generatedAt) - Date.parse(lastRun) > STALE_MS);
+// A page deployed ahead of the prober gets no field and shows no banner.
+const stale = data?.stale === true;
 const MAIL_DELAY_MS = 5 * 60_000;
 const failing = data?.self ?? [];
 const mailSince = data?.outbox_oldest_unsent_at;
