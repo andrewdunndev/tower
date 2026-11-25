@@ -143,6 +143,8 @@ npx wrangler d1 export <name> --remote --output tower.sql
 
 D1 time travel also restores the database to any minute inside your plan's retention window (`wrangler d1 time-travel restore`).
 
+Latency (p50, p95 and the 24-hour chart) is not in D1 and not in an export. It lives in the SQLite of the `Ticker` Durable Object, which keeps 24 hours of samples and refills itself within a day, so a restore or a new deploy loses only the chart. That is deliberate: it is display-only telemetry, and uptime, days, events and mail are all in D1.
+
 ## External monitoring
 
 tower reports a stalled prober and failing database writes itself, so polling is optional. If both core Workers are dead, an account or platform failure, they cannot mail: treat a missing digest as the alarm, or poll from outside. The optional [outside watcher](#outside-watcher) polls and mails.
@@ -156,6 +158,7 @@ A Cloudflare Health Check on it: GET, port 443, `expected_codes` 200, `expected_
 - `v` is the response-shape version, `1` today. It changes only on a breaking change.
 - `generatedAt`, `checks`, `incidents` and `maintenance` are what the page renders, by check name.
 - `last_run` is when the last probe ran.
+- `stale` is true when no probe has run inside the window `/healthz` uses; the page's banner reads it.
 - `outbox_oldest_unsent_at` is when the oldest unsent mail was queued, or null.
 - `dead_outbox` counts mails that gave up in the last 24 h, one per address.
 - `stuck` counts public checks with no conclusive run inside three intervals plus a minute.
@@ -182,4 +185,4 @@ Check out the release tag you want, then run the deploy command again. [CHANGELO
 
 ## Rollback
 
-A Worker version rollback restores code, not D1. Migrations are additive, so an older version runs on a newer schema: 0.6.0 ignores `outbox.next_at` from migration `0005_outbox_retry`. Versions before 0.7.0 delete the history of a check id missing from the config at once; 0.7.0 keeps it for 7 days. A Cloudflare Worker rollback re-serves any secret deleted since that version, such as `CF_API_TOKEN`, and does not show it in `secret list`. Never roll back below 0.2.0.
+A Worker version rollback restores code, not D1. Migrations are additive, so an older version runs on a newer schema: 0.6.0 ignores `outbox.next_at` from migration `0005_outbox_retry`. Versions before 0.7.0 delete the history of a check id missing from the config at once; 0.7.0 keeps it for 7 days. A Cloudflare Worker rollback re-serves any secret deleted since that version, such as `CF_API_TOKEN`, and does not show it in `secret list`. Rolling back 0.10.0 to 0.9.0 is safe: D1 `samples` still exists and 0.9.0 ignores `state.recent`; latency then shows only the time since the rollback. Never roll back below 0.2.0.

@@ -18,7 +18,7 @@ Shared as-is: no roadmap, no support promise. Design after [herdr.dev](https://h
 
 | Product | Job |
 |---|---|
-| Durable Objects, Cron Triggers | an alarm runs due checks each minute, each on its own `every`, and the cron re-arms it; the page's cron watches the prober |
+| Durable Objects, Cron Triggers | an alarm runs due checks each minute, each on its own `every`, and the cron re-arms it; the page's cron watches the prober; the object's own SQLite holds the last 24 hours of latency samples |
 | D1 | check history, state, alert outbox and heartbeats |
 | Workers RPC | the page reads status from the prober and asks it to `watch` its last run; no shared storage |
 | Sockets | tcp checks |

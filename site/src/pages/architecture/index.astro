@@ -18,7 +18,7 @@ import Relay from '../../figures/05-relay.astro';
 
     <Split>
       <h2 id="workers">Two core Workers</h2>
-      <p>A Durable Object alarm drives the prober each minute and the cron re-arms it; it runs the checks that are due, writes results to D1, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober. An optional third Worker, <code>outside</code>, polls <code>/healthz</code> every minute from its own database and mails when it stops answering.</p>
+      <p>A Durable Object alarm drives the prober each minute and the cron re-arms it; it runs the checks that are due, writes results to D1 and latency to its own SQLite, sends alert mail through the <code>send_email</code> binding and answers the page over Workers RPC. The page Worker serves the page, <code>/api/status</code>, <code>/beat/*</code> and <code>/relay/*</code>, and hands what it receives to the prober. An optional third Worker, <code>outside</code>, polls <code>/healthz</code> every minute from its own database and mails when it stops answering.</p>
       <Fragment slot="aside">
         <figure class="diagram">
         <div class="figure-pair">
