@@ -842,3 +842,61 @@ describe("one mail per outage", () => {
 		});
 	});
 });
+
+describe("slow_ms from state.recent", () => {
+	const config = makeConfig([{ ...web, slow_ms: 100 }]);
+	const recent = async () => JSON.parse((await all<{ recent: string }>("SELECT recent FROM state"))[0].recent);
+
+	it("takes the median over the stored window and writes it back newest-first", async () => {
+		const { runEnv } = mailbox();
+		await tick(runEnv, config, T0, T0, respond(200));
+		await env.DB.prepare(`UPDATE state SET recent = '[900,900,900,900]'`).run();
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(200));
+		const after = await recent();
+		expect(after).toHaveLength(5);
+		expect(after.slice(1)).toEqual([900, 900, 900, 900]);
+		expect(await all("SELECT degraded FROM state")).toEqual([{ degraded: 1 }]);
+		await env.DB.prepare(`UPDATE state SET recent = '[1,1,1,900]'`).run();
+		await tick(runEnv, config, T0 + 2 * MINUTE, T0 + 2 * MINUTE, respond(200));
+		expect(await all("SELECT degraded FROM state")).toEqual([{ degraded: 0 }]);
+	});
+
+	it("leaves recent unchanged on a run that is not ok", async () => {
+		const { runEnv } = mailbox();
+		await tick(runEnv, config, T0, T0, respond(200));
+		await env.DB.prepare(`UPDATE state SET recent = '[900,900,900]'`).run();
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(500));
+		expect(await recent()).toEqual([900, 900, 900]);
+	});
+});
+
+describe("upgrade from 0.9.0", () => {
+	it("keeps state, drains the queued DOWN mail, then sends UP, and leaves D1 samples alone", async () => {
+		const { runEnv, box } = mailbox();
+		const config = makeConfig([{ ...web, down_after: 1, up_after: 1 }]);
+		await env.DB.batch([
+			env.DB.prepare(
+				`INSERT INTO state ("check", avail, degraded, fails, passes, since, slot, mailed, last_conclusive, last_run, reason) VALUES ('web', 0, 0, 3, 0, ?1, ?2, 0, ?2, ?2, 'HTTP 500')`,
+			).bind(T0 - 10 * MINUTE, T0 - MINUTE),
+			env.DB.prepare(
+				`INSERT INTO outbox ("check", at, kind, since, reason) VALUES ('web', ?1, 'down', ?1, 'HTTP 500')`,
+			).bind(T0 - 10 * MINUTE),
+			env.DB.prepare(`INSERT INTO samples ("check", at, ms, ok) VALUES ('web', ?1, 42, 1), ('web', ?2, 50, 0)`).bind(
+				T0 - 2 * MINUTE,
+				T0 - 3 * MINUTE,
+			),
+		]);
+		expect(await all("SELECT recent FROM state")).toEqual([{ recent: "[]" }]);
+		await tick(runEnv, config, T0, T0, respond(500));
+		expect(box.subjects.map((x) => x.split(":")[0])).toEqual(["DOWN"]);
+		expect(await all("SELECT avail, since FROM state")).toEqual([{ avail: 0, since: T0 - 10 * MINUTE }]);
+		expect(await all("SELECT * FROM outbox")).toEqual([]);
+		await tick(runEnv, config, T0 + MINUTE, T0 + MINUTE, respond(200));
+		expect(box.subjects.map((x) => x.split(":")[0])).toEqual(["DOWN", "UP"]);
+		expect(await all("SELECT avail FROM state")).toEqual([{ avail: 1 }]);
+		expect(await all("SELECT at, ms, ok FROM samples ORDER BY at")).toEqual([
+			{ at: T0 - 3 * MINUTE, ms: 50, ok: 0 },
+			{ at: T0 - 2 * MINUTE, ms: 42, ok: 1 },
+		]);
+	});
+});
