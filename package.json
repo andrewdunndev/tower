@@ -18,9 +18,9 @@
 		"deploy": "node tools/deploy.ts"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.6.8",
-		"@cloudflare/vitest-plugin": "1.9.1",
-		"@types/node": "26.6.6",
+		"@biomejs/biome": "2.6.9",
+		"@cloudflare/vitest-plugin": "1.9.2",
+		"@types/node": "26.6.7",
 		"typescript": "6.0.3",
 		"vitest": "5.1.1",
 		"wrangler": "4.168.0",
